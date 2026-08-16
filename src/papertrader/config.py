@@ -1,0 +1,227 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+ROOT = Path(__file__).resolve().parents[2]
+CONFIG_DIR = ROOT / "config"
+
+
+@dataclass(frozen=True)
+class City:
+    name: str
+    slug: str
+    station: str
+    lat: float
+    lon: float
+    tz: str
+    country: str
+    strategies: tuple[str, ...]
+    position_usd: float
+
+
+@dataclass(frozen=True)
+class SafeSettings:
+    cities: tuple[str, ...]
+    max_ask: float
+    max_open_positions: int
+    min_sell_bid: float
+    min_edge: float
+    min_edge_high: float
+    min_edge_low: float
+    position_usd: dict[str, float]
+
+
+@dataclass(frozen=True)
+class EdgeSettings:
+    min_ask: float
+    max_ask: float
+    target_ask: float
+    min_possible: float
+    min_edge: float
+    take_profit: float
+    sell_bias: float
+    stop_loss: float
+    min_event_volume: float
+    min_best_ask_size: float
+    max_spread: float
+    position_usd: float
+    max_position_usd: float
+    max_open_positions: int
+    max_notional_at_risk: float
+    min_sell_bid: float
+    max_hourly_rise_f: float
+    high_hour_local: int
+
+
+@dataclass(frozen=True)
+class AsymmetricSettings:
+    min_ask: float
+    max_ask: float
+    min_model_prob: float
+    min_prob_ratio: float
+    min_edge: float
+    take_profit_bid: float
+    exit_model_prob: float
+    stop_loss_bid: float
+    min_sell_bid: float
+    min_event_volume: float
+    min_ensemble_members: int
+    position_usd: float
+    max_position_usd: float
+    max_open_positions: int
+    max_hourly_rise_f: float
+    high_hour_local: int
+    cities: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class CopySettings:
+    username: str
+    wallet: str
+
+
+@dataclass(frozen=True)
+class LiveSettings:
+    clob_host: str
+    chain_id: int
+    signature_type: int
+    funder: str
+
+
+@dataclass(frozen=True)
+class Settings:
+    poll_interval_seconds: int
+    horizon_days: int
+    starting_balance: float
+    min_position_usd: float
+    min_event_volume: float
+    min_best_ask_size: float
+    forecast_confidence: float
+    forecast_disagreement_f: float
+    user_agent: str
+    mode: str
+    live: LiveSettings
+    safe: SafeSettings
+    asymmetric: AsymmetricSettings
+    edge: EdgeSettings
+    copy: CopySettings
+    cities: dict[str, City] = field(default_factory=dict)
+
+    @property
+    def is_live(self) -> bool:
+        return self.mode == "live"
+
+    def cities_for(self, strategy: str) -> list[City]:
+        return [c for c in self.cities.values() if strategy in c.strategies]
+
+
+def _load_yaml(path: Path) -> dict[str, Any]:
+    with path.open() as f:
+        return yaml.safe_load(f) or {}
+
+
+def load_settings(
+    settings_path: Path | None = None,
+    cities_path: Path | None = None,
+) -> Settings:
+    raw = _load_yaml(settings_path or CONFIG_DIR / "settings.yaml")
+    cities_raw = _load_yaml(cities_path or CONFIG_DIR / "cities.yaml")
+    cities: dict[str, City] = {}
+    for slug, row in (cities_raw.get("cities") or {}).items():
+        cities[slug] = City(
+            name=row["name"],
+            slug=row.get("slug", slug),
+            station=row["station"],
+            lat=float(row["lat"]),
+            lon=float(row["lon"]),
+            tz=row["tz"],
+            country=row["country"],
+            strategies=tuple(row.get("strategies") or []),
+            position_usd=float(row.get("position_usd", 10)),
+        )
+    from papertrader.mode import PAPER, normalize_mode
+
+    safe_raw = raw["safe"]
+    asymmetric_raw = raw["asymmetric"]
+    edge_raw = raw.get("edge") or {}
+    copy_raw = raw.get("copy") or {}
+    live_raw = raw.get("live") or {}
+    mode = normalize_mode(str(raw.get("mode") or PAPER))
+    return Settings(
+        poll_interval_seconds=int(raw["poll_interval_seconds"]),
+        horizon_days=int(raw["horizon_days"]),
+        starting_balance=float(raw["starting_balance"]),
+        min_position_usd=float(raw.get("min_position_usd", 1.0)),
+        min_event_volume=float(raw["min_event_volume"]),
+        min_best_ask_size=float(raw["min_best_ask_size"]),
+        forecast_confidence=float(raw["forecast_confidence"]),
+        forecast_disagreement_f=float(raw["forecast_disagreement_f"]),
+        user_agent=str(raw["user_agent"]),
+        mode=mode,
+        live=LiveSettings(
+            clob_host=str(live_raw.get("clob_host") or "https://clob.polymarket.com"),
+            chain_id=int(live_raw.get("chain_id") or 137),
+            signature_type=int(live_raw.get("signature_type") or 1),
+            funder=str(live_raw.get("funder") or ""),
+        ),
+        safe=SafeSettings(
+            cities=tuple(safe_raw["cities"]),
+            max_ask=float(safe_raw["max_ask"]),
+            max_open_positions=int(safe_raw["max_open_positions"]),
+            min_sell_bid=float(safe_raw["min_sell_bid"]),
+            min_edge=float(safe_raw["min_edge"]),
+            min_edge_high=float(safe_raw["min_edge_high"]),
+            min_edge_low=float(safe_raw["min_edge_low"]),
+            position_usd={k: float(v) for k, v in safe_raw["position_usd"].items()},
+        ),
+        asymmetric=AsymmetricSettings(
+            min_ask=float(asymmetric_raw["min_ask"]),
+            max_ask=float(asymmetric_raw["max_ask"]),
+            min_model_prob=float(asymmetric_raw["min_model_prob"]),
+            min_prob_ratio=float(asymmetric_raw["min_prob_ratio"]),
+            min_edge=float(asymmetric_raw["min_edge"]),
+            take_profit_bid=float(asymmetric_raw["take_profit_bid"]),
+            exit_model_prob=float(asymmetric_raw["exit_model_prob"]),
+            stop_loss_bid=float(asymmetric_raw["stop_loss_bid"]),
+            min_sell_bid=float(asymmetric_raw["min_sell_bid"]),
+            min_event_volume=float(
+                asymmetric_raw.get("min_event_volume", raw["min_event_volume"])
+            ),
+            min_ensemble_members=int(asymmetric_raw.get("min_ensemble_members", 8)),
+            position_usd=float(asymmetric_raw["position_usd"]),
+            max_position_usd=float(asymmetric_raw.get("max_position_usd", 2)),
+            max_open_positions=int(asymmetric_raw["max_open_positions"]),
+            max_hourly_rise_f=float(asymmetric_raw.get("max_hourly_rise_f", 4.0)),
+            high_hour_local=int(asymmetric_raw.get("high_hour_local", 20)),
+            cities=tuple(asymmetric_raw.get("cities") or ()),
+        ),
+        edge=EdgeSettings(
+            min_ask=float(edge_raw.get("min_ask", 0.45)),
+            max_ask=float(edge_raw.get("max_ask", 0.52)),
+            target_ask=float(edge_raw.get("target_ask", 0.48)),
+            min_possible=float(edge_raw.get("min_possible", 0.40)),
+            min_edge=float(edge_raw.get("min_edge", 0.02)),
+            take_profit=float(edge_raw.get("take_profit", 0.10)),
+            sell_bias=float(edge_raw.get("sell_bias", 0.44)),
+            stop_loss=float(edge_raw.get("stop_loss", 0.04)),
+            min_event_volume=float(edge_raw.get("min_event_volume", raw["min_event_volume"])),
+            min_best_ask_size=float(edge_raw.get("min_best_ask_size", raw["min_best_ask_size"])),
+            max_spread=float(edge_raw.get("max_spread", 0.04)),
+            position_usd=float(edge_raw.get("position_usd", 2)),
+            max_position_usd=float(edge_raw.get("max_position_usd", 5)),
+            max_open_positions=int(edge_raw.get("max_open_positions", 10)),
+            max_notional_at_risk=float(edge_raw.get("max_notional_at_risk", 40)),
+            min_sell_bid=float(edge_raw.get("min_sell_bid", 0.01)),
+            max_hourly_rise_f=float(edge_raw.get("max_hourly_rise_f", 4.0)),
+            high_hour_local=int(edge_raw.get("high_hour_local", 20)),
+        ),
+        copy=CopySettings(
+            username=str(copy_raw.get("username") or "0x.aljjj").lstrip("@"),
+            wallet=str(copy_raw.get("wallet") or "").lower(),
+        ),
+        cities=cities,
+    )

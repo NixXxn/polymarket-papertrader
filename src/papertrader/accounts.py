@@ -1,0 +1,35 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from pm_trader.engine import Engine
+from pm_trader.models import NotInitializedError
+
+from papertrader.paths import DEFAULT_DATA_DIR, DEFAULT_LIVE_DATA_DIR, data_dir_from_env
+
+__all__ = ["DEFAULT_DATA_DIR", "DEFAULT_LIVE_DATA_DIR", "account_dir", "make_engine", "data_dir_from_env"]
+
+
+def account_dir(account: str, data_dir: Path | None = None) -> Path:
+    base = data_dir or DEFAULT_DATA_DIR
+    if ".." in account or "/" in account or "\\" in account:
+        raise ValueError(f"Invalid account name: {account!r}")
+    return base / account
+
+
+def make_engine(
+    account: str,
+    data_dir: Path | None = None,
+    starting_balance: float = 10_000.0,
+    reset: bool = False,
+) -> Engine:
+    engine = Engine(account_dir(account, data_dir_from_env(data_dir)))
+    if reset:
+        engine.reset()
+        engine.init_account(starting_balance)
+        return engine
+    try:
+        engine.get_account()
+    except NotInitializedError:
+        engine.init_account(starting_balance)
+    return engine

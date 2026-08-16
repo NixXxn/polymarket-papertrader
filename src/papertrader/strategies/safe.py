@@ -1,0 +1,162 @@
+from __future__ import annotations
+
+from datetime import date
+
+from pm_trader.engine import Engine
+from pm_trader.models import Position
+
+from papertrader.buckets import (
+    bucket_width_score,
+    forecast_matches_range,
+    parse_temperature_range,
+    select_best_bucket,
+)
+from papertrader.config import City, Settings
+from papertrader.gfs import effective_edge_threshold, gfs_in_window
+from papertrader.markets import (
+    BucketMarket,
+    best_ask,
+    best_bid,
+    city_from_market_slug,
+    date_from_temp_slug,
+)
+from papertrader.signals import Signal
+from papertrader.sizing import account_cash, scaled_size
+from papertrader.weather import WeatherHttp
+from papertrader.weather.consensus import get_consensus
+
+
+def _has_event_position(positions: list[Position], event_slug: str) -> bool:
+    prefix = event_slug
+    for p in positions:
+        if p.shares <= 0:
+            continue
+        if p.market_slug.startswith(prefix) or prefix in p.market_slug:
+            return True
+        if event_slug.replace("highest-temperature-in-", "") in (p.market_question or ""):
+            return True
+    return False
+
+
+def analyze_safe_event(
+    engine: Engine,
+    http: WeatherHttp,
+    city: City,
+    event_date: date,
+    buckets: list[BucketMarket],
+    settings: Settings,
+    open_positions: list[Position],
+) -> Signal | None:
+    if city.slug not in settings.safe.cities:
+        return None
+    event_slug = buckets[0].event_slug if buckets else None
+    if event_slug and _has_event_position(open_positions, event_slug):
+        return None
+    if len(open_positions) >= settings.safe.max_open_positions:
+        return None
+
+    consensus = get_consensus(http, city, event_date, settings)
+    if consensus is None or consensus.confidence == "skip":
+        return None
+
+    in_window = gfs_in_window()
+    threshold = effective_edge_threshold(
+        confidence=consensus.confidence,
+        in_window=in_window,
+        min_edge=settings.safe.min_edge,
+        min_edge_high=settings.safe.min_edge_high,
+        min_edge_low=settings.safe.min_edge_low,
+    )
+    candidates: list[dict] = []
+    for bucket in buckets:
+        if not forecast_matches_range(consensus.temp_f, bucket.rng):
+            continue
+        try:
+            token = bucket.market.get_token_id("yes")
+            book = engine.api.get_order_book(token)
+        except Exception:
+            continue
+        ask, _size = best_ask(book)
+        if ask is None or ask >= settings.safe.max_ask:
+            continue
+        edge = (settings.forecast_confidence - ask) / ask if ask > 0 else 0.0
+        if edge < threshold:
+            continue
+        candidates.append(
+            {
+                "bucket": bucket,
+                "edge_percent": edge,
+                "width_score": bucket_width_score(bucket.rng),
+                "ask": ask,
+            }
+        )
+    best = select_best_bucket(candidates)
+    if best is None:
+        return None
+    bucket: BucketMarket = best["bucket"]
+    base = settings.safe.position_usd.get(city.slug, city.position_usd)
+    remaining_slots = settings.safe.max_open_positions - len(open_positions)
+    size = scaled_size(
+        base,
+        cash=account_cash(engine, settings.starting_balance),
+        starting_balance=settings.starting_balance,
+        remaining_slots=remaining_slots,
+        min_usd=settings.min_position_usd,
+    )
+    if size is None:
+        return None
+    return Signal(
+        action="buy",
+        slug=bucket.market.slug,
+        outcome="yes",
+        amount_usd=size,
+        city=city,
+        event_slug=bucket.event_slug,
+        reason=(
+            f"safe consensus {consensus.temp_f:.1f}F ({consensus.confidence}) "
+            f"matches {bucket.bucket_text} ask={best['ask']:.3f} "
+            f"edge={best['edge_percent']*100:.1f}%"
+        ),
+    )
+
+
+def safe_exits(
+    engine: Engine,
+    http: WeatherHttp,
+    settings: Settings,
+    open_positions: list[Position],
+    cities: dict[str, City],
+) -> list[Signal]:
+    signals: list[Signal] = []
+    for pos in open_positions:
+        if pos.shares <= 0:
+            continue
+        rng = parse_temperature_range(pos.market_question) or parse_temperature_range(pos.market_slug)
+        city = city_from_market_slug(pos.market_slug, cities)
+        event_date = date_from_temp_slug(pos.market_slug)
+        if rng is None or city is None or event_date is None:
+            continue
+        consensus = get_consensus(http, city, event_date, settings)
+        if consensus is None or consensus.confidence == "skip":
+            continue
+        if forecast_matches_range(consensus.temp_f, rng):
+            continue
+        try:
+            token = engine.api.get_market(pos.market_slug).get_token_id(pos.outcome)
+            book = engine.api.get_order_book(token)
+        except Exception:
+            continue
+        bid, _ = best_bid(book)
+        if bid is None or bid < settings.safe.min_sell_bid:
+            continue
+        signals.append(
+            Signal(
+                action="sell",
+                slug=pos.market_slug,
+                outcome=pos.outcome,
+                shares=pos.shares,
+                city=city,
+                reason=f"forecast shifted to {consensus.temp_f:.1f}F, no longer in bucket",
+            )
+        )
+    return signals

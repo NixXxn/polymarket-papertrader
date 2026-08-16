@@ -1,0 +1,53 @@
+# $50 per isolated account. Combined paper start is 2 × this (safe + asymmetric).
+# mode: paper (test/sim, default) or live. Live still needs --confirm-live or
+# PAPERTRADER_LIVE=1 plus PAPERTRADER_PRIVATE_KEY. yaml alone cannot fire orders.
+mode: paper
+poll_interval_seconds: 180
+horizon_days: 3
+starting_balance: 50
+# position_usd values are the stake at starting_balance; live bets scale with cash.
+min_position_usd: 1
+min_event_volume: 1000
+min_best_ask_size: 5
+forecast_confidence: 0.80
+forecast_disagreement_f: 3.0
+user_agent: "polymarket-papertrader/0.1 (paper trading; local use)"
+
+safe:
+  cities: [miami, atlanta]
+  max_ask: 0.60
+  max_open_positions: 6
+  min_sell_bid: 0.02
+  min_edge: 0.15
+  min_edge_high: 0.25
+  min_edge_low: 0.10
+  position_usd:
+    miami: 5
+    atlanta: 4
+
+# Strategy 1: asymmetric tail-risk arb (cheap YES, ensemble >> market, hedge ~35¢).
+asymmetric:
+  min_ask: 0.02
+  max_ask: 0.10
+  min_model_prob: 0.20
+  min_prob_ratio: 3.0
+  min_edge: 0.10
+  take_profit_bid: 0.35
+  exit_model_prob: 0.08
+  stop_loss_bid: 0.01
+  min_sell_bid: 0.02
+  min_event_volume: 500
+  min_ensemble_members: 8
+  position_usd: 1
+  max_position_usd: 2
+  max_open_positions: 8
+  max_hourly_rise_f: 4.0
+  high_hour_local: 20
+  cities: []
+
+live:
+  clob_host: "https://clob.polymarket.com"
+  chain_id: 137
+  # 0 = EOA private key, 1 = email/Magic proxy, 2 = Gnosis safe
+  signature_type: 1
+  funder: ""
