@@ -9,7 +9,7 @@ cities:
     lon: -80.2870
     tz: America/New_York
     country: US
-    strategies: [safe, asymmetric]
+    strategies: [safe]
     position_usd: 5
   atlanta:
     name: Atlanta
@@ -19,7 +19,7 @@ cities:
     lon: -84.4277
     tz: America/New_York
     country: US
-    strategies: [safe, asymmetric]
+    strategies: [safe]
     position_usd: 4
   dallas:
     name: Dallas

@@ -91,6 +91,18 @@
     <div class="pill-row" id="copyPills"></div>
   </div>
 
+  <div class="section" id="skippedSection" hidden>
+    <h2>Übersprungene Trades</h2>
+    <div class="table-wrap">
+      <table id="skippedTable">
+        <thead><tr>
+          <th>Zeit</th><th>Strategie</th><th>Action</th><th>Markt</th><th>Fehler</th>
+        </tr></thead>
+        <tbody id="skippedBody"></tbody>
+      </table>
+    </div>
+  </div>
+
   <div class="section card">
     <h2>Equity / P&amp;L Verlauf</h2>
     <canvas id="equityChart" width="1200" height="180"></canvas>
@@ -117,7 +129,7 @@
       <table id="tradeTable" hidden>
         <thead><tr>
           <th>Zeit</th><th>Strategie</th><th>Markt</th><th>Side</th>
-          <th class="right">Size</th><th class="right">Preis</th>
+          <th class="right">Size</th><th class="right">Preis</th><th class="right">P&amp;L</th><th class="right" id="latencyHeader" hidden>Latenz</th>
         </tr></thead>
         <tbody id="tradeBody"></tbody>
       </table>
@@ -134,6 +146,7 @@
   const price = n => Number(n||0).toLocaleString('de-DE', {maximumFractionDigits:4});
   const dt = s => s ? new Date(s).toLocaleString('de-DE') : '–';
   const esc = v => String(v??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+  const ms = n => n == null ? '–' : `${Math.round(Number(n)).toLocaleString('de-DE')} ms`;
 
   function pnlClass(v) { return Number(v) >= 0 ? 'good' : 'bad'; }
 
@@ -172,11 +185,34 @@
     const sec = document.getElementById('copySection');
     if (!copy.active && !copy.seen_trades) { sec.hidden = true; return; }
     sec.hidden = false;
+    const lat = copy.latency || {};
+    const latPill = lat.count
+      ? `<span class="pill">Ø Latenz ${ms(lat.avg_ms)} (p50 ${ms(lat.p50_ms)}, p95 ${ms(lat.p95_ms)})</span>`
+      : '';
     document.getElementById('copyPills').innerHTML = `
       <span class="pill">@${esc(copy.username || '–')}</span>
       <span class="pill">${esc(copy.wallet || 'kein Wallet')}</span>
       <span class="pill">${copy.seen_trades} gesehene Leader-Trades</span>
-      <span class="pill">Scale ${copy.scale != null ? Number(copy.scale).toFixed(4) : '–'}</span>`;
+      <span class="pill">Scale ${copy.scale != null ? Number(copy.scale).toFixed(4) : '–'}</span>
+      ${latPill}`;
+  }
+
+  function renderSkipped(rows) {
+    const sec = document.getElementById('skippedSection');
+    if (!rows || !rows.length) { sec.hidden = true; return; }
+    sec.hidden = false;
+    const tbody = document.getElementById('skippedBody');
+    tbody.innerHTML = '';
+    for (const r of rows.slice(0, 100)) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="muted">${dt(r.ts)}</td>
+        <td><span class="badge strategy-${esc(r.strategy)}">${esc(r.strategy)}</span></td>
+        <td><span class="badge ${esc(r.action)}">${esc(r.action)}</span></td>
+        <td><div>${esc(r.slug)}</div><div class="muted">${esc(r.reason || '')}</div></td>
+        <td class="bad">${esc(r.error)}</td>`;
+      tbody.appendChild(tr);
+    }
   }
 
   function drawEquity(curve, history) {
@@ -236,6 +272,8 @@
   function renderTrades() {
     const q = document.getElementById('search').value.trim().toLowerCase();
     const f = document.getElementById('filter').value;
+    const showLatency = f === 'copy' || f === 'all';
+    document.getElementById('latencyHeader').hidden = !showLatency;
     const rows = allTrades.filter(t => {
       if (f !== 'all' && t.strategy !== f) return false;
       if (q && !`${t.market_question} ${t.outcome}`.toLowerCase().includes(q)) return false;
@@ -244,6 +282,12 @@
     const tbody = document.getElementById('tradeBody');
     tbody.innerHTML = '';
     for (const t of rows.slice(0, 200)) {
+      const pnlCell = t.side === 'sell' && t.realized_pnl != null
+        ? `<td class="right ${pnlClass(t.realized_pnl)}">${t.realized_pnl >= 0 ? '+' : ''}${money(t.realized_pnl)}</td>`
+        : `<td class="right muted">–</td>`;
+      const latCell = showLatency
+        ? `<td class="right muted">${t.copy_latency_ms != null ? ms(t.copy_latency_ms) : '–'}</td>`
+        : '';
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td class="muted">${dt(t.created_at)}</td>
@@ -251,7 +295,9 @@
         <td><div>${esc(t.market_question)}</div><div class="muted"><a href="${esc(t.url)}" target="_blank">Polymarket ↗</a></div></td>
         <td><span class="badge ${esc(t.side)}">${esc(t.side)}</span></td>
         <td class="right">${money(t.amount_usd)}</td>
-        <td class="right">${price(t.avg_price)}</td>`;
+        <td class="right">${price(t.avg_price)}</td>
+        ${pnlCell}
+        ${latCell}`;
       tbody.appendChild(tr);
     }
     document.getElementById('tradeStatus').hidden = rows.length > 0;
@@ -269,6 +315,7 @@
       if (!r.ok || !data.ok) throw new Error(data.error || 'Fehler');
       renderPortfolio(data.portfolio, data);
       renderCopy(data.copy || {});
+      renderSkipped(data.skipped_trades || []);
       allTrades = data.trades || [];
       allPositions = data.positions || [];
       drawEquity(data.equity_curve || [], data.scan_history || []);

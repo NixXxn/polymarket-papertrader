@@ -1,19 +1,25 @@
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from pm_trader.engine import Engine
 
-from papertrader.accounts import data_dir_from_env, make_engine
+from papertrader.accounts import make_engine
 from papertrader.config import load_settings
 from papertrader.markets import polymarket_event_url
 from papertrader.mode import resolve_mode
 from papertrader.paths import DEFAULT_LIVE_DATA_DIR, data_dir_from_env
 from papertrader.report import account_stats, combine_engines, mark_positions
 from papertrader.scan_history import load_scan_history
+from papertrader.trade_log import (
+    copy_latency_by_trade_id,
+    copy_latency_stats,
+    load_skipped_trades,
+)
 
 
 STRATEGIES = ("safe", "asymmetric", "copy")
@@ -32,9 +38,40 @@ def open_engines(data_dir: Path, starting_balance: float) -> list[tuple[str, Eng
     return engines
 
 
-def _trade_row(strategy: str, trade: Any) -> dict[str, Any]:
+def _sell_realized_pnl(trades_chronological: list[Any]) -> dict[int, float]:
+    """Per-sell realized P&L using running average cost basis."""
+    shares: dict[tuple[str, str], float] = defaultdict(float)
+    cost: dict[tuple[str, str], float] = defaultdict(float)
+    out: dict[int, float] = {}
+    for t in trades_chronological:
+        key = (t.market_condition_id, t.outcome)
+        if t.side == "buy":
+            shares[key] += t.shares
+            cost[key] += t.amount_usd
+        elif t.side == "sell":
+            held = shares.get(key, 0.0)
+            if held > 0:
+                avg_entry = cost[key] / held
+                sold = min(t.shares, held)
+                cost_of_sold = avg_entry * sold
+                shares[key] = held - sold
+                cost[key] = max(cost[key] - cost_of_sold, 0.0)
+            else:
+                cost_of_sold = t.avg_price * t.shares
+            proceeds = t.amount_usd - t.fee
+            out[t.id] = proceeds - cost_of_sold
+    return out
+
+
+def _trade_row(
+    strategy: str,
+    trade: Any,
+    *,
+    realized_pnl: float | None = None,
+    copy_latency_ms: float | None = None,
+) -> dict[str, Any]:
     slug = trade.market_slug
-    return {
+    row = {
         "id": trade.id,
         "strategy": strategy,
         "side": trade.side,
@@ -49,6 +86,11 @@ def _trade_row(strategy: str, trade: Any) -> dict[str, Any]:
         "created_at": trade.created_at,
         "url": polymarket_event_url(slug),
     }
+    if trade.side == "sell" and realized_pnl is not None:
+        row["realized_pnl"] = realized_pnl
+    if copy_latency_ms is not None:
+        row["copy_latency_ms"] = copy_latency_ms
+    return row
 
 
 def _position_row(strategy: str, engine: Engine, pos: Any) -> dict[str, Any]:
@@ -114,6 +156,7 @@ def _copy_meta(data_dir: Path, settings: Any) -> dict[str, Any]:
         "seen_trades": seen,
         "scale": scale,
         "active": _engine_exists(data_dir, "copy"),
+        "latency": copy_latency_stats(data_dir),
     }
 
 
@@ -162,14 +205,26 @@ def fetch_dashboard(
                 "equity_curve": [],
                 "scan_history": load_scan_history(resolved.data_dir),
                 "copy": _copy_meta(resolved.data_dir, settings),
+                "skipped_trades": load_skipped_trades(resolved.data_dir),
             }
 
         combined = combine_engines(engines)
+        copy_latencies = copy_latency_by_trade_id(resolved.data_dir)
         trades: list[dict[str, Any]] = []
         positions: list[dict[str, Any]] = []
         for name, engine in engines:
-            for t in engine.db.get_trades(limit=500):
-                trades.append(_trade_row(name, t))
+            raw_trades = list(engine.db.get_trades(limit=500))
+            pnl_map = _sell_realized_pnl(list(reversed(raw_trades)))
+            for t in raw_trades:
+                lat = copy_latencies.get(t.id) if name == "copy" else None
+                trades.append(
+                    _trade_row(
+                        name,
+                        t,
+                        realized_pnl=pnl_map.get(t.id),
+                        copy_latency_ms=lat,
+                    )
+                )
             for p in engine.db.get_open_positions():
                 if p.shares > 0 and not p.is_resolved:
                     positions.append(_position_row(name, engine, p))
@@ -226,6 +281,7 @@ def fetch_dashboard(
             "equity_curve": _equity_curve(engines),
             "scan_history": load_scan_history(resolved.data_dir),
             "copy": _copy_meta(resolved.data_dir, settings),
+            "skipped_trades": load_skipped_trades(resolved.data_dir),
         }
     finally:
         for _name, engine in engines:

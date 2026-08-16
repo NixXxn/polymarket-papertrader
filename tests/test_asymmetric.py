@@ -12,16 +12,28 @@ from papertrader.weather.ensemble import EnsembleForecast
 from helpers import FakeLevel, sample_city
 
 
+def _asymmetric_city():
+    return sample_city(
+        name="Denver",
+        slug="denver",
+        station="KDEN",
+        lat=39.8561,
+        lon=-104.6737,
+        tz="America/Denver",
+        strategies=("asymmetric",),
+    )
+
+
 def _tail_bucket(city, event_date, ask=0.05):
     market = SimpleNamespace(
-        slug="highest-temperature-in-miami-on-august-13-2026-100f-or-higher",
-        question="Will the highest temperature in Miami be 100°F or higher?",
+        slug="highest-temperature-in-denver-on-august-13-2026-100f-or-higher",
+        question="Will the highest temperature in Denver be 100°F or higher?",
         closed=False,
         condition_id="0xtail",
         get_token_id=lambda outcome: "token-yes",
     )
     return BucketMarket(
-        event_slug="highest-temperature-in-miami-on-august-13-2026",
+        event_slug="highest-temperature-in-denver-on-august-13-2026",
         event_date=event_date,
         city=city,
         market=market,  # type: ignore[arg-type]
@@ -33,7 +45,7 @@ def _tail_bucket(city, event_date, ask=0.05):
 
 def test_asymmetric_entry_when_ensemble_beats_market(monkeypatch):
     settings = load_settings()
-    city = sample_city()
+    city = _asymmetric_city()
     event_date = date(2026, 8, 13)
     bucket, ask = _tail_bucket(city, event_date)
     engine = MagicMock()
@@ -61,7 +73,7 @@ def test_asymmetric_entry_when_ensemble_beats_market(monkeypatch):
 
 def test_asymmetric_skips_when_ask_too_high(monkeypatch):
     settings = load_settings()
-    city = sample_city()
+    city = _asymmetric_city()
     event_date = date(2026, 8, 13)
     bucket, _ = _tail_bucket(city, event_date, ask=0.25)
     engine = MagicMock()
@@ -85,11 +97,11 @@ def test_asymmetric_skips_when_ask_too_high(monkeypatch):
 
 def test_asymmetric_exit_at_take_profit(monkeypatch):
     settings = load_settings()
-    city = sample_city()
+    city = _asymmetric_city()
     pos = SimpleNamespace(
         shares=10.0,
-        market_slug="highest-temperature-in-miami-on-august-13-2026-100f-or-higher",
-        market_question="Will the highest temperature in Miami be 100°F or higher?",
+        market_slug="highest-temperature-in-denver-on-august-13-2026-100f-or-higher",
+        market_question="Will the highest temperature in Denver be 100°F or higher?",
         outcome="yes",
         avg_entry_price=0.05,
         is_resolved=False,
@@ -113,7 +125,7 @@ def test_asymmetric_exit_at_take_profit(monkeypatch):
         lambda *a, **k: EnsembleForecast((100.0,) * 10, "gfs:10"),
     )
 
-    signals = asymmetric_exits(engine, MagicMock(), settings, [pos], {"miami": city})
+    signals = asymmetric_exits(engine, MagicMock(), settings, [pos], {"denver": city})
     assert len(signals) == 1
     assert signals[0].action == "sell"
     assert "forecast hedge" in signals[0].reason

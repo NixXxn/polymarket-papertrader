@@ -43,7 +43,7 @@ asymmetric:
   max_open_positions: 8
   max_hourly_rise_f: 4.0
   high_hour_local: 20
-  cities: []
+  cities: [denver, chicago, dallas, phoenix, houston, austin, wellington, london, nyc]
 
 live:
   clob_host: "https://clob.polymarket.com"

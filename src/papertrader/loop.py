@@ -15,6 +15,7 @@ from papertrader.markets import discover_events
 from papertrader.report import ScanCounts, combine_engines, format_scan_update
 from papertrader.scan_history import append_scan
 from papertrader.signals import Signal
+from papertrader.trade_log import append_skipped
 from papertrader.strategies.asymmetric import analyze_asymmetric_event, asymmetric_exits
 from papertrader.strategies.safe import analyze_safe_event, safe_exits
 from papertrader.weather import WeatherHttp
@@ -28,6 +29,7 @@ def execute_signal(
     dry_run: bool,
     live: LiveTrader | None = None,
     ctx: ExecutionContext | None = None,
+    strategy: str = "unknown",
 ) -> bool:
     if dry_run:
         log.info(
@@ -74,6 +76,8 @@ def execute_signal(
         return True
     except (OrderRejectedError, NoPositionError, SimError) as e:
         log.warning("Order skipped: %s (%s)", e, signal.reason)
+        if not dry_run:
+            append_skipped(engine.db.data_dir, strategy=strategy, signal=signal, error=str(e))
         return False
 
 
@@ -112,7 +116,7 @@ def scan_once(
             counts.resolved += _resolve(safe_engine)
         positions = safe_engine.db.get_open_positions()
         for sig in safe_exits(safe_engine, http, settings, positions, settings.cities):
-            filled = execute_signal(safe_engine, sig, dry_run, live=live, ctx=ctx)
+            filled = execute_signal(safe_engine, sig, dry_run, live=live, ctx=ctx, strategy="safe")
             emitted.append(sig)
             if filled:
                 counts.orders_placed += 1
@@ -127,7 +131,7 @@ def scan_once(
                 safe_engine, http, city, event_date, buckets, settings, positions
             )
             if sig:
-                filled = execute_signal(safe_engine, sig, dry_run, live=live, ctx=ctx)
+                filled = execute_signal(safe_engine, sig, dry_run, live=live, ctx=ctx, strategy="safe")
                 emitted.append(sig)
                 if filled:
                     counts.orders_placed += 1
@@ -141,7 +145,7 @@ def scan_once(
         for sig in asymmetric_exits(
             asymmetric_engine, http, settings, positions, settings.cities
         ):
-            filled = execute_signal(asymmetric_engine, sig, dry_run, live=live, ctx=ctx)
+            filled = execute_signal(asymmetric_engine, sig, dry_run, live=live, ctx=ctx, strategy="asymmetric")
             emitted.append(sig)
             if filled:
                 counts.orders_placed += 1
@@ -165,7 +169,7 @@ def scan_once(
                 today,
             )
             if sig:
-                filled = execute_signal(asymmetric_engine, sig, dry_run, live=live, ctx=ctx)
+                filled = execute_signal(asymmetric_engine, sig, dry_run, live=live, ctx=ctx, strategy="asymmetric")
                 emitted.append(sig)
                 if filled:
                     counts.orders_placed += 1

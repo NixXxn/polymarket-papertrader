@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,6 +13,7 @@ from pm_trader.engine import Engine
 
 from papertrader.config import Settings
 from papertrader.signals import Signal
+from papertrader.trade_log import append_copy_event, append_skipped
 from papertrader.weather import WeatherHttp
 
 log = logging.getLogger("papertrader")
@@ -163,9 +165,22 @@ def copied_signal(trade: CopiedTrade, scale: float) -> Signal | None:
 
 
 def apply_copied_trade(engine: Engine, trade: CopiedTrade, scale: float) -> Signal | None:
+    fill_started = time.perf_counter()
+    detected_at = time.time()
     shares = trade.size * scale
     usd = shares * trade.price
     if shares <= 0 or usd < 1e-6 or not trade.slug or not trade.condition_id:
+        append_copy_event(
+            engine.db.data_dir,
+            tx_id=trade.tx_id,
+            leader_ts=trade.timestamp,
+            side=trade.side,
+            slug=trade.slug,
+            title=trade.title,
+            status="skipped",
+            error="invalid trade size or missing slug/condition",
+            detected_at=detected_at,
+        )
         return None
     market = SimpleNamespace(
         condition_id=trade.condition_id,
@@ -177,10 +192,21 @@ def apply_copied_trade(engine: Engine, trade: CopiedTrade, scale: float) -> Sign
         if usd > account.cash:
             usd = account.cash
             if usd <= 0 or trade.price <= 0:
+                append_copy_event(
+                    engine.db.data_dir,
+                    tx_id=trade.tx_id,
+                    leader_ts=trade.timestamp,
+                    side=trade.side,
+                    slug=trade.slug,
+                    title=trade.title,
+                    status="skipped",
+                    error="insufficient cash",
+                    detected_at=detected_at,
+                )
                 return None
             shares = usd / trade.price
         engine.db.update_cash(account.cash - usd)
-        engine.db.insert_trade(
+        recorded = engine.db.insert_trade(
             market_condition_id=trade.condition_id,
             market_slug=trade.slug,
             market_question=trade.title,
@@ -203,6 +229,18 @@ def apply_copied_trade(engine: Engine, trade: CopiedTrade, scale: float) -> Sign
             cost=usd,
             avg_fill_price=trade.price,
         )
+        append_copy_event(
+            engine.db.data_dir,
+            tx_id=trade.tx_id,
+            leader_ts=trade.timestamp,
+            side=trade.side,
+            slug=trade.slug,
+            title=trade.title,
+            status="filled",
+            trade_id=recorded.id,
+            detected_at=detected_at,
+            fill_latency_ms=(time.perf_counter() - fill_started) * 1000,
+        )
         return Signal(
             action="buy",
             slug=trade.slug,
@@ -215,11 +253,22 @@ def apply_copied_trade(engine: Engine, trade: CopiedTrade, scale: float) -> Sign
 
     existing = engine.db.get_position(trade.condition_id, trade.outcome)
     if existing is None or existing.shares <= 0:
+        append_copy_event(
+            engine.db.data_dir,
+            tx_id=trade.tx_id,
+            leader_ts=trade.timestamp,
+            side=trade.side,
+            slug=trade.slug,
+            title=trade.title,
+            status="skipped",
+            error="no position to sell",
+            detected_at=detected_at,
+        )
         return None
     sold = min(shares, existing.shares)
     proceeds = sold * trade.price
     engine.db.update_cash(account.cash + proceeds)
-    engine.db.insert_trade(
+    recorded = engine.db.insert_trade(
         market_condition_id=trade.condition_id,
         market_slug=trade.slug,
         market_question=trade.title,
@@ -240,6 +289,18 @@ def apply_copied_trade(engine: Engine, trade: CopiedTrade, scale: float) -> Sign
         outcome=trade.outcome,
         sold_shares=sold,
         proceeds=proceeds,
+    )
+    append_copy_event(
+        engine.db.data_dir,
+        tx_id=trade.tx_id,
+        leader_ts=trade.timestamp,
+        side=trade.side,
+        slug=trade.slug,
+        title=trade.title,
+        status="filled",
+        trade_id=recorded.id,
+        detected_at=detected_at,
+        fill_latency_ms=(time.perf_counter() - fill_started) * 1000,
     )
     return Signal(
         action="sell",
@@ -296,11 +357,56 @@ def sync_copy_trades(
             )
         return len(pending), []
     for t in pending:
+        detected_at = time.time()
         if live and execute is not None:
             sig = copied_signal(t, float(scale))
             seen.add(t.tx_id)
-            if sig and execute(sig):
+            if not sig:
+                append_copy_event(
+                    engine.db.data_dir,
+                    tx_id=t.tx_id,
+                    leader_ts=t.timestamp,
+                    side=t.side,
+                    slug=t.slug,
+                    title=t.title,
+                    status="skipped",
+                    error="signal too small or invalid",
+                    detected_at=detected_at,
+                )
+                continue
+            fill_started = time.perf_counter()
+            if execute(sig):
+                append_copy_event(
+                    engine.db.data_dir,
+                    tx_id=t.tx_id,
+                    leader_ts=t.timestamp,
+                    side=t.side,
+                    slug=t.slug,
+                    title=t.title,
+                    status="filled",
+                    detected_at=detected_at,
+                    fill_latency_ms=(time.perf_counter() - fill_started) * 1000,
+                )
                 signals.append(sig)
+            else:
+                append_skipped(
+                    engine.db.data_dir,
+                    strategy="copy",
+                    signal=sig,
+                    error="live execute returned false",
+                    source="copy",
+                )
+                append_copy_event(
+                    engine.db.data_dir,
+                    tx_id=t.tx_id,
+                    leader_ts=t.timestamp,
+                    side=t.side,
+                    slug=t.slug,
+                    title=t.title,
+                    status="skipped",
+                    error="live execute returned false",
+                    detected_at=detected_at,
+                )
             continue
         sig = apply_copied_trade(engine, t, float(scale))
         seen.add(t.tx_id)
