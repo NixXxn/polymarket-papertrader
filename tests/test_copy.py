@@ -70,7 +70,7 @@ def test_live_copy_seeds_history_without_fills(tmp_path, monkeypatch):
     engine.init_account(50.0)
     history = [parse_trade(_row())]
     monkeypatch.setattr("papertrader.copytrade.resolve_wallet", lambda *a, **k: "0xabc")
-    monkeypatch.setattr("papertrader.copytrade.fetch_trades", lambda *a, **k: history)
+    monkeypatch.setattr("papertrader.copytrade.fetch_recent_trades", lambda *a, **k: history)
     considered, copied = sync_copy_trades(
         engine, None, load_settings(), dry_run=False, live=True
     )
@@ -81,7 +81,7 @@ def test_live_copy_seeds_history_without_fills(tmp_path, monkeypatch):
 
     fresh = parse_trade(_row(transactionHash="0xnew", timestamp=99))
     monkeypatch.setattr(
-        "papertrader.copytrade.fetch_trades", lambda *a, **k: history + [fresh]
+        "papertrader.copytrade.fetch_recent_trades", lambda *a, **k: history + [fresh]
     )
     ran: list = []
     considered, copied = sync_copy_trades(

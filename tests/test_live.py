@@ -26,12 +26,23 @@ class FakeLiveClient:
         return self.balance
 
     def market_order(self, **kwargs) -> dict:
-        self.orders.append(kwargs)
+        self.orders.append({"kind": "market", **kwargs})
         return self.resp
+
+    def limit_order(self, **kwargs) -> dict:
+        self.orders.append({"kind": "limit", **kwargs})
+        return self.resp
+
+    def get_open_orders(self) -> list[dict]:
+        return []
+
+    def get_trades(self) -> list[dict]:
+        return []
 
 
 def test_parse_balance_shapes():
     assert parse_balance({"balance": "12.5"}) == 12.5
+    assert parse_balance({"balance": "12500000"}) == 12.5
     assert parse_balance({"data": {"available": 3}}) == 3.0
     assert parse_balance(None) is None
 
@@ -80,6 +91,70 @@ def test_execute_signal_live_records_fill(tmp_path):
     assert len(pos) == 1
     assert pos[0].shares == pytest.approx(2.5)
     assert client.orders[0]["side"] == "BUY"
+    engine.close()
+
+
+def test_execute_signal_live_limit_buy(tmp_path):
+    engine = Engine(tmp_path)
+    engine.init_account(50.0)
+    market = SimpleNamespace(
+        condition_id="0xcond",
+        slug="highest-temperature-in-wellington-on-august-15-2026-14c",
+        question="Wellington 14C?",
+        outcomes=["Yes", "No"],
+        get_token_id=lambda outcome: "token-yes",
+        tick_size=0.01,
+        neg_risk=False,
+    )
+    engine.api.get_market = lambda slug: market  # type: ignore[method-assign]
+    engine.api.get_tick_size = lambda token_id: 0.01  # type: ignore[method-assign]
+    client = FakeLiveClient()
+    live = LiveTrader(client)
+    sig = Signal(
+        action="buy",
+        slug=market.slug,
+        outcome="yes",
+        amount_usd=1.25,
+        order_type="limit",
+        limit_price=0.50,
+        reason="test live limit buy",
+    )
+    assert execute_signal(engine, sig, dry_run=False, live=live)
+    assert client.orders[0]["kind"] == "limit"
+    assert client.orders[0]["price"] == 0.50
+    assert client.orders[0]["size"] == pytest.approx(2.5)
+    assert engine.get_account().cash == pytest.approx(48.75)
+    engine.close()
+
+
+def test_execute_signal_live_limit_resting_does_not_fill_ledger(tmp_path):
+    engine = Engine(tmp_path)
+    engine.init_account(50.0)
+    market = SimpleNamespace(
+        condition_id="0xcond",
+        slug="m",
+        question="q",
+        outcomes=["Yes", "No"],
+        get_token_id=lambda outcome: "token-yes",
+        tick_size=0.01,
+        neg_risk=False,
+    )
+    engine.api.get_market = lambda slug: market  # type: ignore[method-assign]
+    engine.api.get_tick_size = lambda token_id: 0.01  # type: ignore[method-assign]
+    client = FakeLiveClient(resp={"success": True, "status": "live", "orderID": "abc"})
+    live = LiveTrader(client)
+    sig = Signal(
+        action="buy",
+        slug="m",
+        outcome="yes",
+        amount_usd=5.0,
+        order_type="limit",
+        limit_price=0.10,
+        reason="resting limit",
+    )
+    assert execute_signal(engine, sig, dry_run=False, live=live)
+    assert engine.get_account().cash == 50.0
+    assert engine.db.get_open_positions() == []
     engine.close()
 
 

@@ -8,13 +8,13 @@ import click
 from papertrader.accounts import data_dir_from_env, make_engine
 from papertrader.config import ROOT, load_settings
 from papertrader.execution import get_shared_live_client
-from papertrader.live import LiveTrader
-from papertrader.loop import run_loop
+from papertrader.live import LiveTrader, PyClobLiveClient
+from papertrader.loop import run_copy_loop, run_loop
 from papertrader.mode import ModeError, load_dotenv_file, resolve_mode
 
 log = logging.getLogger("papertrader")
 
-_STRATEGIES = ("safe", "asymmetric", "both")
+_STRATEGIES = ("safe", "asymmetric", "both", "copy")
 
 
 def _setup_logging() -> None:
@@ -90,16 +90,31 @@ def _start(
         log.info("Paper/test mode. Simulator ledger: %s", resolved.data_dir)
     safe_engine = None
     asymmetric_engine = None
+    copy_engine = None
     if strategy in ("safe", "both"):
         safe_engine = make_engine("safe", resolved.data_dir, settings.starting_balance, reset=reset)
     if strategy in ("asymmetric", "both"):
         asymmetric_engine = make_engine(
             "asymmetric", resolved.data_dir, settings.starting_balance, reset=reset
         )
+    if strategy == "copy":
+        copy_engine = make_engine("copy", resolved.data_dir, settings.starting_balance, reset=reset)
+        if live is not None:
+            live.sync_cash(copy_engine)
+        run_copy_loop(
+            settings=settings,
+            copy_engine=copy_engine,
+            dry_run=dry_run,
+            once=once,
+            live=live,
+            data_dir=resolved.data_dir,
+        )
+        return
     run_loop(
         settings=settings,
         safe_engine=safe_engine,
         asymmetric_engine=asymmetric_engine,
+        copy_engine=copy_engine,
         dry_run=dry_run,
         once=once,
         live=live,
@@ -161,6 +176,8 @@ def scan_cmd(
 @click.option("--data-dir", type=click.Path(path_type=Path), default=None)
 def status_cmd(cli_mode: str | None, data_dir: Path | None) -> None:
     """Print portfolio snapshots for `safe` and `asymmetric`."""
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("py_clob_client_v2").setLevel(logging.WARNING)
     settings = load_settings()
     try:
         resolved = resolve_mode(
@@ -177,13 +194,42 @@ def status_cmd(cli_mode: str | None, data_dir: Path | None) -> None:
     except ModeError as e:
         raise click.ClickException(str(e)) from e
     click.echo(f"mode: {resolved.mode}  data: {resolved.data_dir}")
-    for name in ("safe", "asymmetric"):
+    live_client: LiveTrader | PyClobLiveClient | None = None
+    if resolved.is_live and resolved.private_key:
+        try:
+            live_client = PyClobLiveClient(resolved)
+        except Exception as e:
+            click.echo(f"wallet: unavailable ({e})")
+    wallet_bal: float | None = None
+    if live_client is not None:
+        wallet_bal = live_client.get_balance()
+        funder = resolved.funder or "(EOA)"
+        click.echo(f"wallet: {funder}")
+        if wallet_bal is None:
+            click.echo("  CLOB balance: unavailable")
+        else:
+            click.echo(f"  CLOB balance: ${wallet_bal:.2f}")
+    for name in ("safe", "asymmetric", "copy"):
         engine = make_engine(name, resolved.data_dir, settings.starting_balance)
         try:
+            if (
+                resolved.is_live
+                and live_client is not None
+                and wallet_bal is not None
+                and name == "copy"
+            ):
+                LiveTrader(live_client).sync_cash(engine)
+            elif name in ("safe", "asymmetric"):
+                acct = engine.get_account()
+                if acct.cash == 0 and acct.starting_balance == 0:
+                    engine.init_account(settings.starting_balance)
             acct = engine.get_account()
             positions = engine.db.get_open_positions()
             click.echo(f"=== {name} ===")
-            click.echo(f"  cash: ${acct.cash:.2f}  starting: ${acct.starting_balance:.2f}")
+            if resolved.is_live and wallet_bal is not None and name == "copy":
+                click.echo(f"  cash: ${acct.cash:.2f}  (synced from CLOB)")
+            else:
+                click.echo(f"  cash: ${acct.cash:.2f}  starting: ${acct.starting_balance:.2f}")
             click.echo(f"  open positions: {len(positions)}")
             for p in positions:
                 click.echo(

@@ -138,3 +138,76 @@ def copy_latency_by_trade_id(data_dir: Path) -> dict[int, float]:
         if tid is not None and lat is not None:
             out[int(tid)] = float(lat)
     return out
+
+
+def append_activity(
+    data_dir: Path | str,
+    *,
+    level: str,
+    event: str,
+    message: str,
+    strategy: str = "system",
+    **extra: Any,
+) -> None:
+    root = _root_data_dir(Path(data_dir))
+    row: dict[str, Any] = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        "level": level,
+        "event": event,
+        "strategy": strategy,
+        "message": message,
+        "source": "activity",
+    }
+    for key, value in extra.items():
+        if value is not None:
+            row[key] = value
+    _append_jsonl(root / "activity.jsonl", row)
+
+
+def load_activity_log(data_dir: Path | str, limit: int = 300) -> list[dict[str, Any]]:
+    return list(reversed(_load_jsonl(_root_data_dir(Path(data_dir)) / "activity.jsonl", limit)))
+
+
+def build_activity_feed(data_dir: Path | str, limit: int = 250) -> list[dict[str, Any]]:
+    """Merge activity, skipped trades, and copy events into one chronological feed."""
+    rows: list[dict[str, Any]] = []
+    for row in load_activity_log(data_dir, limit):
+        rows.append({**row, "feed": "activity"})
+    for row in load_skipped_trades(data_dir, limit):
+        rows.append(
+            {
+                "ts": row.get("ts"),
+                "level": "error",
+                "event": "skipped_trade",
+                "strategy": row.get("strategy", "unknown"),
+                "message": row.get("error") or row.get("reason") or "skipped",
+                "source": row.get("source", "execution"),
+                "slug": row.get("slug"),
+                "outcome": row.get("outcome"),
+                "action": row.get("action"),
+                "reason": row.get("reason"),
+                "feed": "skipped",
+            }
+        )
+    for row in reversed(load_copy_events(data_dir, limit)):
+        status = str(row.get("status") or "")
+        level = "info" if status == "filled" else "warn"
+        msg = row.get("error") or f"{row.get('side')} {row.get('slug')} ({status})"
+        rows.append(
+            {
+                "ts": row.get("ts"),
+                "level": level,
+                "event": "copy_trade",
+                "strategy": "copy",
+                "message": msg,
+                "source": "copy",
+                "slug": row.get("slug"),
+                "side": row.get("side"),
+                "status": status,
+                "latency_ms": row.get("latency_ms"),
+                "fill_latency_ms": row.get("fill_latency_ms"),
+                "feed": "copy",
+            }
+        )
+    rows.sort(key=lambda r: r.get("ts") or "", reverse=True)
+    return rows[:limit]

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -95,18 +95,20 @@ def test_asymmetric_skips_when_ask_too_high(monkeypatch):
     assert sig is None
 
 
-def test_asymmetric_exit_at_take_profit(monkeypatch):
+def test_asymmetric_exit_at_take_profit(monkeypatch, tmp_path):
     settings = load_settings()
     city = _asymmetric_city()
     pos = SimpleNamespace(
         shares=10.0,
         market_slug="highest-temperature-in-denver-on-august-13-2026-100f-or-higher",
         market_question="Will the highest temperature in Denver be 100°F or higher?",
+        market_condition_id="0xtail",
         outcome="yes",
         avg_entry_price=0.05,
         is_resolved=False,
     )
     engine = MagicMock()
+    engine.db.data_dir = tmp_path
     engine.api.get_market.return_value = SimpleNamespace(
         get_token_id=lambda outcome: "token-yes"
     )
@@ -125,7 +127,14 @@ def test_asymmetric_exit_at_take_profit(monkeypatch):
         lambda *a, **k: EnsembleForecast((100.0,) * 10, "gfs:10"),
     )
 
-    signals = asymmetric_exits(engine, MagicMock(), settings, [pos], {"denver": city})
+    signals = asymmetric_exits(
+        engine,
+        MagicMock(),
+        settings,
+        [pos],
+        {"denver": city},
+        now=datetime(2026, 8, 13, 10, 0, tzinfo=timezone.utc),
+    )
     assert len(signals) == 1
     assert signals[0].action == "sell"
-    assert "forecast hedge" in signals[0].reason
+    assert "limit TP" in signals[0].reason

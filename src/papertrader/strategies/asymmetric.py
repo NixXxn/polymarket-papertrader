@@ -14,12 +14,20 @@ from papertrader.markets import (
     city_from_market_slug,
     date_from_temp_slug,
 )
-from papertrader.signals import Signal
-from papertrader.sizing import account_cash, scaled_size
+from papertrader.quant.kelly import KellySizingEngine
+from papertrader.quant.shadow_ledger import ShadowLedger
+from papertrader.quant.variance import VarianceCalculator
+from papertrader.signals import QuantMeta, Signal
+from papertrader.sizing import account_cash
 from papertrader.weather import WeatherHttp, fetch_metar_observed_high, fetch_openmeteo_ensemble
 from papertrader.weather.ensemble import fetch_combined_ensemble, tail_bucket_probability
 from papertrader.weather.impossibility import is_mathematically_impossible
+from papertrader.quant.monitor import monitor_exits
+from papertrader.quant.position_state import PositionExitStore
 from papertrader.weather.probability import ensemble_p95
+
+_KELLY = KellySizingEngine()
+_VARIANCE = VarianceCalculator()
 
 
 def _already_in(positions: list[Position], condition_id: str) -> bool:
@@ -81,6 +89,13 @@ def analyze_asymmetric_event(
             continue
 
         p_model, src = tail_bucket_probability(ensemble, bucket.rng)
+        ow_est = _VARIANCE.from_openweather(http, city, event_date, bucket.rng, today=today)
+        sigma = _VARIANCE.sigma_for_horizon(days_ahead)
+        if ow_est is not None:
+            p_model = max(p_model, ow_est.p)
+            src = f"{src}+openweather"
+            sigma = ow_est.sigma_f
+
         if p_model < cfg.min_model_prob:
             continue
         if ask <= 0 or p_model / ask < cfg.min_prob_ratio:
@@ -93,6 +108,7 @@ def analyze_asymmetric_event(
                 "ask": ask,
                 "p_model": p_model,
                 "src": src,
+                "sigma": sigma,
                 "edge": p_model - ask,
                 "ratio": p_model / ask,
             }
@@ -103,28 +119,45 @@ def analyze_asymmetric_event(
     # Prefer the largest model-vs-market gap on the cheapest asks.
     best = max(candidates, key=lambda c: (c["ratio"], c["edge"]))
     bucket: BucketMarket = best["bucket"]
-    remaining_slots = settings.asymmetric.max_open_positions - len(open_positions)
-    size = scaled_size(
-        cfg.position_usd,
-        cash=account_cash(engine, settings.starting_balance),
-        starting_balance=settings.starting_balance,
-        remaining_slots=remaining_slots,
-        min_usd=settings.min_position_usd,
-        max_usd=cfg.max_position_usd,
-    )
-    if size is None:
+    bankroll = account_cash(engine, settings.starting_balance)
+    kelly = _KELLY.compute(best["p_model"], best["ask"], bankroll)
+    if kelly.skipped or kelly.stake_usd is None:
         return None
+
+    shadow = ShadowLedger(engine.db.data_dir)
+    f_star = kelly.f_star
+    shadow.log_entry(
+        strategy="asymmetric",
+        slug=bucket.market.slug,
+        action="buy",
+        share_price=best["ask"],
+        p=best["p_model"],
+        sigma=best["sigma"],
+        f_star=f_star,
+        stake_usd=kelly.stake_usd,
+        extra={"source": best["src"], "quarter_f": kelly.quarter_f},
+    )
+
     return Signal(
         action="buy",
         slug=bucket.market.slug,
         outcome="yes",
-        amount_usd=size,
+        amount_usd=kelly.stake_usd,
         city=city,
         event_slug=bucket.event_slug,
+        order_type="limit",
+        limit_price=best["ask"],
+        quant=QuantMeta(
+            p=best["p_model"],
+            sigma=best["sigma"],
+            f_star=f_star,
+            kelly_fraction=kelly.quarter_f,
+            source=best["src"],
+        ),
         reason=(
-            f"tail {bucket.bucket_text} ask={best['ask']:.3f} "
-            f"P={best['p_model']:.2f} ({best['src']}) "
-            f"ratio={best['ratio']:.1f}x d+{days_ahead}"
+            f"tail {bucket.bucket_text} limit@{best['ask']:.3f} "
+            f"P={best['p_model']:.2f} f*={f_star:.3f} qk=${kelly.stake_usd:.2f} "
+            f"({best['src']}) d+{days_ahead}"
         ),
     )
 
@@ -137,12 +170,18 @@ def asymmetric_exits(
     cities: dict[str, City],
     now: datetime | None = None,
 ) -> list[Signal]:
-    """Hedge before resolution: take profit when forecast goes mainstream (~35¢)."""
+    """Hedge before resolution: monitor exits + legacy brakes."""
     now = now or datetime.now(timezone.utc)
     cfg = settings.asymmetric
-    signals: list[Signal] = []
+    shadow = ShadowLedger(engine.db.data_dir)
+    exit_store = PositionExitStore(engine.db.data_dir)
+    exit_store.prune_closed(open_positions)
+    signals = monitor_exits(
+        engine, open_positions, cities, now=now, shadow=shadow, exit_store=exit_store
+    )
+    seen_slugs = {s.slug for s in signals}
     for pos in open_positions:
-        if pos.shares <= 0:
+        if pos.shares <= 0 or pos.market_slug in seen_slugs:
             continue
         rng = parse_temperature_range(pos.market_question) or parse_temperature_range(pos.market_slug)
         city = city_from_market_slug(pos.market_slug, cities)
@@ -171,9 +210,10 @@ def asymmetric_exits(
             now=now,
         )
         reason: str | None = None
+        partial_done = exit_store.partial_tp_done(pos.market_condition_id, pos.outcome)
         if dead:
             reason = f"tail brake: {why}"
-        elif bid >= cfg.take_profit_bid:
+        elif bid >= cfg.take_profit_bid and not partial_done:
             reason = (
                 f"forecast hedge bid={bid:.3f} "
                 f">= take_profit {cfg.take_profit_bid:.2f} "
@@ -191,6 +231,7 @@ def asymmetric_exits(
                 )
         if reason is None:
             continue
+        exit_store.clear(pos.market_condition_id, pos.outcome)
         signals.append(
             Signal(
                 action="sell",
@@ -199,6 +240,9 @@ def asymmetric_exits(
                 shares=pos.shares,
                 city=city,
                 reason=reason,
+                order_type="limit",
+                limit_price=bid,
+                market_condition_id=pos.market_condition_id,
             )
         )
     return signals

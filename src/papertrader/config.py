@@ -82,6 +82,9 @@ class AsymmetricSettings:
 class CopySettings:
     username: str
     wallet: str
+    scale: float | None = None
+    poll_interval_ms: int = 250
+    recent_limit: int = 50
 
 
 @dataclass(frozen=True)
@@ -222,6 +225,9 @@ def load_settings(
         copy=CopySettings(
             username=str(copy_raw.get("username") or "0x.aljjj").lstrip("@"),
             wallet=str(copy_raw.get("wallet") or "").lower(),
+            scale=float(copy_raw["scale"]) if copy_raw.get("scale") is not None else None,
+            poll_interval_ms=int(copy_raw.get("poll_interval_ms") or 250),
+            recent_limit=int(copy_raw.get("recent_limit") or 50),
         ),
         cities=cities,
     )

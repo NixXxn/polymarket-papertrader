@@ -52,7 +52,10 @@
     canvas { width:100%; height:180px; display:block; background:var(--panel2); border-radius:12px; }
     .pill-row { display:flex; gap:8px; flex-wrap:wrap; margin-top:8px; }
     .pill { background:var(--panel2); border:1px solid var(--border); border-radius:999px; padding:6px 10px; font-size:12px; }
-    @media (max-width:1100px) { .grid { grid-template-columns:repeat(3,minmax(0,1fr)); } }
+    .level-info { color:var(--accent); }
+    .level-warn { color:var(--warn); }
+    .level-error { color:var(--bad); }
+    .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
     @media (max-width:600px) { .grid,.grid-3 { grid-template-columns:repeat(2,minmax(0,1fr)); } .wrap{padding:14px} }
   </style>
 </head>
@@ -89,6 +92,33 @@
   <div class="section card" id="copySection" hidden>
     <h2>Copy Trader (Legacy)</h2>
     <div class="pill-row" id="copyPills"></div>
+  </div>
+
+  <div class="section" id="activitySection">
+    <h2>Aktivitäts-Log</h2>
+    <div class="pill-row" id="activityMeta"></div>
+    <div class="table-wrap">
+      <table id="activityTable">
+        <thead><tr>
+          <th>Zeit</th><th>Level</th><th>Event</th><th>Strategie</th><th>Details</th>
+        </tr></thead>
+        <tbody id="activityBody"></tbody>
+      </table>
+      <div id="activityStatus" class="status">Lade…</div>
+    </div>
+  </div>
+
+  <div class="section" id="openOrdersSection" hidden>
+    <h2>Offene CLOB-Orders (Live)</h2>
+    <div class="table-wrap">
+      <table id="openOrdersTable">
+        <thead><tr>
+          <th>Order ID</th><th>Side</th><th class="right">Preis</th>
+          <th class="right">Size</th><th class="right">Matched</th><th>Status</th>
+        </tr></thead>
+        <tbody id="openOrdersBody"></tbody>
+      </table>
+    </div>
   </div>
 
   <div class="section" id="skippedSection" hidden>
@@ -195,6 +225,64 @@
       <span class="pill">${copy.seen_trades} gesehene Leader-Trades</span>
       <span class="pill">Scale ${copy.scale != null ? Number(copy.scale).toFixed(4) : '–'}</span>
       ${latPill}`;
+  }
+
+  function renderActivity(rows, liveSync, mode) {
+    const meta = document.getElementById('activityMeta');
+    const sync = liveSync || {};
+    const syncPill = mode === 'live'
+      ? `<span class="pill">Letzter Sync: ${sync.last_sync ? dt(sync.last_sync) : '–'}</span>
+         <span class="pill">${sync.open_orders || 0} offene Orders</span>
+         <span class="pill">${sync.seen_trades || 0} gesehene Trades</span>`
+      : '';
+    meta.innerHTML = syncPill;
+    const tbody = document.getElementById('activityBody');
+    const status = document.getElementById('activityStatus');
+    tbody.innerHTML = '';
+    if (!rows || !rows.length) {
+      status.textContent = 'Noch keine Aktivität protokolliert';
+      status.hidden = false;
+      return;
+    }
+    status.hidden = true;
+    for (const r of rows.slice(0, 200)) {
+      const level = (r.level || 'info').toLowerCase();
+      const tr = document.createElement('tr');
+      const detailParts = [r.message];
+      if (r.slug) detailParts.push(r.slug);
+      if (r.reason) detailParts.push(r.reason);
+      if (r.latency_ms != null) detailParts.push(`detect ${ms(r.latency_ms)}`);
+      if (r.fill_latency_ms != null) detailParts.push(`fill ${ms(r.fill_latency_ms)}`);
+      if (r.order_id) detailParts.push(`order ${r.order_id}`);
+      if (r.clob_trade_id) detailParts.push(`trade ${r.clob_trade_id}`);
+      tr.innerHTML = `
+        <td class="muted">${dt(r.ts)}</td>
+        <td><span class="badge level-${esc(level)}">${esc(level)}</span></td>
+        <td class="mono">${esc(r.event || r.feed || '–')}</td>
+        <td><span class="badge strategy-${esc(r.strategy || 'system')}">${esc(r.strategy || 'system')}</span></td>
+        <td><div>${esc(detailParts[0] || '')}</div>
+            <div class="muted mono">${esc(detailParts.slice(1).join(' · '))}</div></td>`;
+      tbody.appendChild(tr);
+    }
+  }
+
+  function renderOpenOrders(rows, mode) {
+    const sec = document.getElementById('openOrdersSection');
+    if (mode !== 'live' || !rows || !rows.length) { sec.hidden = true; return; }
+    sec.hidden = false;
+    const tbody = document.getElementById('openOrdersBody');
+    tbody.innerHTML = '';
+    for (const o of rows) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td class="mono muted">${esc((o.id || '').slice(0, 12))}…</td>
+        <td><span class="badge ${esc((o.side || '').toLowerCase())}">${esc(o.side)}</span></td>
+        <td class="right">${price(o.price)}</td>
+        <td class="right">${Number(o.original_size || 0).toFixed(2)}</td>
+        <td class="right">${Number(o.size_matched || 0).toFixed(2)}</td>
+        <td class="muted">${esc(o.status || '–')}</td>`;
+      tbody.appendChild(tr);
+    }
   }
 
   function renderSkipped(rows) {
@@ -315,6 +403,8 @@
       if (!r.ok || !data.ok) throw new Error(data.error || 'Fehler');
       renderPortfolio(data.portfolio, data);
       renderCopy(data.copy || {});
+      renderActivity(data.activity_log || [], data.live_sync || {}, data.mode);
+      renderOpenOrders(data.live_open_orders || [], data.mode);
       renderSkipped(data.skipped_trades || []);
       allTrades = data.trades || [];
       allPositions = data.positions || [];

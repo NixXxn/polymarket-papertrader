@@ -45,6 +45,12 @@ asymmetric:
   high_hour_local: 20
   cities: [denver, chicago, dallas, phoenix, houston, austin, wellington, london, nyc]
 
+copy:
+  wallet: "0x09b045baad1fbe115c70785635a261411774a3b6"
+  scale: 0.05
+  poll_interval_ms: 250
+  recent_limit: 50
+
 live:
   clob_host: "https://clob.polymarket.com"
   chain_id: 137

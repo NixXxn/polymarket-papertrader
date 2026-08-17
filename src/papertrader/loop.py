@@ -11,16 +11,50 @@ from pm_trader.models import NoPositionError, OrderRejectedError, SimError
 from papertrader.config import Settings
 from papertrader.execution import ExecutionContext, log_fill_latency
 from papertrader.live import LiveTrader
-from papertrader.markets import discover_events
+from papertrader.quant.position_state import PositionExitStore
+from papertrader.copytrade import sync_copy_trades
 from papertrader.report import ScanCounts, combine_engines, format_scan_update
 from papertrader.scan_history import append_scan
 from papertrader.signals import Signal
-from papertrader.trade_log import append_skipped
+from papertrader.trade_log import append_activity, append_skipped
 from papertrader.strategies.asymmetric import analyze_asymmetric_event, asymmetric_exits
 from papertrader.strategies.safe import analyze_safe_event, safe_exits
 from papertrader.weather import WeatherHttp
 
 log = logging.getLogger("papertrader")
+
+
+def _rollback_partial_exit(
+    engine: Engine, signal: Signal, ctx: ExecutionContext | None = None
+) -> None:
+    if not signal.partial_exit:
+        return
+    condition_id = signal.market_condition_id
+    if not condition_id:
+        try:
+            market = (ctx or ExecutionContext()).get_market(engine, signal.slug)
+            condition_id = market.condition_id
+        except Exception:
+            return
+    PositionExitStore(engine.db.data_dir).unmark_partial_tp(condition_id, signal.outcome)
+
+
+def _sync_live_engines(
+    live: LiveTrader,
+    engines: list[tuple[str, Engine]],
+) -> None:
+    for strategy, engine in engines:
+        try:
+            live.sync_live_orders(engine, strategy=strategy)
+        except Exception as e:
+            log.warning("live sync failed (%s): %s", strategy, e)
+            append_activity(
+                engine.db.data_dir,
+                level="error",
+                event="live_sync_failed",
+                strategy=strategy,
+                message=str(e),
+            )
 
 
 def execute_signal(
@@ -45,9 +79,37 @@ def execute_signal(
     try:
         started = time.perf_counter()
         if live is not None:
-            filled = live.fill(engine, signal, ctx=ctx)
+            filled = live.fill(engine, signal, ctx=ctx, strategy=strategy)
             log_fill_latency(f"LIVE {signal.action.upper()} {signal.slug}", started)
             return filled
+        if signal.order_type == "limit" and signal.limit_price is not None:
+            if signal.action == "buy":
+                amount = float(signal.amount_usd or 0)
+                if amount <= 0:
+                    raise OrderRejectedError("limit buy amount is zero")
+                engine.place_limit_order(
+                    signal.slug,
+                    signal.outcome,
+                    "buy",
+                    amount,
+                    signal.limit_price,
+                    order_type="gtc",
+                )
+            else:
+                shares = float(signal.shares or 0)
+                if shares <= 0:
+                    raise OrderRejectedError("limit sell shares is zero")
+                engine.place_limit_order(
+                    signal.slug,
+                    signal.outcome,
+                    "sell",
+                    shares,
+                    signal.limit_price,
+                    order_type="gtc",
+                )
+            engine.check_orders()
+            log_fill_latency(f"PAPER LIMIT {signal.action.upper()} {signal.slug}", started)
+            return True
         if signal.action == "buy":
             result = engine.buy(
                 signal.slug, signal.outcome, float(signal.amount_usd or 0), order_type="fak"
@@ -77,7 +139,19 @@ def execute_signal(
     except (OrderRejectedError, NoPositionError, SimError) as e:
         log.warning("Order skipped: %s (%s)", e, signal.reason)
         if not dry_run:
+            _rollback_partial_exit(engine, signal, ctx=ctx)
             append_skipped(engine.db.data_dir, strategy=strategy, signal=signal, error=str(e))
+            append_activity(
+                engine.db.data_dir,
+                level="warn",
+                event="order_skipped",
+                strategy=strategy,
+                message=str(e),
+                slug=signal.slug,
+                outcome=signal.outcome,
+                action=signal.action,
+                reason=signal.reason,
+            )
         return False
 
 
@@ -98,6 +172,7 @@ def scan_once(
     http: WeatherHttp,
     safe_engine: Engine | None,
     asymmetric_engine: Engine | None = None,
+    copy_engine: Engine | None = None,
     dry_run: bool,
     today: date | None = None,
     live: LiveTrader | None = None,
@@ -110,6 +185,16 @@ def scan_once(
     if live is not None and not ctx.balance_checked:
         ctx.wallet_balance = live.client.get_balance()
         ctx.balance_checked = True
+
+    live_engines: list[tuple[str, Engine]] = []
+    if safe_engine is not None:
+        live_engines.append(("safe", safe_engine))
+    if asymmetric_engine is not None:
+        live_engines.append(("asymmetric", asymmetric_engine))
+    if copy_engine is not None:
+        live_engines.append(("copy", copy_engine))
+    if live is not None and live_engines:
+        _sync_live_engines(live, live_engines)
 
     if safe_engine:
         if live is None:
@@ -139,6 +224,11 @@ def scan_once(
                     positions = safe_engine.db.get_open_positions()
 
     if asymmetric_engine:
+        if live is None:
+            try:
+                asymmetric_engine.check_orders()
+            except Exception as e:
+                log.debug("check_orders: %s", e)
         if live is None:
             counts.resolved += _resolve(asymmetric_engine)
         positions = asymmetric_engine.db.get_open_positions()
@@ -176,7 +266,28 @@ def scan_once(
                     counts.fills += 1
                     positions = asymmetric_engine.db.get_open_positions()
 
-    engines = [e for e in (safe_engine, asymmetric_engine) if e is not None]
+    if copy_engine:
+        is_live = live is not None
+
+        def _execute_copy(sig: Signal) -> bool:
+            return execute_signal(
+                copy_engine, sig, dry_run, live=live, ctx=ctx, strategy="copy"
+            )
+
+        considered, copied = sync_copy_trades(
+            copy_engine,
+            http,
+            settings,
+            dry_run,
+            live=is_live,
+            execute=_execute_copy if is_live else None,
+        )
+        counts.candidates += considered
+        counts.orders_placed += len(copied)
+        counts.fills += len(copied)
+        emitted.extend(copied)
+
+    engines = [e for e in (safe_engine, asymmetric_engine, copy_engine) if e is not None]
     counts.pending = sum(len(e.db.get_open_positions()) for e in engines)
     counts.fills += counts.resolved
     return emitted, counts
@@ -200,6 +311,7 @@ def run_loop(
     settings: Settings,
     safe_engine: Engine | None,
     asymmetric_engine: Engine | None = None,
+    copy_engine: Engine | None = None,
     dry_run: bool,
     once: bool,
     live: LiveTrader | None = None,
@@ -211,35 +323,104 @@ def run_loop(
         named_engines.append(("safe", safe_engine))
     if asymmetric_engine is not None:
         named_engines.append(("asymmetric", asymmetric_engine))
+    if copy_engine is not None:
+        named_engines.append(("copy", copy_engine))
+    poll_seconds = (
+        settings.copy.poll_interval_seconds
+        if copy_engine is not None
+        else settings.poll_interval_seconds
+    )
     last = ""
     try:
+        ctx = ExecutionContext()
         _, counts = scan_once(
             settings=settings,
             http=http,
             safe_engine=safe_engine,
             asymmetric_engine=asymmetric_engine,
+            copy_engine=copy_engine,
             dry_run=dry_run,
             live=live,
-            ctx=ExecutionContext(),
+            ctx=ctx,
         )
         last = print_scan_update(counts, named_engines, data_dir=data_dir)
         if once:
             return last
-        import time
 
         while True:
-            time.sleep(settings.poll_interval_seconds)
+            time.sleep(poll_seconds)
+            ctx = ExecutionContext()
             _, counts = scan_once(
                 settings=settings,
                 http=http,
                 safe_engine=safe_engine,
                 asymmetric_engine=asymmetric_engine,
+                copy_engine=copy_engine,
                 dry_run=dry_run,
                 live=live,
-                ctx=ExecutionContext(),
+                ctx=ctx,
             )
             last = print_scan_update(counts, named_engines, data_dir=data_dir)
         return last
     finally:
         http.close()
     return last
+
+
+def run_copy_loop(
+    *,
+    settings: Settings,
+    copy_engine: Engine,
+    dry_run: bool,
+    once: bool,
+    live: LiveTrader | None = None,
+    data_dir: Path | None = None,
+) -> str:
+    """Tight polling loop for leader copy — targets sub-second detection via data-api."""
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    http = WeatherHttp(settings.user_agent)
+    named_engines = [("copy", copy_engine)]
+    poll_ms = max(50, settings.copy.poll_interval_ms)
+    is_live = live is not None
+    ctx = ExecutionContext()
+    if is_live and not ctx.balance_checked:
+        ctx.wallet_balance = live.client.get_balance()  # type: ignore[union-attr]
+        ctx.balance_checked = True
+    last_summary = ""
+    heartbeat = time.monotonic()
+    try:
+
+        def _execute(sig: Signal) -> bool:
+            return execute_signal(
+                copy_engine, sig, dry_run, live=live, ctx=ctx, strategy="copy"
+            )
+
+        while True:
+            loop_started = time.perf_counter()
+            if is_live and live is not None:
+                _sync_live_engines(live, [("copy", copy_engine)])
+            _, copied = sync_copy_trades(
+                copy_engine,
+                http,
+                settings,
+                dry_run,
+                live=is_live,
+                execute=_execute if is_live else None,
+            )
+            if copied:
+                counts = ScanCounts(orders_placed=len(copied), fills=len(copied))
+                last_summary = print_scan_update(counts, named_engines, data_dir=data_dir)
+                heartbeat = time.monotonic()
+            elif time.monotonic() - heartbeat >= 60:
+                counts = ScanCounts()
+                last_summary = print_scan_update(counts, named_engines, data_dir=data_dir)
+                heartbeat = time.monotonic()
+            if once:
+                return last_summary
+            elapsed_ms = (time.perf_counter() - loop_started) * 1000
+            sleep_ms = max(0.0, poll_ms - elapsed_ms)
+            if sleep_ms:
+                time.sleep(sleep_ms / 1000)
+    finally:
+        http.close()
+    return last_summary

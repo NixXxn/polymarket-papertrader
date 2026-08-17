@@ -8,8 +8,10 @@ from pm_trader.engine import Engine
 from pm_trader.models import OrderRejectedError, SimError
 
 from papertrader.execution import ExecutionContext, _tick_str
+from papertrader.live_sync import register_clob_response, sync_live_orders
 from papertrader.mode import ResolvedMode
 from papertrader.signals import Signal
+from papertrader.trade_log import append_activity
 
 log = logging.getLogger("papertrader")
 
@@ -27,6 +29,38 @@ class LiveClient(Protocol):
         neg_risk: bool,
     ) -> dict[str, Any]: ...
 
+    def limit_order(
+        self,
+        *,
+        token_id: str,
+        side: str,
+        price: float,
+        size: float,
+        tick_size: str,
+        neg_risk: bool,
+        post_only: bool = False,
+    ) -> dict[str, Any]: ...
+
+    def get_open_orders(self) -> list[dict[str, Any]]: ...
+
+    def get_trades(self) -> list[dict[str, Any]]: ...
+
+
+def _parse_collateral_amount(value: Any) -> float | None:
+    """CLOB collateral balance is a 6-decimal fixed-point string (micro-USDC/pUSD)."""
+    if value is None or isinstance(value, bool):
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+    try:
+        amount = float(text)
+    except (TypeError, ValueError):
+        return None
+    if "." not in text:
+        amount /= 1_000_000
+    return max(0.0, amount)
+
 
 def parse_balance(raw: Any) -> float | None:
     if raw is None:
@@ -34,12 +68,14 @@ def parse_balance(raw: Any) -> float | None:
     if isinstance(raw, (int, float)) and not isinstance(raw, bool):
         return max(0.0, float(raw))
     if isinstance(raw, str):
-        try:
-            return max(0.0, float(raw))
-        except ValueError:
-            return None
+        parsed = _parse_collateral_amount(raw)
+        return parsed
     if isinstance(raw, dict):
-        for key in ("balance", "available", "allowance", "collateral"):
+        if "balance" in raw:
+            parsed = _parse_collateral_amount(raw["balance"])
+            if parsed is not None:
+                return parsed
+        for key in ("available", "allowance", "collateral"):
             if key in raw:
                 parsed = parse_balance(raw[key])
                 if parsed is not None:
@@ -99,6 +135,11 @@ def _num(value: Any) -> float:
         return 0.0
 
 
+def clob_order_resting(resp: dict[str, Any]) -> bool:
+    status = str(resp.get("status") or "").lower()
+    return status in {"live", "open", "pending", "delayed"}
+
+
 def record_fill(
     engine: Engine,
     *,
@@ -109,6 +150,7 @@ def record_fill(
     shares: float,
     usd: float,
     fee: float = 0.0,
+    order_type: str = "fak",
 ) -> None:
     account = engine.get_account()
     if side == "buy":
@@ -119,7 +161,7 @@ def record_fill(
             market_question=market.question,
             outcome=outcome,
             side="buy",
-            order_type="fak",
+            order_type=order_type,
             avg_price=avg_price,
             amount_usd=usd,
             shares=shares,
@@ -144,7 +186,7 @@ def record_fill(
         market_question=market.question,
         outcome=outcome,
         side="sell",
-        order_type="fak",
+        order_type=order_type,
         avg_price=avg_price,
         amount_usd=usd,
         shares=shares,
@@ -192,7 +234,14 @@ class PyClobLiveClient:
 
     def get_balance(self) -> float | None:
         try:
-            raw = self._client.get_balance_allowance()
+            from py_clob_client_v2 import AssetType, BalanceAllowanceParams
+
+            params = BalanceAllowanceParams(asset_type=AssetType.COLLATERAL)
+            try:
+                self._client.update_balance_allowance(params)
+            except Exception:
+                pass
+            raw = self._client.get_balance_allowance(params)
         except Exception as e:
             log.warning("live balance fetch failed: %s", e)
             return None
@@ -231,6 +280,58 @@ class PyClobLiveClient:
             return {"raw": resp}
         return resp
 
+    def limit_order(
+        self,
+        *,
+        token_id: str,
+        side: str,
+        price: float,
+        size: float,
+        tick_size: str,
+        neg_risk: bool,
+        post_only: bool = False,
+    ) -> dict[str, Any]:
+        from py_clob_client_v2 import (
+            OrderArgs,
+            OrderType,
+            PartialCreateOrderOptions,
+            Side,
+        )
+
+        side_enum = Side.BUY if side.upper() == "BUY" else Side.SELL
+        args = OrderArgs(
+            token_id=token_id,
+            price=price,
+            size=size,
+            side=side_enum,
+        )
+        options = PartialCreateOrderOptions(tick_size=tick_size, neg_risk=neg_risk)
+        resp = self._client.create_and_post_order(
+            order_args=args,
+            options=options,
+            order_type=OrderType.GTC,
+            post_only=post_only,
+        )
+        if not isinstance(resp, dict):
+            return {"raw": resp}
+        return resp
+
+    def get_open_orders(self) -> list[dict[str, Any]]:
+        try:
+            raw = self._client.get_open_orders(only_first_page=True)
+        except Exception as e:
+            log.warning("live get_open_orders failed: %s", e)
+            raise
+        return [o for o in raw if isinstance(o, dict)]
+
+    def get_trades(self) -> list[dict[str, Any]]:
+        try:
+            raw = self._client.get_trades(only_first_page=True)
+        except Exception as e:
+            log.warning("live get_trades failed: %s", e)
+            raise
+        return [t for t in raw if isinstance(t, dict)]
+
 
 class LiveTrader:
     def __init__(self, client: LiveClient) -> None:
@@ -241,8 +342,35 @@ class LiveTrader:
         if bal is None:
             return
         engine.db.update_cash(bal)
+        engine.db.conn.execute(
+            "UPDATE account SET starting_balance = ? WHERE id = 1",
+            (bal,),
+        )
+        engine.db.conn.commit()
 
-    def fill(self, engine: Engine, signal: Signal, ctx: ExecutionContext | None = None) -> bool:
+    def sync_live_orders(self, engine: Engine, *, strategy: str) -> int:
+        result = sync_live_orders(self.client, engine, strategy=strategy)
+        if result.errors:
+            for err in result.errors:
+                log.warning("live sync (%s): %s", strategy, err)
+        if result.fills_applied:
+            self.sync_cash(engine)
+            log.info(
+                "live sync (%s): applied %d fill(s), %d open order(s)",
+                strategy,
+                result.fills_applied,
+                result.open_orders,
+            )
+        return result.fills_applied
+
+    def fill(
+        self,
+        engine: Engine,
+        signal: Signal,
+        ctx: ExecutionContext | None = None,
+        *,
+        strategy: str = "unknown",
+    ) -> bool:
         ctx = ctx or ExecutionContext()
         started = time.perf_counter()
         market = ctx.get_market(engine, signal.slug)
@@ -272,6 +400,95 @@ class LiveTrader:
             side = "SELL"
         if amount <= 0:
             raise OrderRejectedError("live order amount is zero")
+        use_limit = signal.order_type == "limit" and signal.limit_price is not None
+        if use_limit:
+            price = float(signal.limit_price)
+            if signal.action == "buy":
+                size = amount / price if price > 0 else 0.0
+            else:
+                size = amount
+            if size <= 0:
+                raise OrderRejectedError("live limit order size is zero")
+            resp = self.client.limit_order(
+                token_id=str(token_id),
+                side=side,
+                price=price,
+                size=size,
+                tick_size=tick,
+                neg_risk=neg_risk,
+            )
+            if clob_order_resting(resp):
+                register_clob_response(engine.db.data_dir, strategy=strategy, resp=resp)
+                append_activity(
+                    engine.db.data_dir,
+                    level="info",
+                    event="live_limit_resting",
+                    strategy=strategy,
+                    message=(
+                        f"{signal.action.upper()} {signal.slug} "
+                        f"@ {price:.4f} size={size:.4f}"
+                    ),
+                    slug=signal.slug,
+                    outcome=signal.outcome,
+                    side=signal.action,
+                    price=price,
+                    size=size,
+                    order_id=resp.get("orderID"),
+                    reason=signal.reason,
+                )
+                log.info(
+                    "LIVE LIMIT resting %s %s @ %.3f size=%.4f — %s",
+                    signal.action.upper(),
+                    signal.slug,
+                    price,
+                    size,
+                    signal.reason,
+                )
+                return True
+            register_clob_response(engine.db.data_dir, strategy=strategy, resp=resp)
+            avg, shares, usd = parse_clob_fill(resp, side=side)
+            record_fill(
+                engine,
+                market=market,
+                outcome=outcome,
+                side=signal.action,
+                avg_price=avg,
+                shares=shares,
+                usd=usd,
+                order_type="fak",
+            )
+            if signal.action == "buy" and ctx.wallet_balance is not None:
+                ctx.wallet_balance -= usd
+            elif signal.action == "sell" and ctx.wallet_balance is not None:
+                ctx.wallet_balance += usd
+            append_activity(
+                engine.db.data_dir,
+                level="info",
+                event="live_limit_filled",
+                strategy=strategy,
+                message=(
+                    f"{signal.action.upper()} {signal.slug} "
+                    f"@ {avg:.4f} x {shares:.2f} (${usd:.2f})"
+                ),
+                slug=signal.slug,
+                outcome=outcome,
+                side=signal.action,
+                price=avg,
+                shares=shares,
+                usd=usd,
+                reason=signal.reason,
+            )
+            log.info(
+                "LIVE LIMIT %s %s @ %.3f shares=%.2f usd=%.4f (%.0f ms) — %s",
+                signal.action.upper(),
+                signal.slug,
+                avg,
+                shares,
+                usd,
+                (time.perf_counter() - started) * 1000,
+                signal.reason,
+            )
+            return True
         resp = self.client.market_order(
             token_id=str(token_id),
             side=side,
@@ -279,6 +496,7 @@ class LiveTrader:
             tick_size=tick,
             neg_risk=neg_risk,
         )
+        register_clob_response(engine.db.data_dir, strategy=strategy, resp=resp)
         avg, shares, usd = parse_clob_fill(resp, side=side)
         record_fill(
             engine,
@@ -293,6 +511,23 @@ class LiveTrader:
             ctx.wallet_balance -= usd
         elif signal.action == "sell" and ctx.wallet_balance is not None:
             ctx.wallet_balance += usd
+        append_activity(
+            engine.db.data_dir,
+            level="info",
+            event="live_market_fill",
+            strategy=strategy,
+            message=(
+                f"{signal.action.upper()} {signal.slug} "
+                f"@ {avg:.4f} x {shares:.2f} (${usd:.2f})"
+            ),
+            slug=signal.slug,
+            outcome=outcome,
+            side=signal.action,
+            price=avg,
+            shares=shares,
+            usd=usd,
+            reason=signal.reason,
+        )
         log.info(
             "LIVE %s %s @ %.3f shares=%.2f usd=%.4f (%.0f ms) — %s",
             signal.action.upper(),

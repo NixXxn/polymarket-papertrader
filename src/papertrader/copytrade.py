@@ -80,7 +80,7 @@ def copy_scale(trades: list[CopiedTrade], budget: float) -> float:
 
 
 def state_path(engine: Engine) -> Path:
-        return Path(engine.db.data_dir) / "copied_trades.json"
+    return Path(engine.db.data_dir) / "copied_trades.json"
 
 
 def load_state(engine: Engine) -> dict[str, Any]:
@@ -111,6 +111,32 @@ def resolve_wallet(http: WeatherHttp, settings: Settings) -> str | None:
         return None
     m = PROFILE_RE.search(resp.text)
     return m.group(1).lower() if m else None
+
+
+def fetch_recent_trades(
+    http: WeatherHttp,
+    wallet: str,
+    *,
+    limit: int = 50,
+) -> list[CopiedTrade]:
+    """Latest trades only — data-api returns newest first."""
+    resp = http.client.get(
+        f"{DATA_API}/trades",
+        params={
+            "user": wallet,
+            "limit": limit,
+            "offset": 0,
+            "takerOnly": "false",
+        },
+        timeout=3.0,
+    )
+    resp.raise_for_status()
+    chunk = resp.json()
+    if not isinstance(chunk, list):
+        return []
+    trades = [parse_trade(r) for r in chunk if r.get("slug")]
+    trades.sort(key=lambda t: (t.timestamp, 0 if t.side == "BUY" else 1, t.tx_id))
+    return trades
 
 
 def fetch_trades(http: WeatherHttp, wallet: str) -> list[CopiedTrade]:
@@ -312,6 +338,136 @@ def apply_copied_trade(engine: Engine, trade: CopiedTrade, scale: float) -> Sign
     )
 
 
+def _resolve_scale(
+    settings: Settings,
+    state: dict[str, Any],
+    trades: list[CopiedTrade],
+) -> float:
+    if settings.copy.scale is not None:
+        scale = float(settings.copy.scale)
+        state["scale"] = scale
+        return scale
+    scale = state.get("scale")
+    if scale is None:
+        scale = copy_scale(trades, settings.starting_balance)
+        state["scale"] = scale
+    return float(scale)
+
+
+def _fast_live_seed(
+    http: WeatherHttp,
+    wallet: str,
+    state: dict[str, Any],
+    *,
+    recent_limit: int,
+) -> None:
+    """Mark current leader activity as seen without paging full trade history."""
+    recent = fetch_recent_trades(http, wallet, limit=recent_limit)
+    seen = set(state.get("seen") or [])
+    seen.update(t.tx_id for t in recent)
+    state["seen"] = list(seen)
+    if recent:
+        state["last_leader_ts"] = max(t.timestamp for t in recent)
+    state["live_seeded"] = True
+
+
+def _pending_trades(
+    trades: list[CopiedTrade],
+    seen: set[str],
+    last_leader_ts: int,
+) -> list[CopiedTrade]:
+    pending = [
+        t
+        for t in trades
+        if t.tx_id not in seen and t.timestamp >= last_leader_ts
+    ]
+    pending.sort(key=lambda t: (t.timestamp, 0 if t.side == "BUY" else 1, t.tx_id))
+    return pending
+
+
+def _process_pending_trade(
+    engine: Engine,
+    trade: CopiedTrade,
+    scale: float,
+    *,
+    dry_run: bool,
+    live: bool,
+    execute: Callable[[Signal], bool] | None,
+    seen: set[str],
+) -> Signal | None:
+    detected_at = time.time()
+    if live and execute is not None:
+        sig = copied_signal(trade, scale)
+        seen.add(trade.tx_id)
+        if not sig:
+            append_copy_event(
+                engine.db.data_dir,
+                tx_id=trade.tx_id,
+                leader_ts=trade.timestamp,
+                side=trade.side,
+                slug=trade.slug,
+                title=trade.title,
+                status="skipped",
+                error="signal too small or invalid",
+                detected_at=detected_at,
+            )
+            return None
+        fill_started = time.perf_counter()
+        if execute(sig):
+            append_copy_event(
+                engine.db.data_dir,
+                tx_id=trade.tx_id,
+                leader_ts=trade.timestamp,
+                side=trade.side,
+                slug=trade.slug,
+                title=trade.title,
+                status="filled",
+                detected_at=detected_at,
+                fill_latency_ms=(time.perf_counter() - fill_started) * 1000,
+            )
+            log.info(
+                "COPY LIVE %s %s @ %.3f (detect %.0f ms) — %s",
+                trade.side,
+                trade.slug,
+                trade.price,
+                (detected_at - trade.timestamp) * 1000,
+                trade.title,
+            )
+            return sig
+        append_skipped(
+            engine.db.data_dir,
+            strategy="copy",
+            signal=sig,
+            error="live execute returned false",
+            source="copy",
+        )
+        append_copy_event(
+            engine.db.data_dir,
+            tx_id=trade.tx_id,
+            leader_ts=trade.timestamp,
+            side=trade.side,
+            slug=trade.slug,
+            title=trade.title,
+            status="skipped",
+            error="live execute returned false",
+            detected_at=detected_at,
+        )
+        return None
+
+    sig = apply_copied_trade(engine, trade, scale)
+    seen.add(trade.tx_id)
+    if sig:
+        log.info(
+            "COPY %s %s @ %.3f shares=%.2f — %s",
+            sig.action.upper(),
+            sig.slug,
+            trade.price,
+            sig.shares or 0,
+            sig.reason,
+        )
+    return sig
+
+
 def sync_copy_trades(
     engine: Engine,
     http: WeatherHttp,
@@ -319,32 +475,37 @@ def sync_copy_trades(
     dry_run: bool,
     live: bool = False,
     execute: Callable[[Signal], bool] | None = None,
+    *,
+    recent_limit: int | None = None,
 ) -> tuple[int, list[Signal]]:
     wallet = resolve_wallet(http, settings)
     if not wallet:
         log.warning("copy: could not resolve wallet for @%s", settings.copy.username)
         return 0, []
+    limit = recent_limit if recent_limit is not None else settings.copy.recent_limit
     try:
-        trades = fetch_trades(http, wallet)
+        trades = fetch_recent_trades(http, wallet, limit=limit)
     except Exception as e:
         log.warning("copy: trade fetch failed: %s", e)
         return 0, []
     state = load_state(engine)
     seen = set(state.get("seen") or [])
-    scale = state.get("scale")
-    if scale is None:
-        scale = copy_scale(trades, settings.starting_balance)
-        state["scale"] = scale
+    last_leader_ts = int(state.get("last_leader_ts") or 0)
+    if state.get("live_seeded") and not state.get("last_leader_ts") and trades:
+        last_leader_ts = max(t.timestamp for t in trades)
+        state["last_leader_ts"] = last_leader_ts
+        save_state(engine, state)
+    scale = _resolve_scale(settings, state, trades)
     if live and not state.get("live_seeded"):
-        state["seen"] = [t.tx_id for t in trades]
-        state["live_seeded"] = True
+        _fast_live_seed(http, wallet, state, recent_limit=limit)
         save_state(engine, state)
         log.warning(
-            "copy live: seeded %s historical trades as seen; only new prints will be copied",
-            len(trades),
+            "copy live: fast-seeded from last %s trades (ts>=%s); only new prints will be copied",
+            limit,
+            state.get("last_leader_ts", 0),
         )
         return 0, []
-    pending = [t for t in trades if t.tx_id not in seen]
+    pending = _pending_trades(trades, seen, last_leader_ts)
     signals: list[Signal] = []
     if dry_run:
         for t in pending:
@@ -352,74 +513,29 @@ def sync_copy_trades(
                 "DRY-RUN copy %s %s usd=%.4f — %s",
                 t.side,
                 t.slug,
-                t.notional * float(scale),
+                t.notional * scale,
                 t.title,
             )
+        if pending:
+            state["last_leader_ts"] = max(last_leader_ts, max(t.timestamp for t in pending))
+            state["seen"] = list(seen)
+            save_state(engine, state)
         return len(pending), []
     for t in pending:
-        detected_at = time.time()
-        if live and execute is not None:
-            sig = copied_signal(t, float(scale))
-            seen.add(t.tx_id)
-            if not sig:
-                append_copy_event(
-                    engine.db.data_dir,
-                    tx_id=t.tx_id,
-                    leader_ts=t.timestamp,
-                    side=t.side,
-                    slug=t.slug,
-                    title=t.title,
-                    status="skipped",
-                    error="signal too small or invalid",
-                    detected_at=detected_at,
-                )
-                continue
-            fill_started = time.perf_counter()
-            if execute(sig):
-                append_copy_event(
-                    engine.db.data_dir,
-                    tx_id=t.tx_id,
-                    leader_ts=t.timestamp,
-                    side=t.side,
-                    slug=t.slug,
-                    title=t.title,
-                    status="filled",
-                    detected_at=detected_at,
-                    fill_latency_ms=(time.perf_counter() - fill_started) * 1000,
-                )
-                signals.append(sig)
-            else:
-                append_skipped(
-                    engine.db.data_dir,
-                    strategy="copy",
-                    signal=sig,
-                    error="live execute returned false",
-                    source="copy",
-                )
-                append_copy_event(
-                    engine.db.data_dir,
-                    tx_id=t.tx_id,
-                    leader_ts=t.timestamp,
-                    side=t.side,
-                    slug=t.slug,
-                    title=t.title,
-                    status="skipped",
-                    error="live execute returned false",
-                    detected_at=detected_at,
-                )
-            continue
-        sig = apply_copied_trade(engine, t, float(scale))
-        seen.add(t.tx_id)
+        sig = _process_pending_trade(
+            engine,
+            t,
+            scale,
+            dry_run=dry_run,
+            live=live,
+            execute=execute,
+            seen=seen,
+        )
         if sig:
             signals.append(sig)
-            log.info(
-                "COPY %s %s @ %.3f shares=%.2f — %s",
-                sig.action.upper(),
-                sig.slug,
-                t.price,
-                sig.shares or 0,
-                sig.reason,
-            )
-    state["seen"] = list(seen)
-    save_state(engine, state)
+        last_leader_ts = max(last_leader_ts, t.timestamp)
+    if pending:
+        state["last_leader_ts"] = last_leader_ts
+        state["seen"] = list(seen)
+        save_state(engine, state)
     return len(pending), signals
