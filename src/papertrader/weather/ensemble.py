@@ -6,8 +6,10 @@ from datetime import date
 from papertrader.buckets import TempRange, p_bucket_ensemble
 from papertrader.config import City
 from papertrader.weather.http import WeatherHttp
-from papertrader.weather.openmeteo import fetch_openmeteo_ensemble
+from papertrader.weather.openmeteo import fetch_openmeteo_ensemble_detail
 from papertrader.weather.openweather import fetch_openweather_daily_high, openweather_api_key
+
+_COMBINED_MODELS = "gfs_seamless,ecmwf_ifs025"
 
 
 @dataclass(frozen=True)
@@ -15,6 +17,7 @@ class EnsembleForecast:
     members_f: tuple[float, ...]
     source: str
     openweather_high_f: float | None = None
+    api_error: str | None = None
 
 
 def fetch_combined_ensemble(
@@ -23,17 +26,25 @@ def fetch_combined_ensemble(
     event_date: date,
 ) -> EnsembleForecast:
     """GFS + ECMWF ensemble members (°F daily max), optional OpenWeather spot check."""
-    gfs = fetch_openmeteo_ensemble(http, city, event_date, models="gfs_seamless")
-    ecmwf = fetch_openmeteo_ensemble(http, city, event_date, models="ecmwf_ifs025")
-    members = gfs + ecmwf
+    members, gfs, ecmwf, api_error = fetch_openmeteo_ensemble_detail(
+        http, city, event_date, models=_COMBINED_MODELS
+    )
     parts = []
     if gfs:
-        parts.append(f"gfs:{len(gfs)}")
+        parts.append(f"gfs:{gfs}")
     if ecmwf:
-        parts.append(f"ecmwf:{len(ecmwf)}")
-    source = "+".join(parts) if parts else "none"
+        parts.append(f"ecmwf:{ecmwf}")
+    if api_error:
+        source = "api_error"
+    else:
+        source = "+".join(parts) if parts else "none"
     ow = fetch_openweather_daily_high(http, city, event_date) if openweather_api_key() else None
-    return EnsembleForecast(members_f=tuple(members), source=source, openweather_high_f=ow)
+    return EnsembleForecast(
+        members_f=tuple(members),
+        source=source,
+        openweather_high_f=ow,
+        api_error=api_error,
+    )
 
 
 def tail_bucket_probability(

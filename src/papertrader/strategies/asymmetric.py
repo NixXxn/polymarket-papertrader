@@ -118,15 +118,17 @@ def analyze_asymmetric_event(
 
     ensemble = fetch_combined_ensemble(http, city, event_date)
     if len(ensemble.members_f) < settings.asymmetric.min_ensemble_members:
+        skip_reason = "ensemble_unavailable" if ensemble.api_error else "thin_ensemble"
         _log_asym(
             engine,
             decision="skip",
-            reason="thin_ensemble",
+            reason=skip_reason,
             city=city,
             event_date=event_date,
             ensemble_members=len(ensemble.members_f),
             ensemble_source=ensemble.source,
             min_members=settings.asymmetric.min_ensemble_members,
+            api_error=ensemble.api_error,
         )
         return None
 
