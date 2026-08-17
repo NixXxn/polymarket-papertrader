@@ -17,6 +17,12 @@ from papertrader.report import account_stats, combine_engines, mark_positions
 from papertrader.live_sync import load_live_open_orders, load_live_sync_meta
 from papertrader.scan_history import load_scan_history
 from papertrader.decision_log import load_decisions
+from papertrader.trade_log import (
+    build_activity_feed,
+    copy_latency_by_trade_id,
+    copy_latency_stats,
+    load_skipped_trades,
+)
 
 
 STRATEGIES = ("safe", "asymmetric", "copy")
