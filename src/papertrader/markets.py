@@ -3,7 +3,8 @@ from __future__ import annotations
 import calendar
 import re
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 from pm_trader.engine import Engine
 from pm_trader.models import ApiError, Market, MarketNotFoundError, OrderBook
@@ -67,6 +68,12 @@ def event_dates(horizon_days: int, today: date | None = None) -> list[date]:
     return [today + timedelta(days=i) for i in range(horizon_days + 1)]
 
 
+def city_local_today(city: City, now: datetime | None = None) -> date:
+    """Calendar 'today' in the city's timezone (used for horizon and day-ahead math)."""
+    now = now or datetime.now(timezone.utc)
+    return now.astimezone(ZoneInfo(city.tz)).date()
+
+
 def best_ask(book: OrderBook) -> tuple[float | None, float]:
     if not book.asks:
         return None, 0.0
@@ -118,11 +125,14 @@ def discover_events(
     cities: list[City],
     settings: Settings,
     today: date | None = None,
+    now: datetime | None = None,
 ) -> list[tuple[str, date, City, list[BucketMarket], float]]:
     """Return (event_slug, date, city, buckets, event_volume) for live temperature events."""
+    now = now or datetime.now(timezone.utc)
     found: list[tuple[str, date, City, list[BucketMarket], float]] = []
     for city in cities:
-        for event_date in event_dates(settings.horizon_days, today):
+        anchor = today or city_local_today(city, now)
+        for event_date in event_dates(settings.horizon_days, anchor):
             slug = temperature_event_slug(city.slug, event_date)
             event = fetch_event(engine, slug)
             if not event:

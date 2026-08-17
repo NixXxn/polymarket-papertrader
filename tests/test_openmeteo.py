@@ -7,7 +7,10 @@ from unittest.mock import MagicMock
 import httpx
 
 from papertrader.weather.http import WeatherHttp
-from papertrader.weather.openmeteo import fetch_openmeteo_ensemble_detail
+from papertrader.weather.openmeteo import (
+    _ENSEMBLE_MAX_RETRIES,
+    fetch_openmeteo_ensemble_detail,
+)
 
 
 def _city():
@@ -89,4 +92,29 @@ def test_ensemble_retries_on_rate_limit(monkeypatch):
     assert err is None
     assert len(members) == 2
     assert gfs == 1 and ecmwf == 1
+    http.close()
+
+
+def test_ensemble_does_not_cache_api_failures(monkeypatch):
+    http = WeatherHttp("test-agent")
+    city = _city()
+    event_date = date(2026, 8, 17)
+    calls = {"n": 0}
+
+    def fake_get(url, params=None):
+        calls["n"] += 1
+        resp = MagicMock()
+        resp.status_code = 429
+        return resp
+
+    monkeypatch.setattr(http.client, "get", fake_get)
+    monkeypatch.setattr("papertrader.weather.openmeteo.time.sleep", lambda *_a, **_k: None)
+    monkeypatch.setattr("papertrader.weather.openmeteo._throttle_ensemble", lambda _http: None)
+
+    first = fetch_openmeteo_ensemble_detail(http, city, event_date)
+    second = fetch_openmeteo_ensemble_detail(http, city, event_date)
+
+    assert first[3] == "rate_limited"
+    assert second[3] == "rate_limited"
+    assert calls["n"] == _ENSEMBLE_MAX_RETRIES * 2
     http.close()

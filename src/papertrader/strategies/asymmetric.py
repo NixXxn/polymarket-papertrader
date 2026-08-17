@@ -14,6 +14,7 @@ from papertrader.markets import (
     best_ask,
     best_bid,
     city_from_market_slug,
+    city_local_today,
     date_from_temp_slug,
 )
 from papertrader.quant.kelly import KellySizingEngine
@@ -21,7 +22,7 @@ from papertrader.quant.shadow_ledger import ShadowLedger
 from papertrader.quant.variance import VarianceCalculator
 from papertrader.signals import QuantMeta, Signal
 from papertrader.sizing import account_cash
-from papertrader.weather import WeatherHttp, fetch_metar_observed_high, fetch_openmeteo_ensemble
+from papertrader.weather import WeatherHttp, fetch_metar_observed_high
 from papertrader.weather.ensemble import fetch_combined_ensemble, tail_bucket_probability
 from papertrader.weather.impossibility import is_mathematically_impossible
 from papertrader.quant.monitor import monitor_exits
@@ -79,8 +80,8 @@ def analyze_asymmetric_event(
     """Tail-risk arb: buy cheap YES when GFS+ECMWF ensemble >> market price."""
     if not _city_allowed(city, settings):
         return None
-    today = today or date.today()
-    days_ahead = (event_date - today).days
+    local_today = today or city_local_today(city)
+    days_ahead = (event_date - local_today).days
     if days_ahead < 0:
         _log_asym(
             engine,
@@ -331,8 +332,8 @@ def asymmetric_exits(
             continue
 
         observed = fetch_metar_observed_high(http, city, event_date, now)
-        members = fetch_openmeteo_ensemble(http, city, event_date)
-        p95 = ensemble_p95(members)
+        ensemble = fetch_combined_ensemble(http, city, event_date)
+        p95 = ensemble_p95(list(ensemble.members_f))
         dead, why = is_mathematically_impossible(
             rng,
             city=city,

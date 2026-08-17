@@ -9,8 +9,8 @@ import httpx
 from papertrader.config import City
 from papertrader.weather.http import WeatherHttp
 
-_ENSEMBLE_MIN_INTERVAL_S = 0.55
-_ENSEMBLE_MAX_RETRIES = 4
+_ENSEMBLE_MIN_INTERVAL_S = 1.0
+_ENSEMBLE_MAX_RETRIES = 5
 
 
 def _ensemble_cache_key(city: City, event_date: date, models: str) -> tuple[Any, ...]:
@@ -46,7 +46,7 @@ def _parse_ensemble_members(
             continue
         members.append(float(series[idx]))
         lk = key.lower()
-        if "gfs" in lk:
+        if "gfs" in lk or "gefs" in lk:
             gfs += 1
         elif "ecmwf" in lk:
             ecmwf += 1
@@ -138,9 +138,7 @@ def fetch_openmeteo_ensemble_detail(
             break
 
     if data is None:
-        result: tuple[list[float], int, int, str | None] = ([], 0, 0, api_error or "request_failed")
-        cache[key] = result
-        return result
+        return ([], 0, 0, api_error or "request_failed")
 
     members, gfs, ecmwf = _parse_ensemble_members(data, event_date)
     result = (members, gfs, ecmwf, None)

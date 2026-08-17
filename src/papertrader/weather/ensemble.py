@@ -6,7 +6,11 @@ from datetime import date
 from papertrader.buckets import TempRange, p_bucket_ensemble
 from papertrader.config import City
 from papertrader.weather.http import WeatherHttp
-from papertrader.weather.openmeteo import fetch_openmeteo_ensemble_detail
+from papertrader.weather.metar import fetch_metar_observed_high
+from papertrader.weather.openmeteo import (
+    fetch_openmeteo_ensemble_detail,
+    fetch_openmeteo_high,
+)
 from papertrader.weather.openweather import fetch_openweather_daily_high, openweather_api_key
 
 _COMBINED_MODELS = "gfs_seamless,ecmwf_ifs025"
@@ -18,6 +22,29 @@ class EnsembleForecast:
     source: str
     openweather_high_f: float | None = None
     api_error: str | None = None
+
+
+def _metar_forecast_fallback(
+    http: WeatherHttp,
+    city: City,
+    event_date: date,
+) -> tuple[list[float], str]:
+    """Build a pseudo-ensemble when Open-Meteo has no row for this local date."""
+    members: list[float] = []
+    parts: list[str] = []
+    observed = fetch_metar_observed_high(http, city, event_date)
+    if observed is not None:
+        members.extend([observed] * 12)
+        parts.append("metar")
+    ow = fetch_openweather_daily_high(http, city, event_date) if openweather_api_key() else None
+    if ow is not None:
+        members.extend([ow] * 8)
+        parts.append("openweather")
+    det = fetch_openmeteo_high(http, city, event_date)
+    if det is not None:
+        members.extend([det] * 8)
+        parts.append("forecast")
+    return members, "+".join(parts)
 
 
 def fetch_combined_ensemble(
@@ -36,15 +63,39 @@ def fetch_combined_ensemble(
         parts.append(f"ecmwf:{ecmwf}")
     if api_error:
         source = "api_error"
+    elif parts:
+        source = "+".join(parts)
     else:
-        source = "+".join(parts) if parts else "none"
+        source = "none"
+
     ow = fetch_openweather_daily_high(http, city, event_date) if openweather_api_key() else None
+
+    if api_error is None and len(members) < 8:
+        fallback, fsource = _metar_forecast_fallback(http, city, event_date)
+        if fallback:
+            members = fallback
+            source = fsource
+
     return EnsembleForecast(
         members_f=tuple(members),
         source=source,
         openweather_high_f=ow,
         api_error=api_error,
     )
+
+
+def prefetch_combined_ensembles(
+    http: WeatherHttp,
+    events: list[tuple[object, date, City, object, object]],
+) -> None:
+    """Warm the ensemble cache once per city/date before per-bucket analysis."""
+    seen: set[tuple[str, str]] = set()
+    for _slug, event_date, city, _buckets, _vol in events:
+        key = (city.slug, event_date.isoformat())
+        if key in seen:
+            continue
+        seen.add(key)
+        fetch_combined_ensemble(http, city, event_date)
 
 
 def tail_bucket_probability(

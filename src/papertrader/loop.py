@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 import time
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 from pm_trader.engine import Engine
@@ -14,7 +14,7 @@ from papertrader.live import LiveTrader
 from papertrader.quant.position_state import PositionExitStore
 from papertrader.copytrade import sync_copy_trades
 from papertrader.decision_log import log_decision, purge_stale_logs
-from papertrader.markets import discover_events, event_dates, temperature_event_slug
+from papertrader.markets import city_local_today, discover_events, event_dates, temperature_event_slug
 from papertrader.report import ScanCounts, combine_engines, format_scan_update
 from papertrader.scan_history import append_scan
 from papertrader.signals import Signal
@@ -22,6 +22,7 @@ from papertrader.trade_log import append_activity, append_skipped
 from papertrader.strategies.asymmetric import analyze_asymmetric_event, asymmetric_exits
 from papertrader.strategies.safe import analyze_safe_event, safe_exits
 from papertrader.weather import WeatherHttp
+from papertrader.weather.ensemble import prefetch_combined_ensembles
 
 log = logging.getLogger("papertrader")
 
@@ -82,11 +83,12 @@ def _log_missing_markets(
     cities: list,
     events: list,
     settings: Settings,
-    today: date,
+    now: datetime | None = None,
 ) -> None:
+    now = now or datetime.now(timezone.utc)
     seen = {(city.slug, event_date) for _slug, event_date, city, _buckets, _vol in events}
     for city in cities:
-        for event_date in event_dates(settings.horizon_days, today):
+        for event_date in event_dates(settings.horizon_days, city_local_today(city, now)):
             if (city.slug, event_date) in seen:
                 continue
             log_decision(
@@ -269,6 +271,7 @@ def scan_once(
     emitted: list[Signal] = []
     counts = ScanCounts()
     today = today or date.today()
+    now = datetime.now(timezone.utc)
     ctx = ctx or ExecutionContext()
     if live is not None and not ctx.balance_checked:
         ctx.wallet_balance = live.client.get_balance()
@@ -299,9 +302,9 @@ def scan_once(
                 counts.fills += 1
                 counts.risk_exits += 1
         cities = [settings.cities[s] for s in settings.safe.cities if s in settings.cities]
-        events = discover_events(safe_engine, cities, settings, today)
+        events = discover_events(safe_engine, cities, settings, now=now)
         _log_missing_markets(
-            safe_engine, strategy="safe", cities=cities, events=events, settings=settings, today=today
+            safe_engine, strategy="safe", cities=cities, events=events, settings=settings, now=now
         )
         positions = safe_engine.db.get_open_positions()
         for _slug, event_date, city, buckets, _vol in events:
@@ -338,15 +341,16 @@ def scan_once(
         cities = settings.cities_for("asymmetric")
         if settings.asymmetric.cities:
             cities = [settings.cities[s] for s in settings.asymmetric.cities if s in settings.cities]
-        events = discover_events(asymmetric_engine, cities, settings, today)
+        events = discover_events(asymmetric_engine, cities, settings, now=now)
         _log_missing_markets(
             asymmetric_engine,
             strategy="asymmetric",
             cities=cities,
             events=events,
             settings=settings,
-            today=today,
+            now=now,
         )
+        prefetch_combined_ensembles(http, events)
         positions = asymmetric_engine.db.get_open_positions()
         for _slug, event_date, city, buckets, _vol in events:
             counts.candidates += len(buckets)
@@ -358,7 +362,6 @@ def scan_once(
                 buckets,
                 settings,
                 positions,
-                today,
             )
             if sig:
                 filled = execute_signal(asymmetric_engine, sig, dry_run, live=live, ctx=ctx, strategy="asymmetric")

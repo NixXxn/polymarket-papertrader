@@ -102,7 +102,6 @@ def test_asymmetric_exits_skips_duplicate_partial_tp(tmp_path, monkeypatch):
     import papertrader.strategies.asymmetric as asym_mod
 
     monkeypatch.setattr(asym_mod, "fetch_metar_observed_high", lambda *a, **k: None)
-    monkeypatch.setattr(asym_mod, "fetch_openmeteo_ensemble", lambda *a, **k: [])
     monkeypatch.setattr(
         asym_mod,
         "fetch_combined_ensemble",
