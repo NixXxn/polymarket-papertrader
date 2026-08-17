@@ -183,7 +183,7 @@ def build_activity_feed(data_dir: Path | str, limit: int = 250) -> list[dict[str
                 "level": row.get("level", "info"),
                 "event": row.get("decision", "decision"),
                 "strategy": row.get("strategy", "unknown"),
-                "message": row.get("reason") or "",
+                "message": row.get("skip_summary") or row.get("reason") or "",
                 "source": "decision",
                 "city": row.get("city"),
                 "event_date": row.get("event_date"),

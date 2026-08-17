@@ -12,7 +12,7 @@ from papertrader.buckets import (
     select_best_bucket,
 )
 from papertrader.config import City, Settings
-from papertrader.decision_log import log_decision
+from papertrader.decision_log import format_skip_summary, log_decision
 from papertrader.gfs import effective_edge_threshold, gfs_in_window
 from papertrader.markets import (
     BucketMarket,
@@ -125,8 +125,14 @@ def analyze_safe_event(
         except Exception:
             rejects["order_book_error"] = rejects.get("order_book_error", 0) + 1
             continue
-        ask, _size = best_ask(book)
-        if ask is None or ask >= settings.safe.max_ask:
+        ask, ask_size = best_ask(book)
+        if ask is None:
+            rejects["no_ask"] = rejects.get("no_ask", 0) + 1
+            continue
+        if ask_size < settings.min_best_ask_size:
+            rejects["ask_size_too_small"] = rejects.get("ask_size_too_small", 0) + 1
+            continue
+        if ask >= settings.safe.max_ask:
             rejects["ask_too_high"] = rejects.get("ask_too_high", 0) + 1
             continue
         edge = (settings.forecast_confidence - ask) / ask if ask > 0 else 0.0
@@ -154,6 +160,7 @@ def analyze_safe_event(
             edge_threshold=threshold,
             buckets_scanned=len(buckets),
             rejects=rejects,
+            skip_summary=format_skip_summary(rejects),
         )
         return None
     bucket: BucketMarket = best["bucket"]

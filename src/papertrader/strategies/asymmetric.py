@@ -8,7 +8,7 @@ from pm_trader.models import Position
 
 from papertrader.buckets import parse_temperature_range
 from papertrader.config import City, Settings
-from papertrader.decision_log import log_decision
+from papertrader.decision_log import classify_ask_reject, format_skip_summary, log_decision
 from papertrader.markets import (
     BucketMarket,
     best_ask,
@@ -137,19 +137,29 @@ def analyze_asymmetric_event(
     candidates: list[dict] = []
     rejects: dict[str, int] = defaultdict(int)
     best_near: dict | None = None
+    notable_buckets: list[dict] = []
 
-    def _near_miss(bucket: BucketMarket, ask: float, p_model: float, fail: str) -> None:
+    def _near_miss(
+        bucket: BucketMarket,
+        ask: float | None,
+        ask_size: float,
+        p_model: float,
+        fail: str,
+    ) -> None:
         nonlocal best_near
-        ratio = p_model / ask if ask > 0 else 0.0
+        ratio = p_model / ask if ask and ask > 0 else 0.0
         row = {
             "bucket": bucket.bucket_text,
-            "ask": round(ask, 4),
+            "ask": round(ask, 4) if ask is not None else None,
+            "size": round(ask_size, 2),
             "p_model": round(p_model, 4),
-            "ratio": round(ratio, 2),
+            "ratio": round(ratio, 2) if ratio else None,
             "fail": fail,
         }
-        if best_near is None or row["ratio"] > best_near["ratio"]:
-            best_near = row
+        notable_buckets.append(row)
+        if fail in {"low_model_prob", "low_prob_ratio", "low_edge"} and ask and ask > 0:
+            if best_near is None or (row["ratio"] or 0) > (best_near.get("ratio") or 0):
+                best_near = row
 
     for bucket in buckets:
         if _already_in(open_positions, bucket.market.condition_id):
@@ -162,15 +172,22 @@ def analyze_asymmetric_event(
             rejects["order_book_error"] += 1
             continue
         ask, ask_size = best_ask(book)
-        if ask is None or ask_size < settings.min_best_ask_size:
-            rejects["illiquid_ask"] += 1
-            continue
-        if not (cfg.min_ask <= ask <= cfg.max_ask):
-            rejects["ask_out_of_range"] += 1
+        p_model, src = tail_bucket_probability(ensemble, bucket.rng)
+
+        ask_fail = classify_ask_reject(
+            ask,
+            ask_size,
+            min_ask=cfg.min_ask,
+            max_ask=cfg.max_ask,
+            min_size=settings.min_best_ask_size,
+        )
+        if ask_fail:
+            rejects[ask_fail] += 1
+            if p_model >= cfg.min_model_prob * 0.5:
+                _near_miss(bucket, ask, ask_size, p_model, ask_fail)
             continue
 
-        p_model, src = tail_bucket_probability(ensemble, bucket.rng)
-        ow_est = _VARIANCE.from_openweather(http, city, event_date, bucket.rng, today=today)
+        ow_est = _VARIANCE.from_openweather(http, city, event_date, bucket.rng, today=local_today)
         sigma = _VARIANCE.sigma_for_horizon(days_ahead)
         if ow_est is not None:
             p_model = max(p_model, ow_est.p)
@@ -179,15 +196,15 @@ def analyze_asymmetric_event(
 
         if p_model < cfg.min_model_prob:
             rejects["low_model_prob"] += 1
-            _near_miss(bucket, ask, p_model, "low_model_prob")
+            _near_miss(bucket, ask, ask_size, p_model, "low_model_prob")
             continue
         if ask <= 0 or p_model / ask < cfg.min_prob_ratio:
             rejects["low_prob_ratio"] += 1
-            _near_miss(bucket, ask, p_model, "low_prob_ratio")
+            _near_miss(bucket, ask, ask_size, p_model, "low_prob_ratio")
             continue
         if p_model - ask < cfg.min_edge:
             rejects["low_edge"] += 1
-            _near_miss(bucket, ask, p_model, "low_edge")
+            _near_miss(bucket, ask, ask_size, p_model, "low_edge")
             continue
         candidates.append(
             {
@@ -202,6 +219,7 @@ def analyze_asymmetric_event(
         )
 
     if not candidates:
+        notable_buckets.sort(key=lambda row: row["p_model"], reverse=True)
         _log_asym(
             engine,
             decision="skip",
@@ -210,7 +228,9 @@ def analyze_asymmetric_event(
             event_date=event_date,
             buckets_scanned=len(buckets),
             rejects=dict(rejects),
+            skip_summary=format_skip_summary(dict(rejects)),
             near_miss=best_near,
+            notable_buckets=notable_buckets[:5],
             ensemble_members=len(ensemble.members_f),
             ensemble_source=ensemble.source,
             openweather_high=ensemble.openweather_high_f,

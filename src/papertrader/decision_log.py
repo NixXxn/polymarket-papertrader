@@ -127,3 +127,45 @@ def load_decisions(data_dir: Path | str, limit: int = 500) -> list[dict[str, Any
         except json.JSONDecodeError:
             continue
     return list(reversed(rows))
+
+
+REJECT_LABELS: dict[str, str] = {
+    "no_ask": "kein Ask im Orderbuch",
+    "ask_size_too_small": "zu wenig Volumen am Ask",
+    "ask_too_cheap": "Ask unter Mindestpreis (Markt quasi settled)",
+    "ask_too_expensive": "Ask über Tail-Budget (>10¢)",
+    "already_in_position": "Position bereits offen",
+    "order_book_error": "Orderbuch nicht lesbar",
+    "low_model_prob": "Modell-Wahrscheinlichkeit zu niedrig",
+    "low_prob_ratio": "Preis/Leistung-Verhältnis zu niedrig",
+    "low_edge": "Edge zu klein",
+    "forecast_mismatch": "Forecast passt nicht zum Bucket",
+    "ask_too_high": "Ask zu hoch",
+}
+
+
+def classify_ask_reject(
+    ask: float | None,
+    ask_size: float,
+    *,
+    min_ask: float,
+    max_ask: float,
+    min_size: float,
+) -> str | None:
+    if ask is None:
+        return "no_ask"
+    if ask_size < min_size:
+        return "ask_size_too_small"
+    if ask < min_ask:
+        return "ask_too_cheap"
+    if ask > max_ask:
+        return "ask_too_expensive"
+    return None
+
+
+def format_skip_summary(rejects: dict[str, int]) -> str:
+    parts = []
+    for key, count in sorted(rejects.items(), key=lambda item: (-item[1], item[0])):
+        label = REJECT_LABELS.get(key, key)
+        parts.append(f"{count}× {label}")
+    return "; ".join(parts)

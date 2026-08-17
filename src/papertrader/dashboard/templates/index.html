@@ -194,6 +194,28 @@
   const dt = s => s ? new Date(s).toLocaleString('de-DE') : '–';
   const esc = v => String(v??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
   const ms = n => n == null ? '–' : `${Math.round(Number(n)).toLocaleString('de-DE')} ms`;
+  const REJECT_LABELS = {
+    no_ask: 'kein Ask',
+    ask_size_too_small: 'zu wenig Volumen',
+    ask_too_cheap: 'Ask <2¢ (settled)',
+    ask_too_expensive: 'Ask >10¢',
+    already_in_position: 'bereits investiert',
+    order_book_error: 'Orderbuch-Fehler',
+    low_model_prob: 'Modell <20%',
+    low_prob_ratio: 'Ratio zu niedrig',
+    low_edge: 'Edge zu klein',
+    forecast_mismatch: 'Forecast passt nicht',
+    ask_too_high: 'Ask zu hoch',
+  };
+  const failLabel = k => REJECT_LABELS[k] || k;
+  const formatNotable = rows => {
+    if (!rows || !rows.length) return '';
+    return rows.map(b => {
+      const ask = b.ask == null ? 'kein Ask' : `${price(b.ask)}¢`;
+      const p = b.p_model != null ? `${Math.round(b.p_model * 100)}%` : '–';
+      return `${b.bucket}: ${ask}, P=${p} → ${failLabel(b.fail)}`;
+    }).join(' | ');
+  };
 
   function pnlClass(v) { return Number(v) >= 0 ? 'good' : 'bad'; }
 
@@ -275,12 +297,19 @@
       const level = (r.level || 'info').toLowerCase();
       const decision = (r.decision || r.event || '–').toLowerCase();
       const tr = document.createElement('tr');
-      const detailParts = [r.message || r.reason || ''];
+      const detailParts = [];
+      const headline = r.skip_summary || r.message || r.reason || '';
+      if (headline) detailParts.push(headline);
       if (r.city) detailParts.push(`${r.city}${r.event_date ? ' · ' + r.event_date : ''}`);
+      if (r.ensemble_members != null) detailParts.push(`Ensemble ${r.ensemble_members} (${r.ensemble_source || '–'})`);
+      if (r.api_error) detailParts.push(`API: ${r.api_error}`);
+      if (r.notable_buckets && r.notable_buckets.length) detailParts.push(formatNotable(r.notable_buckets));
+      else if (r.near_miss) {
+        const n = r.near_miss;
+        detailParts.push(`Nächster Kandidat: ${n.bucket} Ask ${n.ask == null ? 'kein' : price(n.ask)+'¢'}, P=${Math.round((n.p_model||0)*100)}% → ${failLabel(n.fail)}`);
+      }
       if (r.bucket) detailParts.push(r.bucket);
       if (r.slug) detailParts.push(r.slug);
-      if (r.near_miss) detailParts.push('near: ' + JSON.stringify(r.near_miss));
-      if (r.rejects) detailParts.push('rejects: ' + JSON.stringify(r.rejects));
       if (r.latency_ms != null) detailParts.push(`detect ${ms(r.latency_ms)}`);
       if (r.fill_latency_ms != null) detailParts.push(`fill ${ms(r.fill_latency_ms)}`);
       if (r.order_id) detailParts.push(`order ${r.order_id}`);
