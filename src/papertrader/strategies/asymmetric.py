@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import date, datetime, timezone
 
 from pm_trader.engine import Engine
@@ -7,6 +8,7 @@ from pm_trader.models import Position
 
 from papertrader.buckets import parse_temperature_range
 from papertrader.config import City, Settings
+from papertrader.decision_log import log_decision
 from papertrader.markets import (
     BucketMarket,
     best_ask,
@@ -44,6 +46,26 @@ def _city_allowed(city: City, settings: Settings) -> bool:
     return "asymmetric" in city.strategies
 
 
+def _log_asym(
+    engine: Engine,
+    *,
+    decision: str,
+    reason: str,
+    city: City,
+    event_date: date,
+    **extra,
+) -> None:
+    log_decision(
+        engine.db.data_dir,
+        strategy="asymmetric",
+        decision=decision,
+        reason=reason,
+        city=city.slug,
+        event_date=event_date,
+        **extra,
+    )
+
+
 def analyze_asymmetric_event(
     engine: Engine,
     http: WeatherHttp,
@@ -60,32 +82,88 @@ def analyze_asymmetric_event(
     today = today or date.today()
     days_ahead = (event_date - today).days
     if days_ahead < 0:
+        _log_asym(
+            engine,
+            decision="skip",
+            reason="event_date_in_past",
+            city=city,
+            event_date=event_date,
+            days_ahead=days_ahead,
+        )
         return None
     if len(open_positions) >= settings.asymmetric.max_open_positions:
+        _log_asym(
+            engine,
+            decision="skip",
+            reason="max_open_positions",
+            city=city,
+            event_date=event_date,
+            open_positions=len(open_positions),
+            max_open=settings.asymmetric.max_open_positions,
+        )
         return None
 
     event_volume = buckets[0].event_volume if buckets else 0.0
     if event_volume < settings.asymmetric.min_event_volume:
+        _log_asym(
+            engine,
+            decision="skip",
+            reason="low_event_volume",
+            city=city,
+            event_date=event_date,
+            event_volume=event_volume,
+            min_volume=settings.asymmetric.min_event_volume,
+        )
         return None
 
     ensemble = fetch_combined_ensemble(http, city, event_date)
     if len(ensemble.members_f) < settings.asymmetric.min_ensemble_members:
+        _log_asym(
+            engine,
+            decision="skip",
+            reason="thin_ensemble",
+            city=city,
+            event_date=event_date,
+            ensemble_members=len(ensemble.members_f),
+            ensemble_source=ensemble.source,
+            min_members=settings.asymmetric.min_ensemble_members,
+        )
         return None
 
     cfg = settings.asymmetric
     candidates: list[dict] = []
+    rejects: dict[str, int] = defaultdict(int)
+    best_near: dict | None = None
+
+    def _near_miss(bucket: BucketMarket, ask: float, p_model: float, fail: str) -> None:
+        nonlocal best_near
+        ratio = p_model / ask if ask > 0 else 0.0
+        row = {
+            "bucket": bucket.bucket_text,
+            "ask": round(ask, 4),
+            "p_model": round(p_model, 4),
+            "ratio": round(ratio, 2),
+            "fail": fail,
+        }
+        if best_near is None or row["ratio"] > best_near["ratio"]:
+            best_near = row
+
     for bucket in buckets:
         if _already_in(open_positions, bucket.market.condition_id):
+            rejects["already_in_position"] += 1
             continue
         try:
             token = bucket.market.get_token_id("yes")
             book = engine.api.get_order_book(token)
         except Exception:
+            rejects["order_book_error"] += 1
             continue
         ask, ask_size = best_ask(book)
         if ask is None or ask_size < settings.min_best_ask_size:
+            rejects["illiquid_ask"] += 1
             continue
         if not (cfg.min_ask <= ask <= cfg.max_ask):
+            rejects["ask_out_of_range"] += 1
             continue
 
         p_model, src = tail_bucket_probability(ensemble, bucket.rng)
@@ -97,10 +175,16 @@ def analyze_asymmetric_event(
             sigma = ow_est.sigma_f
 
         if p_model < cfg.min_model_prob:
+            rejects["low_model_prob"] += 1
+            _near_miss(bucket, ask, p_model, "low_model_prob")
             continue
         if ask <= 0 or p_model / ask < cfg.min_prob_ratio:
+            rejects["low_prob_ratio"] += 1
+            _near_miss(bucket, ask, p_model, "low_prob_ratio")
             continue
         if p_model - ask < cfg.min_edge:
+            rejects["low_edge"] += 1
+            _near_miss(bucket, ask, p_model, "low_edge")
             continue
         candidates.append(
             {
@@ -115,6 +199,20 @@ def analyze_asymmetric_event(
         )
 
     if not candidates:
+        _log_asym(
+            engine,
+            decision="skip",
+            reason="no_tail_candidates",
+            city=city,
+            event_date=event_date,
+            buckets_scanned=len(buckets),
+            rejects=dict(rejects),
+            near_miss=best_near,
+            ensemble_members=len(ensemble.members_f),
+            ensemble_source=ensemble.source,
+            openweather_high=ensemble.openweather_high_f,
+            days_ahead=days_ahead,
+        )
         return None
     # Prefer the largest model-vs-market gap on the cheapest asks.
     best = max(candidates, key=lambda c: (c["ratio"], c["edge"]))
@@ -122,6 +220,18 @@ def analyze_asymmetric_event(
     bankroll = account_cash(engine, settings.starting_balance)
     kelly = _KELLY.compute(best["p_model"], best["ask"], bankroll)
     if kelly.skipped or kelly.stake_usd is None:
+        _log_asym(
+            engine,
+            decision="skip",
+            reason="kelly_rejected",
+            city=city,
+            event_date=event_date,
+            bucket=bucket.bucket_text,
+            ask=best["ask"],
+            p_model=best["p_model"],
+            kelly_skip_reason=kelly.reason,
+            days_ahead=days_ahead,
+        )
         return None
 
     shadow = ShadowLedger(engine.db.data_dir)
@@ -136,6 +246,29 @@ def analyze_asymmetric_event(
         f_star=f_star,
         stake_usd=kelly.stake_usd,
         extra={"source": best["src"], "quarter_f": kelly.quarter_f},
+    )
+
+    reason = (
+        f"tail {bucket.bucket_text} limit@{best['ask']:.3f} "
+        f"P={best['p_model']:.2f} f*={f_star:.3f} qk=${kelly.stake_usd:.2f} "
+        f"({best['src']}) d+{days_ahead}"
+    )
+    _log_asym(
+        engine,
+        decision="buy",
+        reason=reason,
+        city=city,
+        event_date=event_date,
+        slug=bucket.market.slug,
+        bucket=bucket.bucket_text,
+        action="buy",
+        ask=best["ask"],
+        p_model=best["p_model"],
+        stake_usd=kelly.stake_usd,
+        edge=best["edge"],
+        ratio=best["ratio"],
+        source=best["src"],
+        days_ahead=days_ahead,
     )
 
     return Signal(
@@ -155,9 +288,7 @@ def analyze_asymmetric_event(
             source=best["src"],
         ),
         reason=(
-            f"tail {bucket.bucket_text} limit@{best['ask']:.3f} "
-            f"P={best['p_model']:.2f} f*={f_star:.3f} qk=${kelly.stake_usd:.2f} "
-            f"({best['src']}) d+{days_ahead}"
+            reason
         ),
     )
 
@@ -232,6 +363,18 @@ def asymmetric_exits(
         if reason is None:
             continue
         exit_store.clear(pos.market_condition_id, pos.outcome)
+        _log_asym(
+            engine,
+            decision="sell",
+            reason=reason,
+            city=city,
+            event_date=event_date,
+            slug=pos.market_slug,
+            bucket=pos.market_question,
+            action="sell",
+            shares=pos.shares,
+            bid=bid,
+        )
         signals.append(
             Signal(
                 action="sell",

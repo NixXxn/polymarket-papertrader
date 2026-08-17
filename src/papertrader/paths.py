@@ -14,3 +14,11 @@ def data_dir_from_env(explicit: Path | None = None) -> Path:
     if raw:
         return Path(raw)
     return DEFAULT_DATA_DIR
+
+
+def root_data_dir(path: Path | str) -> Path:
+    """Strategy engines live in {root}/{strategy}/; logs go under {root}/."""
+    root = Path(path)
+    if root.name in ("safe", "asymmetric", "copy", "edge"):
+        return root.parent
+    return root

@@ -16,12 +16,7 @@ from papertrader.paths import DEFAULT_LIVE_DATA_DIR, data_dir_from_env
 from papertrader.report import account_stats, combine_engines, mark_positions
 from papertrader.live_sync import load_live_open_orders, load_live_sync_meta
 from papertrader.scan_history import load_scan_history
-from papertrader.trade_log import (
-    build_activity_feed,
-    copy_latency_by_trade_id,
-    copy_latency_stats,
-    load_skipped_trades,
-)
+from papertrader.decision_log import load_decisions
 
 
 STRATEGIES = ("safe", "asymmetric", "copy")
@@ -209,7 +204,8 @@ def fetch_dashboard(
                 "copy": _copy_meta(resolved.data_dir, settings),
                 "skipped_trades": load_skipped_trades(resolved.data_dir),
                 "activity_log": build_activity_feed(resolved.data_dir),
-                "live_open_orders": load_live_open_orders(resolved.data_dir),
+                "decisions": load_decisions(resolved.data_dir),
+                "live_open_orders": [],
                 "live_sync": load_live_sync_meta(resolved.data_dir),
             }
 
@@ -288,6 +284,7 @@ def fetch_dashboard(
             "copy": _copy_meta(resolved.data_dir, settings),
             "skipped_trades": load_skipped_trades(resolved.data_dir),
             "activity_log": build_activity_feed(resolved.data_dir),
+            "decisions": load_decisions(resolved.data_dir),
             "live_open_orders": load_live_open_orders(resolved.data_dir),
             "live_sync": load_live_sync_meta(resolved.data_dir),
         }

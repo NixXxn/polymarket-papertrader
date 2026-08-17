@@ -7,10 +7,13 @@ from zoneinfo import ZoneInfo
 from pm_trader.engine import Engine
 from pm_trader.models import Position
 
+from pathlib import Path
+
 from papertrader.config import City
 from papertrader.markets import best_bid, city_from_market_slug, date_from_temp_slug
 from papertrader.quant.position_state import PositionExitStore
 from papertrader.quant.shadow_ledger import ShadowLedger
+from papertrader.decision_log import log_decision
 from papertrader.signals import Signal
 
 
@@ -25,6 +28,12 @@ class MonitorConfig:
 def resolution_deadline(city: City, event_date: date, hour: int = 23) -> datetime:
     local = datetime(event_date.year, event_date.month, event_date.day, hour, 0, 0)
     return local.replace(tzinfo=ZoneInfo(city.tz))
+
+
+def _engine_data_dir(engine: Engine) -> Path | None:
+    db = getattr(engine, "db", None)
+    data_dir = getattr(db, "data_dir", None)
+    return Path(data_dir) if data_dir else None
 
 
 def monitor_exits(
@@ -71,6 +80,20 @@ def monitor_exits(
         if now >= hard_exit_at_utc:
             if exit_store is not None and condition_id:
                 exit_store.clear(condition_id, pos.outcome)
+            data_dir = _engine_data_dir(engine)
+            if data_dir is not None:
+                log_decision(
+                    data_dir,
+                    strategy="asymmetric",
+                    decision="sell",
+                    reason=f"time stop: <{cfg.hours_before_resolution}h to resolution",
+                    city=city.slug,
+                    event_date=event_date,
+                    slug=pos.market_slug,
+                    action="sell",
+                    shares=pos.shares,
+                    bid=bid,
+                )
             signals.append(
                 Signal(
                     action="sell",
@@ -97,6 +120,21 @@ def monitor_exits(
                 if exit_store is not None and condition_id:
                     exit_store.mark_partial_tp(
                         condition_id, pos.outcome, market_slug=pos.market_slug
+                    )
+                data_dir = _engine_data_dir(engine)
+                if data_dir is not None:
+                    log_decision(
+                        data_dir,
+                        strategy="asymmetric",
+                        decision="sell",
+                        reason=f"limit TP 50% @ {tp_price:.3f} (bid={bid:.3f})",
+                        city=city.slug,
+                        event_date=event_date,
+                        slug=pos.market_slug,
+                        action="sell",
+                        shares=sell_shares,
+                        bid=bid,
+                        partial_exit=True,
                     )
                 signals.append(
                     Signal(

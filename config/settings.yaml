@@ -43,7 +43,32 @@ asymmetric:
   max_open_positions: 8
   max_hourly_rise_f: 4.0
   high_hour_local: 20
-  cities: [denver, chicago, dallas, phoenix, houston, austin, wellington, london, nyc]
+  cities:
+    [
+      denver,
+      chicago,
+      dallas,
+      phoenix,
+      houston,
+      austin,
+      nyc,
+      london,
+      wellington,
+      cape-town,
+      munich,
+      guangzhou,
+      warsaw,
+      karachi,
+      beijing,
+      wuhan,
+      seoul,
+      shanghai,
+      tokyo,
+      busan,
+      chongqing,
+      manila,
+      vienna,
+    ]
 
 copy:
   wallet: "0x09b045baad1fbe115c70785635a261411774a3b6"

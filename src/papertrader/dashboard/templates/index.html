@@ -55,7 +55,12 @@
     .level-info { color:var(--accent); }
     .level-warn { color:var(--warn); }
     .level-error { color:var(--bad); }
+    .decision-buy { color:var(--good); }
+    .decision-skip { color:var(--muted); }
+    .decision-sell { color:var(--warn); }
+    .decision-dry_run { color:var(--accent); }
     .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
+    .filter-row { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
     @media (max-width:600px) { .grid,.grid-3 { grid-template-columns:repeat(2,minmax(0,1fr)); } .wrap{padding:14px} }
   </style>
 </head>
@@ -95,8 +100,19 @@
   </div>
 
   <div class="section" id="activitySection">
-    <h2>Aktivitäts-Log</h2>
+    <h2>Aktivitäts- &amp; Entscheidungs-Log</h2>
     <div class="pill-row" id="activityMeta"></div>
+    <div class="filter-row">
+      <select id="activityFilter">
+        <option value="all">Alle Events</option>
+        <option value="buy">Käufe (buy)</option>
+        <option value="skip">Übersprungen (skip)</option>
+        <option value="sell">Verkäufe (sell)</option>
+        <option value="dry_run">Dry-Run</option>
+        <option value="executed">Ausgeführt</option>
+        <option value="error">Fehler</option>
+      </select>
+    </div>
     <div class="table-wrap">
       <table id="activityTable">
         <thead><tr>
@@ -170,6 +186,7 @@
 <script>
   let allTrades = [];
   let allPositions = [];
+  let allActivity = [];
 
   const money = n => new Intl.NumberFormat('de-DE', {style:'currency', currency:'USD'}).format(Number(n||0));
   const pct = n => `${Number(n||0).toLocaleString('de-DE', {maximumFractionDigits:2})}%`;
@@ -228,29 +245,42 @@
   }
 
   function renderActivity(rows, liveSync, mode) {
+    allActivity = rows || [];
     const meta = document.getElementById('activityMeta');
     const sync = liveSync || {};
     const syncPill = mode === 'live'
       ? `<span class="pill">Letzter Sync: ${sync.last_sync ? dt(sync.last_sync) : '–'}</span>
          <span class="pill">${sync.open_orders || 0} offene Orders</span>
-         <span class="pill">${sync.seen_trades || 0} gesehene Trades</span>`
-      : '';
+         <span class="pill">${sync.seen_trades || 0} gesehene Trades</span>
+         <span class="pill">Logs: 3-Tage-Retention</span>`
+      : '<span class="pill">Logs: 3-Tage-Retention</span>';
     meta.innerHTML = syncPill;
+    const filter = document.getElementById('activityFilter').value;
     const tbody = document.getElementById('activityBody');
     const status = document.getElementById('activityStatus');
     tbody.innerHTML = '';
-    if (!rows || !rows.length) {
+    const filtered = allActivity.filter(r => {
+      if (filter === 'all') return true;
+      if (filter === 'error') return r.level === 'error' || r.event === 'skipped_trade';
+      const d = (r.decision || r.event || '').toLowerCase();
+      return d === filter || (filter === 'error' && r.level === 'warn');
+    });
+    if (!filtered.length) {
       status.textContent = 'Noch keine Aktivität protokolliert';
       status.hidden = false;
       return;
     }
     status.hidden = true;
-    for (const r of rows.slice(0, 200)) {
+    for (const r of filtered.slice(0, 300)) {
       const level = (r.level || 'info').toLowerCase();
+      const decision = (r.decision || r.event || '–').toLowerCase();
       const tr = document.createElement('tr');
-      const detailParts = [r.message];
+      const detailParts = [r.message || r.reason || ''];
+      if (r.city) detailParts.push(`${r.city}${r.event_date ? ' · ' + r.event_date : ''}`);
+      if (r.bucket) detailParts.push(r.bucket);
       if (r.slug) detailParts.push(r.slug);
-      if (r.reason) detailParts.push(r.reason);
+      if (r.near_miss) detailParts.push('near: ' + JSON.stringify(r.near_miss));
+      if (r.rejects) detailParts.push('rejects: ' + JSON.stringify(r.rejects));
       if (r.latency_ms != null) detailParts.push(`detect ${ms(r.latency_ms)}`);
       if (r.fill_latency_ms != null) detailParts.push(`fill ${ms(r.fill_latency_ms)}`);
       if (r.order_id) detailParts.push(`order ${r.order_id}`);
@@ -258,7 +288,7 @@
       tr.innerHTML = `
         <td class="muted">${dt(r.ts)}</td>
         <td><span class="badge level-${esc(level)}">${esc(level)}</span></td>
-        <td class="mono">${esc(r.event || r.feed || '–')}</td>
+        <td class="mono decision-${esc(decision)}">${esc(r.decision || r.event || '–')}</td>
         <td><span class="badge strategy-${esc(r.strategy || 'system')}">${esc(r.strategy || 'system')}</span></td>
         <td><div>${esc(detailParts[0] || '')}</div>
             <div class="muted mono">${esc(detailParts.slice(1).join(' · '))}</div></td>`;
@@ -403,6 +433,8 @@
       if (!r.ok || !data.ok) throw new Error(data.error || 'Fehler');
       renderPortfolio(data.portfolio, data);
       renderCopy(data.copy || {});
+      window._liveSync = data.live_sync || {};
+      window._mode = data.mode;
       renderActivity(data.activity_log || [], data.live_sync || {}, data.mode);
       renderOpenOrders(data.live_open_orders || [], data.mode);
       renderSkipped(data.skipped_trades || []);
@@ -418,6 +450,9 @@
     }
   }
 
+  document.getElementById('activityFilter').addEventListener('change', () => {
+    renderActivity(allActivity, window._liveSync || {}, window._mode || 'paper');
+  });
   document.getElementById('refresh').addEventListener('click', load);
   document.getElementById('filter').addEventListener('change', () => { renderTrades(); renderPositions(); });
   document.getElementById('search').addEventListener('input', () => { renderTrades(); renderPositions(); });

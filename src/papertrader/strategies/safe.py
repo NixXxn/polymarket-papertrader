@@ -12,6 +12,7 @@ from papertrader.buckets import (
     select_best_bucket,
 )
 from papertrader.config import City, Settings
+from papertrader.decision_log import log_decision
 from papertrader.gfs import effective_edge_threshold, gfs_in_window
 from papertrader.markets import (
     BucketMarket,
@@ -38,6 +39,26 @@ def _has_event_position(positions: list[Position], event_slug: str) -> bool:
     return False
 
 
+def _log_safe(
+    engine: Engine,
+    *,
+    decision: str,
+    reason: str,
+    city: City,
+    event_date: date,
+    **extra,
+) -> None:
+    log_decision(
+        engine.db.data_dir,
+        strategy="safe",
+        decision=decision,
+        reason=reason,
+        city=city.slug,
+        event_date=event_date,
+        **extra,
+    )
+
+
 def analyze_safe_event(
     engine: Engine,
     http: WeatherHttp,
@@ -51,12 +72,37 @@ def analyze_safe_event(
         return None
     event_slug = buckets[0].event_slug if buckets else None
     if event_slug and _has_event_position(open_positions, event_slug):
+        _log_safe(
+            engine,
+            decision="skip",
+            reason="already_in_event",
+            city=city,
+            event_date=event_date,
+            event_slug=event_slug,
+        )
         return None
     if len(open_positions) >= settings.safe.max_open_positions:
+        _log_safe(
+            engine,
+            decision="skip",
+            reason="max_open_positions",
+            city=city,
+            event_date=event_date,
+            open_positions=len(open_positions),
+        )
         return None
 
     consensus = get_consensus(http, city, event_date, settings)
     if consensus is None or consensus.confidence == "skip":
+        _log_safe(
+            engine,
+            decision="skip",
+            reason="consensus_skip",
+            city=city,
+            event_date=event_date,
+            consensus_temp=getattr(consensus, "temp_f", None),
+            confidence=getattr(consensus, "confidence", None),
+        )
         return None
 
     in_window = gfs_in_window()
@@ -68,19 +114,24 @@ def analyze_safe_event(
         min_edge_low=settings.safe.min_edge_low,
     )
     candidates: list[dict] = []
+    rejects: dict[str, int] = {}
     for bucket in buckets:
         if not forecast_matches_range(consensus.temp_f, bucket.rng):
+            rejects["forecast_mismatch"] = rejects.get("forecast_mismatch", 0) + 1
             continue
         try:
             token = bucket.market.get_token_id("yes")
             book = engine.api.get_order_book(token)
         except Exception:
+            rejects["order_book_error"] = rejects.get("order_book_error", 0) + 1
             continue
         ask, _size = best_ask(book)
         if ask is None or ask >= settings.safe.max_ask:
+            rejects["ask_too_high"] = rejects.get("ask_too_high", 0) + 1
             continue
         edge = (settings.forecast_confidence - ask) / ask if ask > 0 else 0.0
         if edge < threshold:
+            rejects["low_edge"] = rejects.get("low_edge", 0) + 1
             continue
         candidates.append(
             {
@@ -92,6 +143,18 @@ def analyze_safe_event(
         )
     best = select_best_bucket(candidates)
     if best is None:
+        _log_safe(
+            engine,
+            decision="skip",
+            reason="no_matching_bucket",
+            city=city,
+            event_date=event_date,
+            consensus_temp=consensus.temp_f,
+            confidence=consensus.confidence,
+            edge_threshold=threshold,
+            buckets_scanned=len(buckets),
+            rejects=rejects,
+        )
         return None
     bucket: BucketMarket = best["bucket"]
     base = settings.safe.position_usd.get(city.slug, city.position_usd)
@@ -104,7 +167,34 @@ def analyze_safe_event(
         min_usd=settings.min_position_usd,
     )
     if size is None:
+        _log_safe(
+            engine,
+            decision="skip",
+            reason="insufficient_cash_for_size",
+            city=city,
+            event_date=event_date,
+            bucket=bucket.bucket_text,
+        )
         return None
+    reason = (
+        f"safe consensus {consensus.temp_f:.1f}F ({consensus.confidence}) "
+        f"matches {bucket.bucket_text} ask={best['ask']:.3f} "
+        f"edge={best['edge_percent']*100:.1f}%"
+    )
+    _log_safe(
+        engine,
+        decision="buy",
+        reason=reason,
+        city=city,
+        event_date=event_date,
+        slug=bucket.market.slug,
+        bucket=bucket.bucket_text,
+        action="buy",
+        amount_usd=size,
+        ask=best["ask"],
+        consensus_temp=consensus.temp_f,
+        confidence=consensus.confidence,
+    )
     return Signal(
         action="buy",
         slug=bucket.market.slug,
@@ -112,11 +202,7 @@ def analyze_safe_event(
         amount_usd=size,
         city=city,
         event_slug=bucket.event_slug,
-        reason=(
-            f"safe consensus {consensus.temp_f:.1f}F ({consensus.confidence}) "
-            f"matches {bucket.bucket_text} ask={best['ask']:.3f} "
-            f"edge={best['edge_percent']*100:.1f}%"
-        ),
+        reason=reason,
     )
 
 
@@ -149,6 +235,20 @@ def safe_exits(
         bid, _ = best_bid(book)
         if bid is None or bid < settings.safe.min_sell_bid:
             continue
+        reason = f"forecast shifted to {consensus.temp_f:.1f}F, no longer in bucket"
+        log_decision(
+            engine.db.data_dir,
+            strategy="safe",
+            decision="sell",
+            reason=reason,
+            city=city.slug,
+            event_date=event_date,
+            slug=pos.market_slug,
+            action="sell",
+            shares=pos.shares,
+            bid=bid,
+            consensus_temp=consensus.temp_f,
+        )
         signals.append(
             Signal(
                 action="sell",

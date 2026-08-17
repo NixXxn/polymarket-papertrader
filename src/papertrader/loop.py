@@ -13,6 +13,8 @@ from papertrader.execution import ExecutionContext, log_fill_latency
 from papertrader.live import LiveTrader
 from papertrader.quant.position_state import PositionExitStore
 from papertrader.copytrade import sync_copy_trades
+from papertrader.decision_log import log_decision, purge_stale_logs
+from papertrader.markets import discover_events, event_dates, temperature_event_slug
 from papertrader.report import ScanCounts, combine_engines, format_scan_update
 from papertrader.scan_history import append_scan
 from papertrader.signals import Signal
@@ -57,6 +59,47 @@ def _sync_live_engines(
             )
 
 
+def _purge_logs(engines: list[Engine]) -> None:
+    if not engines:
+        return
+    removed = purge_stale_logs(engines[0].db.data_dir)
+    total = sum(removed.values())
+    if total:
+        append_activity(
+            engines[0].db.data_dir,
+            level="info",
+            event="log_purge",
+            strategy="system",
+            message=f"purged {total} log line(s) older than 3 days",
+            removed=removed,
+        )
+
+
+def _log_missing_markets(
+    engine: Engine,
+    *,
+    strategy: str,
+    cities: list,
+    events: list,
+    settings: Settings,
+    today: date,
+) -> None:
+    seen = {(city.slug, event_date) for _slug, event_date, city, _buckets, _vol in events}
+    for city in cities:
+        for event_date in event_dates(settings.horizon_days, today):
+            if (city.slug, event_date) in seen:
+                continue
+            log_decision(
+                engine.db.data_dir,
+                strategy=strategy,
+                decision="skip",
+                reason="no_polymarket_event",
+                city=city.slug,
+                event_date=event_date,
+                event_slug=temperature_event_slug(city.slug, event_date),
+            )
+
+
 def execute_signal(
     engine: Engine,
     signal: Signal,
@@ -66,6 +109,17 @@ def execute_signal(
     strategy: str = "unknown",
 ) -> bool:
     if dry_run:
+        log_decision(
+            engine.db.data_dir,
+            strategy=strategy,
+            decision="dry_run",
+            reason=signal.reason,
+            city=signal.city.slug if signal.city else None,
+            slug=signal.slug,
+            action=signal.action,
+            amount_usd=signal.amount_usd,
+            shares=signal.shares,
+        )
         log.info(
             "DRY-RUN %s %s %s usd=%s shares=%s — %s",
             signal.action,
@@ -81,6 +135,18 @@ def execute_signal(
         if live is not None:
             filled = live.fill(engine, signal, ctx=ctx, strategy=strategy)
             log_fill_latency(f"LIVE {signal.action.upper()} {signal.slug}", started)
+            if filled:
+                log_decision(
+                    engine.db.data_dir,
+                    strategy=strategy,
+                    decision="executed",
+                    reason=signal.reason,
+                    city=signal.city.slug if signal.city else None,
+                    slug=signal.slug,
+                    action=signal.action,
+                    amount_usd=signal.amount_usd,
+                    shares=signal.shares,
+                )
             return filled
         if signal.order_type == "limit" and signal.limit_price is not None:
             if signal.action == "buy":
@@ -135,6 +201,17 @@ def execute_signal(
                 signal.reason,
             )
             log_fill_latency(f"PAPER SELL {signal.slug}", started)
+        log_decision(
+            engine.db.data_dir,
+            strategy=strategy,
+            decision="executed",
+            reason=signal.reason,
+            city=signal.city.slug if signal.city else None,
+            slug=signal.slug,
+            action=signal.action,
+            amount_usd=signal.amount_usd,
+            shares=signal.shares,
+        )
         return True
     except (OrderRejectedError, NoPositionError, SimError) as e:
         log.warning("Order skipped: %s (%s)", e, signal.reason)
@@ -151,6 +228,17 @@ def execute_signal(
                 outcome=signal.outcome,
                 action=signal.action,
                 reason=signal.reason,
+            )
+            log_decision(
+                engine.db.data_dir,
+                strategy=strategy,
+                decision="execution_failed",
+                reason=str(e),
+                level="warn",
+                city=signal.city.slug if signal.city else None,
+                slug=signal.slug,
+                action=signal.action,
+                signal_reason=signal.reason,
             )
         return False
 
@@ -196,6 +284,9 @@ def scan_once(
     if live is not None and live_engines:
         _sync_live_engines(live, live_engines)
 
+    purge_engines = [e for e in (safe_engine, asymmetric_engine, copy_engine) if e is not None]
+    _purge_logs(purge_engines)
+
     if safe_engine:
         if live is None:
             counts.resolved += _resolve(safe_engine)
@@ -209,6 +300,9 @@ def scan_once(
                 counts.risk_exits += 1
         cities = [settings.cities[s] for s in settings.safe.cities if s in settings.cities]
         events = discover_events(safe_engine, cities, settings, today)
+        _log_missing_markets(
+            safe_engine, strategy="safe", cities=cities, events=events, settings=settings, today=today
+        )
         positions = safe_engine.db.get_open_positions()
         for _slug, event_date, city, buckets, _vol in events:
             counts.candidates += len(buckets)
@@ -245,6 +339,14 @@ def scan_once(
         if settings.asymmetric.cities:
             cities = [settings.cities[s] for s in settings.asymmetric.cities if s in settings.cities]
         events = discover_events(asymmetric_engine, cities, settings, today)
+        _log_missing_markets(
+            asymmetric_engine,
+            strategy="asymmetric",
+            cities=cities,
+            events=events,
+            settings=settings,
+            today=today,
+        )
         positions = asymmetric_engine.db.get_open_positions()
         for _slug, event_date, city, buckets, _vol in events:
             counts.candidates += len(buckets)
@@ -412,6 +514,7 @@ def run_copy_loop(
                 last_summary = print_scan_update(counts, named_engines, data_dir=data_dir)
                 heartbeat = time.monotonic()
             elif time.monotonic() - heartbeat >= 60:
+                _purge_logs([copy_engine])
                 counts = ScanCounts()
                 last_summary = print_scan_update(counts, named_engines, data_dir=data_dir)
                 heartbeat = time.monotonic()

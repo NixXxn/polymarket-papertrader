@@ -35,11 +35,16 @@ def fetch_metar_observed_high(
         if temp_c is None:
             continue
         obs_time = obs.get("obsTime") or obs.get("reportTime")
-        if not obs_time:
+        if obs_time is None:
             continue
         try:
-            dt = datetime.fromisoformat(str(obs_time).replace("Z", "+00:00"))
-        except ValueError:
+            if isinstance(obs_time, (int, float)):
+                dt = datetime.fromtimestamp(float(obs_time), tz=timezone.utc)
+            else:
+                dt = datetime.fromisoformat(str(obs_time).replace("Z", "+00:00"))
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+        except (TypeError, ValueError, OSError):
             continue
         if dt.astimezone(tz).date() != event_date:
             continue

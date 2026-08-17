@@ -121,3 +121,143 @@ cities:
     country: NZ
     strategies: [asymmetric]
     position_usd: 2
+  cape-town:
+    name: Cape Town
+    slug: cape-town
+    station: FACT
+    lat: -33.9648
+    lon: 18.6017
+    tz: Africa/Johannesburg
+    country: ZA
+    strategies: [asymmetric]
+    position_usd: 2
+  munich:
+    name: Munich
+    slug: munich
+    station: EDDM
+    lat: 48.3538
+    lon: 11.7861
+    tz: Europe/Berlin
+    country: DE
+    strategies: [asymmetric]
+    position_usd: 2
+  guangzhou:
+    name: Guangzhou
+    slug: guangzhou
+    station: ZGGG
+    lat: 23.3924
+    lon: 113.2988
+    tz: Asia/Shanghai
+    country: CN
+    strategies: [asymmetric]
+    position_usd: 2
+  warsaw:
+    name: Warsaw
+    slug: warsaw
+    station: EPWA
+    lat: 52.1657
+    lon: 20.9671
+    tz: Europe/Warsaw
+    country: PL
+    strategies: [asymmetric]
+    position_usd: 2
+  karachi:
+    name: Karachi
+    slug: karachi
+    station: OPKC
+    lat: 24.9065
+    lon: 67.1608
+    tz: Asia/Karachi
+    country: PK
+    strategies: [asymmetric]
+    position_usd: 2
+  beijing:
+    name: Beijing
+    slug: beijing
+    station: ZBAA
+    lat: 40.0799
+    lon: 116.6031
+    tz: Asia/Shanghai
+    country: CN
+    strategies: [asymmetric]
+    position_usd: 2
+  wuhan:
+    name: Wuhan
+    slug: wuhan
+    station: ZHHH
+    lat: 30.7838
+    lon: 114.2081
+    tz: Asia/Shanghai
+    country: CN
+    strategies: [asymmetric]
+    position_usd: 2
+  seoul:
+    name: Seoul
+    slug: seoul
+    station: RKSI
+    lat: 37.4602
+    lon: 126.4407
+    tz: Asia/Seoul
+    country: KR
+    strategies: [asymmetric]
+    position_usd: 2
+  shanghai:
+    name: Shanghai
+    slug: shanghai
+    station: ZSSS
+    lat: 31.1979
+    lon: 121.3363
+    tz: Asia/Shanghai
+    country: CN
+    strategies: [asymmetric]
+    position_usd: 2
+  tokyo:
+    name: Tokyo
+    slug: tokyo
+    station: RJTT
+    lat: 35.5494
+    lon: 139.7798
+    tz: Asia/Tokyo
+    country: JP
+    strategies: [asymmetric]
+    position_usd: 2
+  busan:
+    name: Busan
+    slug: busan
+    station: RKPK
+    lat: 35.1795
+    lon: 128.9382
+    tz: Asia/Seoul
+    country: KR
+    strategies: [asymmetric]
+    position_usd: 2
+  chongqing:
+    name: Chongqing
+    slug: chongqing
+    station: ZUCK
+    lat: 29.7192
+    lon: 106.6417
+    tz: Asia/Shanghai
+    country: CN
+    strategies: [asymmetric]
+    position_usd: 2
+  manila:
+    name: Manila
+    slug: manila
+    station: RPLL
+    lat: 14.5086
+    lon: 121.0198
+    tz: Asia/Manila
+    country: PH
+    strategies: [asymmetric]
+    position_usd: 2
+  vienna:
+    name: Vienna
+    slug: vienna
+    station: LOWW
+    lat: 48.1103
+    lon: 16.5697
+    tz: Europe/Vienna
+    country: AT
+    strategies: [asymmetric]
+    position_usd: 2

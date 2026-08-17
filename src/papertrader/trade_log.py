@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from papertrader.paths import root_data_dir as _root_data_dir
 from papertrader.signals import Signal
 
 _MAX_LINES = 1000
@@ -173,6 +174,45 @@ def build_activity_feed(data_dir: Path | str, limit: int = 250) -> list[dict[str
     rows: list[dict[str, Any]] = []
     for row in load_activity_log(data_dir, limit):
         rows.append({**row, "feed": "activity"})
+    from papertrader.decision_log import load_decisions
+
+    for row in load_decisions(data_dir, limit):
+        rows.append(
+            {
+                "ts": row.get("ts"),
+                "level": row.get("level", "info"),
+                "event": row.get("decision", "decision"),
+                "strategy": row.get("strategy", "unknown"),
+                "message": row.get("reason") or "",
+                "source": "decision",
+                "city": row.get("city"),
+                "event_date": row.get("event_date"),
+                "bucket": row.get("bucket"),
+                "slug": row.get("slug"),
+                "action": row.get("action"),
+                "decision": row.get("decision"),
+                "feed": "decision",
+                **{
+                    k: v
+                    for k, v in row.items()
+                    if k
+                    not in {
+                        "ts",
+                        "level",
+                        "strategy",
+                        "reason",
+                        "source",
+                        "event",
+                        "city",
+                        "event_date",
+                        "bucket",
+                        "slug",
+                        "action",
+                        "decision",
+                    }
+                },
+            }
+        )
     for row in load_skipped_trades(data_dir, limit):
         rows.append(
             {
