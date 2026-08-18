@@ -87,13 +87,14 @@ copy:
   poll_interval_ms: 250
   recent_limit: 50
 
-# Esports + live sports: cheap in-play swings ending within 8h; resting sell at 2x entry.
+# Esports + live sports: cheap in-play swings ending within 8h; TP +20%, SL at 80% of entry.
 esports:
   horizon_hours: 8
   poll_interval_seconds: 60
   min_ask: 0.02
   max_ask: 0.45
-  take_profit_multiple: 2.0
+  take_profit_pct: 0.20
+  stop_loss_entry_pct: 0.80
   position_usd: 5
   max_position_usd: 25
   max_open_positions: 20

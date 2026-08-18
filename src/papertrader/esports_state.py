@@ -15,7 +15,7 @@ class EsportsExitState:
 
 
 class EsportsExitStore:
-    """Tracks resting 2x take-profit limits for esports positions."""
+    """Tracks resting take-profit limits for esports positions."""
 
     def __init__(self, data_dir: Path | str) -> None:
         self._root = Path(data_dir)

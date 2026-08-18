@@ -130,7 +130,7 @@ def esports_exits(
     *,
     exit_store: EsportsExitStore | None = None,
 ) -> list[Signal]:
-    """Place a resting limit sell at 2x entry for each open esports position."""
+    """Place +20% take-profit limits and exit at 80% of entry (stop loss)."""
     cfg = settings.esports
     store = exit_store or EsportsExitStore(engine.db.data_dir)
     store.prune_closed(open_positions)
@@ -139,11 +139,11 @@ def esports_exits(
     for pos in open_positions:
         if pos.shares <= 0 or pos.is_resolved or pos.avg_entry_price <= 0:
             continue
-        if store.take_profit_placed(pos.market_condition_id, pos.outcome):
-            continue
 
-        tp_price = round(pos.avg_entry_price * cfg.take_profit_multiple, 4)
-        if tp_price <= 0:
+        entry = pos.avg_entry_price
+        tp_price = round(entry * (1 + cfg.take_profit_pct), 4)
+        sl_price = round(entry * cfg.stop_loss_entry_pct, 4)
+        if tp_price <= 0 or sl_price <= 0:
             continue
 
         try:
@@ -154,9 +154,46 @@ def esports_exits(
             continue
         bid, _ = best_bid(book)
 
+        if bid is not None and bid <= sl_price:
+            if store.take_profit_placed(pos.market_condition_id, pos.outcome):
+                store.unmark_take_profit(pos.market_condition_id, pos.outcome)
+            reason = (
+                f"esports SL bid={bid:.3f} <= {sl_price:.3f} "
+                f"({cfg.stop_loss_entry_pct:.0%} of entry {entry:.3f})"
+            )
+            _log_esports(
+                engine,
+                decision="sell",
+                reason=reason,
+                slug=pos.market_slug,
+                outcome=pos.outcome,
+                action="sell",
+                shares=pos.shares,
+                bid=bid,
+                stop_loss_price=sl_price,
+                stop_loss_entry_pct=cfg.stop_loss_entry_pct,
+            )
+            signals.append(
+                Signal(
+                    action="sell",
+                    slug=pos.market_slug,
+                    outcome=pos.outcome,
+                    shares=pos.shares,
+                    reason=reason,
+                    order_type="fak",
+                    limit_price=None,
+                    market_condition_id=pos.market_condition_id,
+                    event_slug=pos.market_slug,
+                )
+            )
+            continue
+
+        if store.take_profit_placed(pos.market_condition_id, pos.outcome):
+            continue
+
         reason = (
-            f"esports TP limit @ {tp_price:.3f} ({cfg.take_profit_multiple:.0f}x "
-            f"entry {pos.avg_entry_price:.3f})"
+            f"esports TP limit @ {tp_price:.3f} (+{cfg.take_profit_pct:.0%} "
+            f"on entry {entry:.3f})"
         )
         _log_esports(
             engine,
@@ -168,7 +205,7 @@ def esports_exits(
             shares=pos.shares,
             bid=bid,
             take_profit_price=tp_price,
-            take_profit_multiple=cfg.take_profit_multiple,
+            take_profit_pct=cfg.take_profit_pct,
         )
         signals.append(
             Signal(

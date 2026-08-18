@@ -93,7 +93,8 @@ class EsportsSettings:
     poll_interval_seconds: int
     min_ask: float
     max_ask: float
-    take_profit_multiple: float
+    take_profit_pct: float
+    stop_loss_entry_pct: float
     position_usd: float
     max_position_usd: float
     max_open_positions: int
@@ -289,7 +290,8 @@ def load_settings(
             poll_interval_seconds=int(esports_raw.get("poll_interval_seconds", 60)),
             min_ask=float(esports_raw.get("min_ask", 0.02)),
             max_ask=float(esports_raw.get("max_ask", 0.45)),
-            take_profit_multiple=float(esports_raw.get("take_profit_multiple", 2.0)),
+            take_profit_pct=float(esports_raw.get("take_profit_pct", 0.20)),
+            stop_loss_entry_pct=float(esports_raw.get("stop_loss_entry_pct", 0.80)),
             position_usd=float(esports_raw.get("position_usd", 5)),
             max_position_usd=float(esports_raw.get("max_position_usd", 25)),
             max_open_positions=int(esports_raw.get("max_open_positions", 20)),

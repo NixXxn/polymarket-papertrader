@@ -101,7 +101,7 @@ def test_analyze_esports_skips_when_max_positions(tmp_path):
     assert analyze_esports_candidate(engine, _candidate(), settings, open_pos) is None
 
 
-def test_esports_exits_place_2x_limit(tmp_path):
+def test_esports_exits_place_tp_limit(tmp_path):
     settings = load_settings()
     engine = MagicMock()
     engine.db.data_dir = tmp_path
@@ -121,8 +121,32 @@ def test_esports_exits_place_2x_limit(tmp_path):
     signals = esports_exits(engine, settings, [pos])
     assert len(signals) == 1
     assert signals[0].action == "sell"
-    assert signals[0].limit_price == 0.1
+    assert signals[0].limit_price == 0.06
     assert signals[0].esports_take_profit is True
+
+
+def test_esports_exits_stop_loss_at_80pct_entry(tmp_path):
+    settings = load_settings()
+    engine = MagicMock()
+    engine.db.data_dir = tmp_path
+    engine.api.get_market.return_value = _market()
+    engine.api.get_order_book.return_value = SimpleNamespace(
+        asks=[FakeLevel(0.05, 50)],
+        bids=[FakeLevel(0.03, 50)],
+    )
+    pos = SimpleNamespace(
+        shares=25.0,
+        market_slug="lol-alpha-beta-2026-08-18-game1",
+        market_condition_id="0xesports",
+        outcome="Beta",
+        avg_entry_price=0.05,
+        is_resolved=False,
+    )
+    signals = esports_exits(engine, settings, [pos])
+    assert len(signals) == 1
+    assert signals[0].action == "sell"
+    assert signals[0].order_type == "fak"
+    assert signals[0].esports_take_profit is False
 
 
 def test_esports_exit_store_roundtrip(tmp_path):

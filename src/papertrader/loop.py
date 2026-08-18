@@ -804,7 +804,7 @@ def run_esports_loop(
     live: LiveTrader | None = None,
     data_dir: Path | None = None,
 ) -> str:
-    """Poll esports match markets ending soon; buy cheap, rest a 2x take-profit sell."""
+    """Poll esports match markets ending soon; buy cheap, TP +20%, SL at 80% of entry."""
     logging.getLogger("httpx").setLevel(logging.WARNING)
     named_engines = [("esports", esports_engine)]
     poll_seconds = max(15, settings.esports.poll_interval_seconds)
