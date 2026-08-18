@@ -141,7 +141,7 @@ REJECT_LABELS: dict[str, str] = {
     "low_edge": "Edge zu klein",
     "forecast_mismatch": "Forecast passt nicht zum Bucket",
     "ask_too_high": "Ask zu hoch",
-    "event_outside_horizon": "Event endet außerhalb des 3h-Fensters",
+    "event_outside_horizon": "Event endet außerhalb des 6h-Fensters",
     "no_event_end": "Event ohne Enddatum",
     "event_closed": "Event geschlossen",
     "low_event_volume": "Event-Volumen zu niedrig",

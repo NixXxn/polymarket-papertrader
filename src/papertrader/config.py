@@ -254,7 +254,7 @@ def load_settings(
             exit_ladder=_parse_exit_ladder(asymmetric_raw.get("exit_ladder")),
         ),
         esports=EsportsSettings(
-            horizon_hours=float(esports_raw.get("horizon_hours", 3)),
+            horizon_hours=float(esports_raw.get("horizon_hours", 6)),
             poll_interval_seconds=int(esports_raw.get("poll_interval_seconds", 60)),
             min_ask=float(esports_raw.get("min_ask", 0.02)),
             max_ask=float(esports_raw.get("max_ask", 0.45)),

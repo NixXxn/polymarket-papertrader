@@ -83,9 +83,9 @@ copy:
   poll_interval_ms: 250
   recent_limit: 50
 
-# Esports: cheap live match bets ending within 3h; resting sell at 2x entry.
+# Esports: cheap live match bets ending within 6h; resting sell at 2x entry.
 esports:
-  horizon_hours: 3
+  horizon_hours: 6
   poll_interval_seconds: 60
   min_ask: 0.02
   max_ask: 0.45
