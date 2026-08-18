@@ -317,7 +317,7 @@ def load_settings(
             poll_interval_seconds=int(momentum_raw.get("poll_interval_seconds", 5)),
             mode=str(momentum_raw.get("mode") or "ANY_BUCKET").upper(),
             specific_token_id=str(momentum_raw.get("specific_token_id") or ""),
-            entry_trigger_price=float(momentum_raw.get("entry_trigger_price", 0.90)),
+            entry_trigger_price=float(momentum_raw.get("entry_trigger_price", 0.85)),
             take_profit_price=(
                 float(momentum_raw["take_profit_price"])
                 if momentum_raw.get("take_profit_price") is not None

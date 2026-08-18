@@ -147,14 +147,14 @@ esports:
       "-1h-",
     ]
 
-# Weather momentum: WebSocket/poll stream; buy YES when bucket >= 90¢, TP 98¢, SL 75¢.
+# Weather momentum: WebSocket/poll stream; buy YES when bucket >= 85¢, TP 98¢, SL 75¢.
 momentum:
   ws_url: "wss://ws-subscriptions-clob.polymarket.com/ws/market"
   use_websocket: true
   poll_interval_seconds: 5
   mode: ANY_BUCKET
   specific_token_id: ""
-  entry_trigger_price: 0.90
+  entry_trigger_price: 0.85
   take_profit_price: 0.98
   stop_loss_price: 0.75
   order_size_shares: 50.0

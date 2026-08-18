@@ -1048,7 +1048,7 @@ def run_momentum_loop(
     live: LiveTrader | None = None,
     data_dir: Path | None = None,
 ) -> str:
-    """Weather momentum: stream buckets and trade 90¢ entries with TP/SL."""
+    """Weather momentum: stream buckets and trade 85¢ entries with TP/SL."""
     logging.getLogger("httpx").setLevel(logging.WARNING)
     runner = MomentumRunner(
         settings=settings,
