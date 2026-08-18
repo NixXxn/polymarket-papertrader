@@ -86,6 +86,23 @@ class AsymmetricSettings:
 
 
 @dataclass(frozen=True)
+class EsportsSettings:
+    horizon_hours: float
+    poll_interval_seconds: int
+    min_ask: float
+    max_ask: float
+    take_profit_multiple: float
+    position_usd: float
+    max_position_usd: float
+    max_open_positions: int
+    min_event_volume: float
+    search_queries: tuple[str, ...]
+    search_limit: int
+    tag_slug: str
+    exclude_slug_patterns: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class CopySettings:
     username: str
     wallet: str
@@ -117,6 +134,7 @@ class Settings:
     live: LiveSettings
     safe: SafeSettings
     asymmetric: AsymmetricSettings
+    esports: EsportsSettings
     edge: EdgeSettings
     copy: CopySettings
     cities: dict[str, City] = field(default_factory=dict)
@@ -181,6 +199,7 @@ def load_settings(
     safe_raw = raw["safe"]
     asymmetric_raw = raw["asymmetric"]
     edge_raw = raw.get("edge") or {}
+    esports_raw = raw.get("esports") or {}
     copy_raw = raw.get("copy") or {}
     live_raw = raw.get("live") or {}
     mode = normalize_mode(str(raw.get("mode") or PAPER))
@@ -232,6 +251,23 @@ def load_settings(
             high_hour_local=int(asymmetric_raw.get("high_hour_local", 20)),
             cities=tuple(asymmetric_raw.get("cities") or ()),
             exit_ladder=_parse_exit_ladder(asymmetric_raw.get("exit_ladder")),
+        ),
+        esports=EsportsSettings(
+            horizon_hours=float(esports_raw.get("horizon_hours", 3)),
+            poll_interval_seconds=int(esports_raw.get("poll_interval_seconds", 60)),
+            min_ask=float(esports_raw.get("min_ask", 0.02)),
+            max_ask=float(esports_raw.get("max_ask", 0.15)),
+            take_profit_multiple=float(esports_raw.get("take_profit_multiple", 2.0)),
+            position_usd=float(esports_raw.get("position_usd", 5)),
+            max_position_usd=float(esports_raw.get("max_position_usd", 25)),
+            max_open_positions=int(esports_raw.get("max_open_positions", 20)),
+            min_event_volume=float(
+                esports_raw.get("min_event_volume", raw.get("min_event_volume", 200))
+            ),
+            search_queries=tuple(esports_raw.get("search_queries") or ("lol", "cs2", "valorant", "dota")),
+            search_limit=int(esports_raw.get("search_limit", 40)),
+            tag_slug=str(esports_raw.get("tag_slug") or "esports"),
+            exclude_slug_patterns=tuple(esports_raw.get("exclude_slug_patterns") or ()),
         ),
         edge=EdgeSettings(
             min_ask=float(edge_raw.get("min_ask", 0.45)),

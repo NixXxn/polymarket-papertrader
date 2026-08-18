@@ -19,12 +19,44 @@ from papertrader.report import ScanCounts, combine_engines, format_scan_update
 from papertrader.scan_history import append_scan
 from papertrader.signals import Signal
 from papertrader.trade_log import append_activity, append_skipped
+from papertrader.esports_state import EsportsExitStore
+from papertrader.strategies.esports import analyze_esports_candidate, esports_exits
+from papertrader.esports_markets import discover_esports_markets
 from papertrader.strategies.asymmetric import analyze_asymmetric_event, asymmetric_exits
 from papertrader.strategies.safe import analyze_safe_event, safe_exits
 from papertrader.weather import WeatherHttp
 from papertrader.weather.ensemble import prefetch_combined_ensembles
 
 log = logging.getLogger("papertrader")
+
+
+def _rollback_esports_take_profit(
+    engine: Engine, signal: Signal, ctx: ExecutionContext | None = None
+) -> None:
+    if not signal.esports_take_profit:
+        return
+    condition_id = signal.market_condition_id
+    if not condition_id:
+        try:
+            market = (ctx or ExecutionContext()).get_market(engine, signal.slug)
+            condition_id = market.condition_id
+        except Exception:
+            return
+    EsportsExitStore(engine.db.data_dir).unmark_take_profit(condition_id, signal.outcome)
+
+
+def _mark_esports_take_profit(engine: Engine, signal: Signal) -> None:
+    if not signal.esports_take_profit or signal.limit_price is None:
+        return
+    condition_id = signal.market_condition_id
+    if not condition_id:
+        return
+    EsportsExitStore(engine.db.data_dir).mark_take_profit(
+        condition_id,
+        signal.outcome,
+        market_slug=signal.slug,
+        take_profit_price=float(signal.limit_price),
+    )
 
 
 def _rollback_partial_exit(
@@ -141,6 +173,8 @@ def execute_signal(
         if live is not None:
             filled = live.fill(engine, signal, ctx=ctx, strategy=strategy)
             log_fill_latency(f"LIVE {signal.action.upper()} {signal.slug}", started)
+            if filled and signal.esports_take_profit:
+                _mark_esports_take_profit(engine, signal)
             if filled:
                 log_decision(
                     engine.db.data_dir,
@@ -155,6 +189,8 @@ def execute_signal(
                 )
             return filled
         if signal.order_type == "limit" and signal.limit_price is not None:
+            if signal.esports_take_profit and signal.action == "sell":
+                _mark_esports_take_profit(engine, signal)
             if signal.action == "buy":
                 amount = float(signal.amount_usd or 0)
                 if amount <= 0:
@@ -181,6 +217,17 @@ def execute_signal(
                 )
             engine.check_orders()
             log_fill_latency(f"PAPER LIMIT {signal.action.upper()} {signal.slug}", started)
+            log_decision(
+                engine.db.data_dir,
+                strategy=strategy,
+                decision="executed",
+                reason=signal.reason,
+                city=signal.city.slug if signal.city else None,
+                slug=signal.slug,
+                action=signal.action,
+                amount_usd=signal.amount_usd,
+                shares=signal.shares,
+            )
             return True
         if signal.action == "buy":
             result = engine.buy(
@@ -223,6 +270,7 @@ def execute_signal(
         log.warning("Order skipped: %s (%s)", e, signal.reason)
         if not dry_run:
             _rollback_partial_exit(engine, signal, ctx=ctx)
+            _rollback_esports_take_profit(engine, signal, ctx=ctx)
             append_skipped(engine.db.data_dir, strategy=strategy, signal=signal, error=str(e))
             append_activity(
                 engine.db.data_dir,
@@ -534,3 +582,128 @@ def run_copy_loop(
     finally:
         http.close()
     return last_summary
+
+
+def _esports_exit_pass(
+    esports_engine: Engine,
+    settings: Settings,
+    *,
+    dry_run: bool,
+    live: LiveTrader | None,
+    ctx: ExecutionContext,
+    emitted: list[Signal],
+    counts: ScanCounts,
+) -> None:
+    positions = esports_engine.db.get_open_positions()
+    for sig in esports_exits(esports_engine, settings, positions):
+        filled = execute_signal(
+            esports_engine, sig, dry_run, live=live, ctx=ctx, strategy="esports"
+        )
+        emitted.append(sig)
+        if filled:
+            counts.orders_placed += 1
+            counts.fills += 1
+            counts.risk_exits += 1
+
+
+def scan_esports_once(
+    *,
+    settings: Settings,
+    esports_engine: Engine,
+    dry_run: bool,
+    live: LiveTrader | None = None,
+    ctx: ExecutionContext | None = None,
+) -> tuple[list[Signal], ScanCounts]:
+    emitted: list[Signal] = []
+    counts = ScanCounts()
+    now = datetime.now(timezone.utc)
+    ctx = ctx or ExecutionContext()
+    if live is not None and not ctx.balance_checked:
+        ctx.wallet_balance = live.client.get_balance()
+        ctx.balance_checked = True
+    if live is not None:
+        _sync_live_engines(live, [("esports", esports_engine)])
+    _purge_logs([esports_engine])
+    if live is None:
+        try:
+            esports_engine.check_orders()
+        except Exception as e:
+            log.debug("check_orders: %s", e)
+        counts.resolved += _resolve(esports_engine)
+    _esports_exit_pass(
+        esports_engine, settings, dry_run=dry_run, live=live, ctx=ctx, emitted=emitted, counts=counts
+    )
+    candidates = discover_esports_markets(esports_engine, settings, now=now)
+    positions = esports_engine.db.get_open_positions()
+    for candidate in candidates:
+        counts.candidates += 1
+        sig = analyze_esports_candidate(esports_engine, candidate, settings, positions)
+        if sig is None:
+            continue
+        filled = execute_signal(
+            esports_engine, sig, dry_run, live=live, ctx=ctx, strategy="esports"
+        )
+        emitted.append(sig)
+        if filled:
+            counts.orders_placed += 1
+            counts.fills += 1
+            positions = esports_engine.db.get_open_positions()
+    if live is None:
+        try:
+            esports_engine.check_orders()
+        except Exception as e:
+            log.debug("check_orders: %s", e)
+        _esports_exit_pass(
+            esports_engine,
+            settings,
+            dry_run=dry_run,
+            live=live,
+            ctx=ctx,
+            emitted=emitted,
+            counts=counts,
+        )
+    counts.pending = len(esports_engine.db.get_open_positions())
+    counts.fills += counts.resolved
+    return emitted, counts
+
+
+def run_esports_loop(
+    *,
+    settings: Settings,
+    esports_engine: Engine,
+    dry_run: bool,
+    once: bool,
+    live: LiveTrader | None = None,
+    data_dir: Path | None = None,
+) -> str:
+    """Poll esports match markets ending soon; buy cheap, rest a 2x take-profit sell."""
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    named_engines = [("esports", esports_engine)]
+    poll_seconds = max(15, settings.esports.poll_interval_seconds)
+    last = ""
+    try:
+        ctx = ExecutionContext()
+        _, counts = scan_esports_once(
+            settings=settings,
+            esports_engine=esports_engine,
+            dry_run=dry_run,
+            live=live,
+            ctx=ctx,
+        )
+        last = print_scan_update(counts, named_engines, data_dir=data_dir)
+        if once:
+            return last
+        while True:
+            time.sleep(poll_seconds)
+            ctx = ExecutionContext()
+            _, counts = scan_esports_once(
+                settings=settings,
+                esports_engine=esports_engine,
+                dry_run=dry_run,
+                live=live,
+                ctx=ctx,
+            )
+            last = print_scan_update(counts, named_engines, data_dir=data_dir)
+    finally:
+        pass
+    return last

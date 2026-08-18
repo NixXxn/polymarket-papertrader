@@ -25,7 +25,7 @@ from papertrader.trade_log import (
 )
 
 
-STRATEGIES = ("safe", "asymmetric", "copy")
+STRATEGIES = ("safe", "asymmetric", "copy", "esports")
 
 
 def _engine_exists(data_dir: Path, name: str) -> bool:

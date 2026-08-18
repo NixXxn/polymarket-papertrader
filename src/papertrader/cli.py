@@ -9,12 +9,12 @@ from papertrader.accounts import data_dir_from_env, make_engine
 from papertrader.config import ROOT, load_settings
 from papertrader.execution import get_shared_live_client
 from papertrader.live import LiveTrader, PyClobLiveClient
-from papertrader.loop import run_copy_loop, run_loop
+from papertrader.loop import run_copy_loop, run_esports_loop, run_loop
 from papertrader.mode import ModeError, load_dotenv_file, resolve_mode
 
 log = logging.getLogger("papertrader")
 
-_STRATEGIES = ("safe", "asymmetric", "both", "copy")
+_STRATEGIES = ("safe", "asymmetric", "both", "copy", "esports")
 
 
 def _setup_logging() -> None:
@@ -104,6 +104,21 @@ def _start(
         run_copy_loop(
             settings=settings,
             copy_engine=copy_engine,
+            dry_run=dry_run,
+            once=once,
+            live=live,
+            data_dir=resolved.data_dir,
+        )
+        return
+    if strategy == "esports":
+        esports_engine = make_engine(
+            "esports", resolved.data_dir, settings.starting_balance, reset=reset
+        )
+        if live is not None:
+            live.sync_cash(esports_engine)
+        run_esports_loop(
+            settings=settings,
+            esports_engine=esports_engine,
             dry_run=dry_run,
             once=once,
             live=live,
@@ -209,7 +224,7 @@ def status_cmd(cli_mode: str | None, data_dir: Path | None) -> None:
             click.echo("  CLOB balance: unavailable")
         else:
             click.echo(f"  CLOB balance: ${wallet_bal:.2f}")
-    for name in ("safe", "asymmetric", "copy"):
+    for name in ("safe", "asymmetric", "copy", "esports"):
         engine = make_engine(name, resolved.data_dir, settings.starting_balance)
         try:
             if (
@@ -219,7 +234,7 @@ def status_cmd(cli_mode: str | None, data_dir: Path | None) -> None:
                 and name == "copy"
             ):
                 LiveTrader(live_client).sync_cash(engine)
-            elif name in ("safe", "asymmetric"):
+            elif name in ("safe", "asymmetric", "esports"):
                 acct = engine.get_account()
                 if acct.cash == 0 and acct.starting_balance == 0:
                     engine.init_account(settings.starting_balance)

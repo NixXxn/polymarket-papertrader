@@ -83,6 +83,21 @@ copy:
   poll_interval_ms: 250
   recent_limit: 50
 
+# Esports: cheap live match bets ending within 3h; resting sell at 2x entry.
+esports:
+  horizon_hours: 3
+  poll_interval_seconds: 60
+  min_ask: 0.02
+  max_ask: 0.15
+  take_profit_multiple: 2.0
+  position_usd: 5
+  max_position_usd: 25
+  max_open_positions: 20
+  min_event_volume: 500
+  search_queries: [lol, cs2, valorant, dota]
+  search_limit: 40
+  tag_slug: esports
+
 live:
   clob_host: "https://clob.polymarket.com"
   chain_id: 137
