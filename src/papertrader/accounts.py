@@ -7,7 +7,17 @@ from pm_trader.models import NotInitializedError
 
 from papertrader.paths import DEFAULT_DATA_DIR, DEFAULT_LIVE_DATA_DIR, data_dir_from_env
 
-__all__ = ["DEFAULT_DATA_DIR", "DEFAULT_LIVE_DATA_DIR", "account_dir", "make_engine", "data_dir_from_env"]
+__all__ = [
+    "DEFAULT_DATA_DIR",
+    "DEFAULT_LIVE_DATA_DIR",
+    "STRATEGY_NAMES",
+    "account_dir",
+    "make_engine",
+    "data_dir_from_env",
+    "reset_all_strategies",
+]
+
+STRATEGY_NAMES = ("safe", "asymmetric", "copy", "esports")
 
 
 def account_dir(account: str, data_dir: Path | None = None) -> Path:
@@ -33,3 +43,19 @@ def make_engine(
     except NotInitializedError:
         engine.init_account(starting_balance)
     return engine
+
+
+def reset_all_strategies(
+    data_dir: Path,
+    balance: float,
+    *,
+    strategies: tuple[str, ...] = STRATEGY_NAMES,
+) -> list[tuple[str, float, float]]:
+    """Wipe each strategy ledger and re-init cash to ``balance``."""
+    results: list[tuple[str, float, float]] = []
+    for name in strategies:
+        engine = make_engine(name, data_dir, balance, reset=True)
+        acct = engine.get_account()
+        results.append((name, acct.cash, acct.starting_balance))
+        engine.close()
+    return results

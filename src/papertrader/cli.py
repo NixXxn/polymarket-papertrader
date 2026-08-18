@@ -5,7 +5,7 @@ from pathlib import Path
 
 import click
 
-from papertrader.accounts import data_dir_from_env, make_engine
+from papertrader.accounts import data_dir_from_env, make_engine, reset_all_strategies
 from papertrader.config import ROOT, load_settings
 from papertrader.execution import get_shared_live_client
 from papertrader.live import LiveTrader, PyClobLiveClient
@@ -253,6 +253,43 @@ def status_cmd(cli_mode: str | None, data_dir: Path | None) -> None:
                 )
         finally:
             engine.close()
+
+
+@main.command("reset-balances")
+@click.option(
+    "--balance",
+    type=float,
+    default=None,
+    help="Cash per strategy (default: starting_balance from settings).",
+)
+@click.option("--data-dir", type=click.Path(path_type=Path), default=data_dir_from_env, show_default=True)
+@click.option("--mode", "cli_mode", type=click.Choice(["paper", "test", "live"], case_sensitive=False), default=None)
+def reset_balances_cmd(balance: float | None, data_dir: Path, cli_mode: str | None) -> None:
+    """Wipe all strategy ledgers and set cash to the configured balance."""
+    settings = load_settings()
+    try:
+        resolved = resolve_mode(
+            settings_mode=settings.mode,
+            cli_mode=cli_mode,
+            confirm_live=False,
+            data_dir=data_dir,
+            clob_host=settings.live.clob_host,
+            chain_id=settings.live.chain_id,
+            signature_type=settings.live.signature_type,
+            funder=settings.live.funder,
+            require_credentials=False,
+        )
+    except ModeError as e:
+        raise click.ClickException(str(e)) from e
+    amount = balance if balance is not None else settings.starting_balance
+    if resolved.is_live:
+        click.echo(
+            click.style("Warning: ", fg="yellow")
+            + "resetting local ledgers only — does not move funds on Polymarket."
+        )
+    click.echo(f"Resetting all strategies under {resolved.data_dir} to ${amount:.2f}")
+    for name, cash, starting in reset_all_strategies(resolved.data_dir, amount):
+        click.echo(f"  {name}: cash=${cash:.2f} starting=${starting:.2f}")
 
 
 @main.command("dashboard")
