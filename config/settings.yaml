@@ -40,7 +40,11 @@ asymmetric:
     - {multiple: 10, fraction: 0.15}
     - {multiple: 20, fraction: 0.15}
     - {multiple: 50, fraction: 0.10}
-  exit_model_prob: 0.08
+  exit_model_prob: 0.03
+  # Only fade on model drop on event day (d+0); hold through forecast noise earlier.
+  exit_model_prob_min_days_ahead: 0
+  # Hard exit 1h before local 23:00 resolution (was 6h — too early).
+  hours_before_resolution: 1
   stop_loss_bid: 0.01
   min_sell_bid: 0.02
   min_event_volume: 200
@@ -83,9 +87,9 @@ copy:
   poll_interval_ms: 250
   recent_limit: 50
 
-# Esports: cheap live match bets ending within 6h; resting sell at 2x entry.
+# Esports + live sports: cheap in-play swings ending within 8h; resting sell at 2x entry.
 esports:
-  horizon_hours: 6
+  horizon_hours: 8
   poll_interval_seconds: 60
   min_ask: 0.02
   max_ask: 0.45
@@ -93,11 +97,55 @@ esports:
   position_usd: 5
   max_position_usd: 25
   max_open_positions: 20
-  min_event_volume: 500
-  search_queries: [lck, lpl, lec, vct, cs2, dota2, lol]
-  event_tags: [league-of-legends, valorant, dota-2, esports]
-  search_limit: 40
-  tag_slug: esports
+  min_event_volume: 100
+  search_queries:
+    [
+      lck,
+      lpl,
+      lec,
+      vct,
+      cs2,
+      dota2,
+      lol,
+      ucl,
+      epl,
+      mls,
+      nba,
+      nfl,
+      nhl,
+      mlb,
+      atp,
+      wta,
+      ufc,
+      soccer,
+    ]
+  event_tags:
+    [
+      league-of-legends,
+      valorant,
+      dota-2,
+      esports,
+      sports,
+      soccer,
+      nba,
+      nfl,
+      nhl,
+      mlb,
+      tennis,
+    ]
+  search_limit: 60
+  tag_slug: sports
+  exclude_slug_patterns:
+    [
+      "-spread-",
+      "-total-",
+      "-o-u-",
+      "player-props",
+      "more-markets",
+      "-handicap-",
+      "-first-half-",
+      "-1h-",
+    ]
 
 live:
   clob_host: "https://clob.polymarket.com"

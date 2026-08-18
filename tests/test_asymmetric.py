@@ -95,6 +95,49 @@ def test_asymmetric_skips_when_ask_too_high(monkeypatch):
     assert sig is None
 
 
+def test_asymmetric_skips_model_fade_before_event_day(monkeypatch, tmp_path):
+    settings = load_settings()
+    city = _asymmetric_city()
+    pos = SimpleNamespace(
+        shares=10.0,
+        market_slug="highest-temperature-in-denver-on-august-13-2026-100f-or-higher",
+        market_question="Will the highest temperature in Denver be 100°F or higher?",
+        market_condition_id="0xtail",
+        outcome="yes",
+        avg_entry_price=0.05,
+        is_resolved=False,
+    )
+    engine = MagicMock()
+    engine.db.data_dir = tmp_path
+    engine.api.get_market.return_value = SimpleNamespace(
+        get_token_id=lambda outcome: "token-yes"
+    )
+    engine.api.get_order_book.return_value = SimpleNamespace(
+        bids=[FakeLevel(0.08, 100)],
+        asks=[FakeLevel(0.10, 50)],
+    )
+
+    import papertrader.strategies.asymmetric as asym_mod
+
+    monkeypatch.setattr(asym_mod, "fetch_metar_observed_high", lambda *a, **k: None)
+    monkeypatch.setattr(
+        asym_mod,
+        "fetch_combined_ensemble",
+        lambda *a, **k: EnsembleForecast((90.0,) * 10, "gfs:10"),
+    )
+
+    # Two days before event: model faded but should NOT exit yet.
+    signals = asymmetric_exits(
+        engine,
+        MagicMock(),
+        settings,
+        [pos],
+        {"denver": city},
+        now=datetime(2026, 8, 11, 10, 0, tzinfo=timezone.utc),
+    )
+    assert signals == []
+
+
 def test_asymmetric_exit_at_take_profit(monkeypatch, tmp_path):
     settings = load_settings()
     city = _asymmetric_city()

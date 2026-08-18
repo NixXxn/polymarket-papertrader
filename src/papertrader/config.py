@@ -83,6 +83,8 @@ class AsymmetricSettings:
     high_hour_local: int
     cities: tuple[str, ...]
     exit_ladder: tuple[ExitLadderStep, ...] = ()
+    hours_before_resolution: int = 1
+    exit_model_prob_min_days_ahead: int = 0
 
 
 @dataclass(frozen=True)
@@ -252,6 +254,12 @@ def load_settings(
             high_hour_local=int(asymmetric_raw.get("high_hour_local", 20)),
             cities=tuple(asymmetric_raw.get("cities") or ()),
             exit_ladder=_parse_exit_ladder(asymmetric_raw.get("exit_ladder")),
+            hours_before_resolution=int(
+                asymmetric_raw.get("hours_before_resolution", 1)
+            ),
+            exit_model_prob_min_days_ahead=int(
+                asymmetric_raw.get("exit_model_prob_min_days_ahead", 0)
+            ),
         ),
         esports=EsportsSettings(
             horizon_hours=float(esports_raw.get("horizon_hours", 6)),

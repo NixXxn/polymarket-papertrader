@@ -67,10 +67,24 @@ _PROP_SLUG_MARKERS = (
     "-destroy-",
     "-penta-",
     "-quadra-",
+    "-spread-",
+    "-total-",
+    "-o-u-",
+    "player-props",
+    "more-markets",
+    "-handicap-",
+    "-first-half-",
+    "-1h-",
 )
 
 _GAME_WINNER_SLUG = re.compile(r"-game\d+$")
 _SERIES_SLUG = re.compile(r"^[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$")
+_DATE_IN_SLUG = re.compile(r"-(\d{4}-\d{2}-\d{2})(?:-|$)")
+_SPORTS_LEAGUE_PREFIX = re.compile(
+    r"^(?:ucl|epl|mls|lal|bund|serie|lig|ered|nba|nfl|mlb|nhl|cbb|ncaa|"
+    r"atp|wta|ufc|mma|cs2|lol|lck|lpl|lec|vct|valorant|dota2|cblol|lcs)"
+)
+_WIN_ON_DATE = re.compile(r"will .+ win on \d{4}-\d{2}-\d{2}", re.I)
 
 
 def _parse_iso(value: str | None) -> datetime | None:
@@ -100,6 +114,14 @@ def _resolve_end_at(row: dict, event: dict, *, now: datetime) -> datetime | None
     """Use series end when per-game end times are stale (common on live LoL/Valorant)."""
     event_end = _parse_iso(event.get("endDate"))
     market_end = _row_end(row)
+    game_start = _parse_iso(row.get("gameStartTime"))
+    if game_start is not None and market_end is None:
+        market_end = game_start + timedelta(hours=3)
+    slug_end = _slug_event_date(str(row.get("slug") or ""))
+    if slug_end is not None:
+        slug_end = slug_end + timedelta(hours=4)
+        if market_end is None or (slug_end >= now and slug_end < market_end):
+            market_end = slug_end
     if event_end is None:
         return market_end
     if market_end is None:
@@ -118,16 +140,35 @@ def _is_prop_market(slug: str, extra_patterns: tuple[str, ...]) -> bool:
     for marker in _PROP_SLUG_MARKERS + extra_patterns:
         if marker in slug_l:
             return True
-    return False
+    return slug_l.endswith(("-spread", "-total", "-o-u"))
+
+
+def _slug_event_date(slug: str) -> datetime | None:
+    match = _DATE_IN_SLUG.search(slug.lower())
+    if not match:
+        return None
+    try:
+        return datetime.strptime(match.group(1), "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
 
 
 def _looks_like_match_market(question: str, slug: str) -> bool:
     q = question.strip()
+    slug_l = slug.lower()
     if re.match(r"^(LoL|CS2|Valorant|Dota 2|DOTA 2):", q, re.I):
         return True
-    if re.search(r"\bvs\b", q, re.I) and _GAME_WINNER_SLUG.search(slug):
+    if re.search(r"\bvs\.?\b", q, re.I) and _GAME_WINNER_SLUG.search(slug):
         return True
     if _SERIES_SLUG.match(slug):
+        return True
+    if _WIN_ON_DATE.search(q):
+        return True
+    if "end in a draw" in q.lower() and _DATE_IN_SLUG.search(slug_l):
+        return True
+    if _SPORTS_LEAGUE_PREFIX.match(slug_l) and _DATE_IN_SLUG.search(slug_l):
+        return True
+    if re.search(r"\bvs\.?\b", q, re.I) and _DATE_IN_SLUG.search(slug_l):
         return True
     return False
 
@@ -151,6 +192,17 @@ def _fetch_events(engine: Engine, cfg, *, now: datetime, horizon: datetime) -> l
             data = engine.api._gamma_get(
                 "/public-search",
                 params={"q": query, "limit_per_type": cfg.search_limit},
+            )
+            _add(data.get("events"))
+        except Exception:
+            continue
+
+    today = now.strftime("%Y-%m-%d")
+    for query in (today, f"nba {today}", f"ucl {today}", f"epl {today}", f"nhl {today}"):
+        try:
+            data = engine.api._gamma_get(
+                "/public-search",
+                params={"q": query, "limit_per_type": min(cfg.search_limit, 25)},
             )
             _add(data.get("events"))
         except Exception:
@@ -240,6 +292,18 @@ def discover_esports_markets(
         event_title = str(event.get("title") or event_slug)
         volume = float(event.get("volume") or event.get("volume24hr") or 0 or 0)
         event_end = _parse_iso(event.get("endDate"))
+        slug_event_end = _slug_event_date(event_slug)
+        if slug_event_end is not None:
+            slug_event_end = slug_event_end + timedelta(hours=4)
+        if event_end is None and slug_event_end is not None:
+            event_end = slug_event_end
+        elif (
+            slug_event_end is not None
+            and event_end is not None
+            and slug_event_end >= now
+            and slug_event_end < event_end
+        ):
+            event_end = slug_event_end
         if event_end is None:
             stats.bump("no_event_end")
             return

@@ -31,7 +31,7 @@ class MonitorConfig:
         LadderStep(20.0, 0.15),
         LadderStep(50.0, 0.10),
     )
-    hours_before_resolution: int = 6
+    hours_before_resolution: int = 1
     resolution_hour_local: int = 23
 
 
@@ -39,7 +39,10 @@ def monitor_config_from_settings(settings: AsymmetricSettings) -> MonitorConfig:
     ladder = tuple(
         LadderStep(step.multiple, step.fraction) for step in settings.exit_ladder
     )
-    return MonitorConfig(ladder=ladder)
+    return MonitorConfig(
+        ladder=ladder,
+        hours_before_resolution=settings.hours_before_resolution,
+    )
 
 
 def resolution_deadline(city, event_date: date, hour: int = 23) -> datetime:

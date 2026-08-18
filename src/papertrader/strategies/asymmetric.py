@@ -375,12 +375,16 @@ def asymmetric_exits(
         elif bid <= cfg.stop_loss_bid and pos.avg_entry_price <= cfg.max_ask:
             reason = f"tail stop bid={bid:.3f} entry={pos.avg_entry_price:.3f}"
         else:
+            local_today = city_local_today(city, now)
+            days_ahead = (event_date - local_today).days
+            if days_ahead > cfg.exit_model_prob_min_days_ahead:
+                continue
             ensemble = fetch_combined_ensemble(http, city, event_date)
             p_model, _ = tail_bucket_probability(ensemble, rng)
             if p_model < cfg.exit_model_prob and bid >= cfg.min_sell_bid:
                 reason = (
                     f"model faded P={p_model:.2f} < {cfg.exit_model_prob:.2f} "
-                    f"bid={bid:.3f}"
+                    f"bid={bid:.3f} d+{days_ahead}"
                 )
         if reason is None:
             continue

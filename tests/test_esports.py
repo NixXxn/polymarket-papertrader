@@ -51,6 +51,19 @@ def test_match_and_prop_filters():
     assert not _looks_like_match_market("Total maps", "lol-alpha-beta-both-teams-win")
     assert _is_prop_market("lol-alpha-beta-both-teams-win", ())
     assert not _is_prop_market("lol-alpha-beta-2026-08-18-game1", ())
+    assert _looks_like_match_market(
+        "Will Fenerbahçe SK win on 2026-08-18?",
+        "ucl-fen-lyo-2026-08-18-fen",
+    )
+    assert _looks_like_match_market(
+        "Will Fenerbahçe SK vs. Olympique Lyonnais end in a draw?",
+        "ucl-fen-lyo-2026-08-18-draw",
+    )
+    assert _looks_like_match_market(
+        "Lakers vs Celtics",
+        "nba-lal-bos-2026-08-18",
+    )
+    assert _is_prop_market("nba-lal-bos-2026-08-18-spread", ("-spread-",))
 
 
 def test_resolve_end_at_uses_series_end_when_game_end_stale():
@@ -160,6 +173,47 @@ def test_discover_esports_finds_near_horizon_market(monkeypatch):
     assert len(result.candidates) == 1
     assert result.stats.candidates == 1
     assert result.candidates[0].market.condition_id == "0xnear"
+
+
+def test_discover_esports_finds_soccer_moneyline(monkeypatch):
+    settings = load_settings()
+    engine = MagicMock()
+    now = datetime(2026, 8, 18, 12, 0, tzinfo=timezone.utc)
+    near_end = (now + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    event_near = {
+        "slug": "ucl-fen-lyo-2026-08-18",
+        "title": "Fenerbahçe SK vs Olympique Lyonnais",
+        "volume": 150000,
+        "closed": False,
+        "endDate": near_end,
+        "markets": [
+            {
+                "slug": "ucl-fen-lyo-2026-08-18-lyo",
+                "question": "Will Olympique Lyonnais win on 2026-08-18?",
+                "closed": False,
+                "active": True,
+                "endDate": near_end,
+                "conditionId": "0xlyon",
+                "outcomes": '["Yes", "No"]',
+                "clobTokenIds": '["tok-yes", "tok-no"]',
+            }
+        ],
+    }
+
+    def _gamma_get(path, params=None):
+        if path == "/public-search":
+            return {"events": [event_near]}
+        return []
+
+    engine.api._gamma_get.side_effect = _gamma_get
+    engine.api.get_order_book.return_value = SimpleNamespace(
+        asks=[FakeLevel(0.22, 100)],
+        bids=[FakeLevel(0.20, 50)],
+    )
+    result = discover_esports_markets(engine, settings, now=now)
+    assert len(result.candidates) == 1
+    assert result.candidates[0].outcome == "Yes"
+    assert result.candidates[0].ask == 0.22
 
 
 def test_scan_stats_summary():

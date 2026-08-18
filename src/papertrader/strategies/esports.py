@@ -43,7 +43,7 @@ def analyze_esports_candidate(
     settings: Settings,
     open_positions: list[Position],
 ) -> Signal | None:
-    """Buy cheap underdog side on live esports matches ending soon."""
+    """Buy cheap underdog side on live esports/sports matches ending soon."""
     cfg = settings.esports
     if len(open_positions) >= cfg.max_open_positions:
         _log_esports(
@@ -96,7 +96,7 @@ def analyze_esports_candidate(
 
     hours_left = (candidate.end_at - datetime.now(timezone.utc)).total_seconds() / 3600
     reason = (
-        f"esports cheap {candidate.outcome} @ {candidate.ask:.3f} "
+        f"live swing {candidate.outcome} @ {candidate.ask:.3f} "
         f"ends in {hours_left:.1f}h — {candidate.event_title[:80]}"
     )
     _log_esports(
