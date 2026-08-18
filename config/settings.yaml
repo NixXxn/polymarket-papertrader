@@ -4,11 +4,11 @@
 mode: paper
 poll_interval_seconds: 180
 horizon_days: 3
-starting_balance: 50
+starting_balance: 500
 # position_usd values are the stake at starting_balance; live bets scale with cash.
 min_position_usd: 1
-min_event_volume: 1000
-min_best_ask_size: 5
+min_event_volume: 200
+min_best_ask_size: 1
 forecast_confidence: 0.80
 forecast_disagreement_f: 3.0
 user_agent: "polymarket-papertrader/0.1 (paper trading; local use)"
@@ -16,7 +16,7 @@ user_agent: "polymarket-papertrader/0.1 (paper trading; local use)"
 safe:
   cities: [miami, atlanta]
   max_ask: 0.60
-  max_open_positions: 6
+  max_open_positions: 50
   min_sell_bid: 0.02
   min_edge: 0.15
   min_edge_high: 0.25
@@ -43,11 +43,11 @@ asymmetric:
   exit_model_prob: 0.08
   stop_loss_bid: 0.01
   min_sell_bid: 0.02
-  min_event_volume: 500
+  min_event_volume: 200
   min_ensemble_members: 8
   position_usd: 1
-  max_position_usd: 2
-  max_open_positions: 8
+  max_position_usd: 100
+  max_open_positions: 50
   max_hourly_rise_f: 4.0
   high_hour_local: 20
   cities:
