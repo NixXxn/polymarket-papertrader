@@ -134,6 +134,6 @@ def test_asymmetric_exit_at_take_profit(monkeypatch, tmp_path):
         {"denver": city},
         now=datetime(2026, 8, 13, 10, 0, tzinfo=timezone.utc),
     )
-    assert len(signals) == 1
-    assert signals[0].action == "sell"
-    assert "limit TP" in signals[0].reason
+    assert len(signals) == 2
+    assert all(s.partial_exit for s in signals)
+    assert all("ladder trim" in s.reason for s in signals)

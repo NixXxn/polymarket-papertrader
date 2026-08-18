@@ -29,4 +29,5 @@ class Signal:
     order_type: Literal["fak", "limit"] = "limit"
     limit_price: float | None = None
     partial_exit: bool = False
+    ladder_multiple: float | None = None
     market_condition_id: str | None = None

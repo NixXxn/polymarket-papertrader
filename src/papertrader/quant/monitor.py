@@ -2,14 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from zoneinfo import ZoneInfo
 
 from pm_trader.engine import Engine
 from pm_trader.models import Position
 
-from pathlib import Path
-
-from papertrader.config import City
+from papertrader.config import AsymmetricSettings, City
 from papertrader.markets import best_bid, city_from_market_slug, date_from_temp_slug
 from papertrader.quant.position_state import PositionExitStore
 from papertrader.quant.shadow_ledger import ShadowLedger
@@ -18,14 +17,32 @@ from papertrader.signals import Signal
 
 
 @dataclass(frozen=True)
+class LadderStep:
+    multiple: float
+    fraction: float
+
+
+@dataclass(frozen=True)
 class MonitorConfig:
-    take_profit_multiple: float = 2.0
-    take_profit_fraction: float = 0.5
+    ladder: tuple[LadderStep, ...] = (
+        LadderStep(2.0, 0.10),
+        LadderStep(5.0, 0.10),
+        LadderStep(10.0, 0.15),
+        LadderStep(20.0, 0.15),
+        LadderStep(50.0, 0.10),
+    )
     hours_before_resolution: int = 6
     resolution_hour_local: int = 23
 
 
-def resolution_deadline(city: City, event_date: date, hour: int = 23) -> datetime:
+def monitor_config_from_settings(settings: AsymmetricSettings) -> MonitorConfig:
+    ladder = tuple(
+        LadderStep(step.multiple, step.fraction) for step in settings.exit_ladder
+    )
+    return MonitorConfig(ladder=ladder)
+
+
+def resolution_deadline(city, event_date: date, hour: int = 23) -> datetime:
     local = datetime(event_date.year, event_date.month, event_date.day, hour, 0, 0)
     return local.replace(tzinfo=ZoneInfo(city.tz))
 
@@ -46,10 +63,11 @@ def monitor_exits(
     shadow: ShadowLedger | None = None,
     exit_store: PositionExitStore | None = None,
 ) -> list[Signal]:
-    """Limit-style exit rules: 50% at 2x entry; hard exit 6h before resolution."""
+    """Staged ladder trims on the way up; hard exit before resolution."""
     cfg = cfg or MonitorConfig()
     now = now or datetime.now(timezone.utc)
     signals: list[Signal] = []
+    ladder = sorted(cfg.ladder, key=lambda step: step.multiple)
     for pos in positions:
         if pos.shares <= 0:
             continue
@@ -108,46 +126,62 @@ def monitor_exits(
                 )
             )
             continue
-        tp_price = pos.avg_entry_price * cfg.take_profit_multiple
-        partial_done = (
-            exit_store is not None
-            and condition_id
-            and exit_store.partial_tp_done(condition_id, pos.outcome)
-        )
-        if not partial_done and bid >= tp_price:
-            sell_shares = pos.shares * cfg.take_profit_fraction
-            if sell_shares > 0:
-                if exit_store is not None and condition_id:
-                    exit_store.mark_partial_tp(
-                        condition_id, pos.outcome, market_slug=pos.market_slug
-                    )
-                data_dir = _engine_data_dir(engine)
-                if data_dir is not None:
-                    log_decision(
-                        data_dir,
-                        strategy="asymmetric",
-                        decision="sell",
-                        reason=f"limit TP 50% @ {tp_price:.3f} (bid={bid:.3f})",
-                        city=city.slug,
-                        event_date=event_date,
-                        slug=pos.market_slug,
-                        action="sell",
-                        shares=sell_shares,
-                        bid=bid,
-                        partial_exit=True,
-                    )
-                signals.append(
-                    Signal(
-                        action="sell",
-                        slug=pos.market_slug,
-                        outcome=pos.outcome,
-                        shares=sell_shares,
-                        city=city,
-                        reason=f"limit TP 50% @ {tp_price:.3f} (bid={bid:.3f})",
-                        limit_price=tp_price,
-                        order_type="limit",
-                        partial_exit=True,
-                        market_condition_id=condition_id,
-                    )
+
+        entry = pos.avg_entry_price
+        if entry <= 0:
+            continue
+        for step in ladder:
+            if exit_store is not None and condition_id:
+                if exit_store.ladder_level_hit(condition_id, pos.outcome, step.multiple):
+                    continue
+            tp_price = entry * step.multiple
+            if bid < tp_price:
+                continue
+            sell_shares = pos.shares * step.fraction
+            if sell_shares <= 0:
+                continue
+            pct = int(round(step.fraction * 100))
+            gain_pct = int(round((step.multiple - 1) * 100))
+            reason = (
+                f"ladder trim {pct}% @ {step.multiple:.0f}x entry "
+                f"(+{gain_pct}% bid={bid:.3f} target={tp_price:.3f})"
+            )
+            if exit_store is not None and condition_id:
+                exit_store.mark_ladder_level(
+                    condition_id,
+                    pos.outcome,
+                    step.multiple,
+                    market_slug=pos.market_slug,
                 )
+            data_dir = _engine_data_dir(engine)
+            if data_dir is not None:
+                log_decision(
+                    data_dir,
+                    strategy="asymmetric",
+                    decision="sell",
+                    reason=reason,
+                    city=city.slug,
+                    event_date=event_date,
+                    slug=pos.market_slug,
+                    action="sell",
+                    shares=sell_shares,
+                    bid=bid,
+                    partial_exit=True,
+                    ladder_multiple=step.multiple,
+                )
+            signals.append(
+                Signal(
+                    action="sell",
+                    slug=pos.market_slug,
+                    outcome=pos.outcome,
+                    shares=sell_shares,
+                    city=city,
+                    reason=reason,
+                    limit_price=tp_price,
+                    order_type="limit",
+                    partial_exit=True,
+                    ladder_multiple=step.multiple,
+                    market_condition_id=condition_id,
+                )
+            )
     return signals

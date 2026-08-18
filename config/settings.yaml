@@ -33,6 +33,13 @@ asymmetric:
   min_prob_ratio: 3.0
   min_edge: 0.10
   take_profit_bid: 0.35
+  # Staged trims: small sells at each multiple; ~55% max trimmed, rest rides for 10x+.
+  exit_ladder:
+    - {multiple: 2, fraction: 0.10}
+    - {multiple: 5, fraction: 0.10}
+    - {multiple: 10, fraction: 0.15}
+    - {multiple: 20, fraction: 0.15}
+    - {multiple: 50, fraction: 0.10}
   exit_model_prob: 0.08
   stop_loss_bid: 0.01
   min_sell_bid: 0.02

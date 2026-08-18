@@ -58,6 +58,12 @@ class EdgeSettings:
 
 
 @dataclass(frozen=True)
+class ExitLadderStep:
+    multiple: float
+    fraction: float
+
+
+@dataclass(frozen=True)
 class AsymmetricSettings:
     min_ask: float
     max_ask: float
@@ -76,6 +82,7 @@ class AsymmetricSettings:
     max_hourly_rise_f: float
     high_hour_local: int
     cities: tuple[str, ...]
+    exit_ladder: tuple[ExitLadderStep, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -125,6 +132,29 @@ class Settings:
 def _load_yaml(path: Path) -> dict[str, Any]:
     with path.open() as f:
         return yaml.safe_load(f) or {}
+
+
+def _parse_exit_ladder(raw: Any) -> tuple[ExitLadderStep, ...]:
+    default = (
+        ExitLadderStep(2.0, 0.10),
+        ExitLadderStep(5.0, 0.10),
+        ExitLadderStep(10.0, 0.15),
+        ExitLadderStep(20.0, 0.15),
+        ExitLadderStep(50.0, 0.10),
+    )
+    if not raw:
+        return default
+    steps: list[ExitLadderStep] = []
+    for row in raw:
+        if not isinstance(row, dict):
+            continue
+        steps.append(
+            ExitLadderStep(
+                multiple=float(row["multiple"]),
+                fraction=float(row["fraction"]),
+            )
+        )
+    return tuple(steps) if steps else default
 
 
 def load_settings(
@@ -201,6 +231,7 @@ def load_settings(
             max_hourly_rise_f=float(asymmetric_raw.get("max_hourly_rise_f", 4.0)),
             high_hour_local=int(asymmetric_raw.get("high_hour_local", 20)),
             cities=tuple(asymmetric_raw.get("cities") or ()),
+            exit_ladder=_parse_exit_ladder(asymmetric_raw.get("exit_ladder")),
         ),
         edge=EdgeSettings(
             min_ask=float(edge_raw.get("min_ask", 0.45)),

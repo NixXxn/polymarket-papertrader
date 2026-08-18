@@ -44,6 +44,18 @@ def test_position_exit_store_partial_tp_roundtrip(tmp_path):
     assert not store.partial_tp_done("0xabc", "yes")
 
 
+def test_position_exit_store_ladder_levels(tmp_path):
+    store = PositionExitStore(tmp_path)
+    assert not store.ladder_level_hit("0xabc", "yes", 2.0)
+    store.mark_ladder_level("0xabc", "yes", 2.0, market_slug="slug-a")
+    store.mark_ladder_level("0xabc", "yes", 5.0, market_slug="slug-a")
+    assert store.ladder_level_hit("0xabc", "yes", 2.0)
+    assert store.ladder_level_hit("0xabc", "yes", 5.0)
+    store.unmark_ladder_level("0xabc", "yes", 2.0)
+    assert not store.ladder_level_hit("0xabc", "yes", 2.0)
+    assert store.ladder_level_hit("0xabc", "yes", 5.0)
+
+
 def test_monitor_exits_partial_tp_only_once(tmp_path, monkeypatch):
     city = _denver_city()
     pos = _position()
@@ -67,8 +79,9 @@ def test_monitor_exits_partial_tp_only_once(tmp_path, monkeypatch):
     )
     assert len(signals) == 1
     assert signals[0].partial_exit is True
-    assert signals[0].shares == pytest.approx(5.0)
-    assert store.partial_tp_done("0xtail", "yes")
+    assert signals[0].shares == pytest.approx(1.0)
+    assert signals[0].ladder_multiple == 2.0
+    assert store.ladder_level_hit("0xtail", "yes", 2.0)
 
     again = monitor_exits(
         engine,  # type: ignore[arg-type]
@@ -112,8 +125,9 @@ def test_asymmetric_exits_skips_duplicate_partial_tp(tmp_path, monkeypatch):
     first = asymmetric_exits(
         engine, MagicMock(), settings, [pos], {"denver": city}, now=now
     )
-    assert len(first) == 1
-    assert first[0].partial_exit is True
+    assert len(first) == 2
+    assert all(s.partial_exit for s in first)
+    assert "ladder trim" in first[0].reason
 
     second = asymmetric_exits(
         engine, MagicMock(), settings, [pos], {"denver": city}, now=now

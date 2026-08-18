@@ -25,7 +25,7 @@ from papertrader.sizing import account_cash
 from papertrader.weather import WeatherHttp, fetch_metar_observed_high
 from papertrader.weather.ensemble import fetch_combined_ensemble, tail_bucket_probability
 from papertrader.weather.impossibility import is_mathematically_impossible
-from papertrader.quant.monitor import monitor_exits
+from papertrader.quant.monitor import monitor_config_from_settings, monitor_exits
 from papertrader.quant.position_state import PositionExitStore
 from papertrader.weather.probability import ensemble_p95
 
@@ -331,7 +331,13 @@ def asymmetric_exits(
     exit_store = PositionExitStore(engine.db.data_dir)
     exit_store.prune_closed(open_positions)
     signals = monitor_exits(
-        engine, open_positions, cities, now=now, shadow=shadow, exit_store=exit_store
+        engine,
+        open_positions,
+        cities,
+        cfg=monitor_config_from_settings(settings.asymmetric),
+        now=now,
+        shadow=shadow,
+        exit_store=exit_store,
     )
     seen_slugs = {s.slug for s in signals}
     for pos in open_positions:
@@ -364,15 +370,8 @@ def asymmetric_exits(
             now=now,
         )
         reason: str | None = None
-        partial_done = exit_store.partial_tp_done(pos.market_condition_id, pos.outcome)
         if dead:
             reason = f"tail brake: {why}"
-        elif bid >= cfg.take_profit_bid and not partial_done:
-            reason = (
-                f"forecast hedge bid={bid:.3f} "
-                f">= take_profit {cfg.take_profit_bid:.2f} "
-                f"entry={pos.avg_entry_price:.3f}"
-            )
         elif bid <= cfg.stop_loss_bid and pos.avg_entry_price <= cfg.max_ask:
             reason = f"tail stop bid={bid:.3f} entry={pos.avg_entry_price:.3f}"
         else:

@@ -39,7 +39,11 @@ def _rollback_partial_exit(
             condition_id = market.condition_id
         except Exception:
             return
-    PositionExitStore(engine.db.data_dir).unmark_partial_tp(condition_id, signal.outcome)
+    store = PositionExitStore(engine.db.data_dir)
+    if signal.ladder_multiple is not None:
+        store.unmark_ladder_level(condition_id, signal.outcome, signal.ladder_multiple)
+    else:
+        store.unmark_partial_tp(condition_id, signal.outcome)
 
 
 def _sync_live_engines(
