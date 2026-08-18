@@ -81,8 +81,8 @@ def test_analyze_esports_buy_cheap(tmp_path):
     sig = analyze_esports_candidate(engine, _candidate(), settings, [])
     assert sig is not None
     assert sig.action == "buy"
-    assert sig.limit_price == 0.08
-    assert sig.order_type == "limit"
+    assert sig.order_type == "fak"
+    assert sig.limit_price is None
 
 
 def test_analyze_esports_skips_when_max_positions(tmp_path):

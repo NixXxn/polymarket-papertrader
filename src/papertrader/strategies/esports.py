@@ -116,8 +116,8 @@ def analyze_esports_candidate(
         outcome=candidate.outcome,
         amount_usd=stake,
         reason=reason,
-        order_type="limit",
-        limit_price=candidate.ask,
+        order_type="fak",
+        limit_price=None,
         market_condition_id=candidate.market.condition_id,
         event_slug=candidate.event_slug,
     )

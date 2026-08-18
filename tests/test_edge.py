@@ -86,7 +86,7 @@ def test_edge_autoscales_with_cash(monkeypatch):
     city = sample_city()
     grind = _bucket(city, "88-89°F", "mid")
     engine = MagicMock()
-    engine.get_account.return_value = SimpleNamespace(cash=25.0)
+    engine.get_account.return_value = SimpleNamespace(cash=250.0)
     engine.api.get_order_book.return_value = _mid_book()
     _patch_model(monkeypatch, p=0.52)
 

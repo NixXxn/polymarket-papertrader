@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+import threading
 import time
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -20,7 +22,16 @@ from papertrader.scan_history import append_scan
 from papertrader.signals import Signal
 from papertrader.trade_log import append_activity, append_skipped
 from papertrader.esports_state import EsportsExitStore
+from papertrader.momentum_state import MomentumExitStore
 from papertrader.strategies.esports import analyze_esports_candidate, esports_exits
+from papertrader.strategies.momentum import (
+    TokenWatch,
+    analyze_momentum_entry,
+    build_token_watches,
+    momentum_exits,
+    tick_from_order_book,
+)
+from papertrader.weather_ws_client import MarketTick, run_market_websocket
 from papertrader.esports_markets import discover_esports_markets
 from papertrader.strategies.asymmetric import analyze_asymmetric_event, asymmetric_exits
 from papertrader.strategies.safe import analyze_safe_event, safe_exits
@@ -28,6 +39,35 @@ from papertrader.weather import WeatherHttp
 from papertrader.weather.ensemble import prefetch_combined_ensembles
 
 log = logging.getLogger("papertrader")
+
+
+def _mark_momentum_take_profit(engine: Engine, signal: Signal) -> None:
+    if not signal.momentum_take_profit or signal.limit_price is None:
+        return
+    condition_id = signal.market_condition_id
+    if not condition_id:
+        return
+    MomentumExitStore(engine.db.data_dir).mark_take_profit(
+        condition_id,
+        signal.outcome,
+        market_slug=signal.slug,
+        take_profit_price=float(signal.limit_price),
+    )
+
+
+def _rollback_momentum_take_profit(
+    engine: Engine, signal: Signal, ctx: ExecutionContext | None = None
+) -> None:
+    if not signal.momentum_take_profit:
+        return
+    condition_id = signal.market_condition_id
+    if not condition_id:
+        try:
+            market = (ctx or ExecutionContext()).get_market(engine, signal.slug)
+            condition_id = market.condition_id
+        except Exception:
+            return
+    MomentumExitStore(engine.db.data_dir).unmark_take_profit(condition_id, signal.outcome)
 
 
 def _rollback_esports_take_profit(
@@ -175,6 +215,8 @@ def execute_signal(
             log_fill_latency(f"LIVE {signal.action.upper()} {signal.slug}", started)
             if filled and signal.esports_take_profit:
                 _mark_esports_take_profit(engine, signal)
+            if filled and signal.momentum_take_profit:
+                _mark_momentum_take_profit(engine, signal)
             if filled:
                 log_decision(
                     engine.db.data_dir,
@@ -191,6 +233,8 @@ def execute_signal(
         if signal.order_type == "limit" and signal.limit_price is not None:
             if signal.esports_take_profit and signal.action == "sell":
                 _mark_esports_take_profit(engine, signal)
+            if signal.momentum_take_profit and signal.action == "sell":
+                _mark_momentum_take_profit(engine, signal)
             if signal.action == "buy":
                 amount = float(signal.amount_usd or 0)
                 if amount <= 0:
@@ -271,6 +315,7 @@ def execute_signal(
         if not dry_run:
             _rollback_partial_exit(engine, signal, ctx=ctx)
             _rollback_esports_take_profit(engine, signal, ctx=ctx)
+            _rollback_momentum_take_profit(engine, signal, ctx=ctx)
             append_skipped(engine.db.data_dir, strategy=strategy, signal=signal, error=str(e))
             append_activity(
                 engine.db.data_dir,
@@ -315,6 +360,7 @@ def scan_once(
     safe_engine: Engine | None,
     asymmetric_engine: Engine | None = None,
     copy_engine: Engine | None = None,
+    esports_engine: Engine | None = None,
     dry_run: bool,
     today: date | None = None,
     live: LiveTrader | None = None,
@@ -336,10 +382,16 @@ def scan_once(
         live_engines.append(("asymmetric", asymmetric_engine))
     if copy_engine is not None:
         live_engines.append(("copy", copy_engine))
+    if esports_engine is not None:
+        live_engines.append(("esports", esports_engine))
     if live is not None and live_engines:
         _sync_live_engines(live, live_engines)
 
-    purge_engines = [e for e in (safe_engine, asymmetric_engine, copy_engine) if e is not None]
+    purge_engines = [
+        e
+        for e in (safe_engine, asymmetric_engine, copy_engine, esports_engine)
+        if e is not None
+    ]
     _purge_logs(purge_engines)
 
     if safe_engine:
@@ -444,7 +496,24 @@ def scan_once(
         counts.fills += len(copied)
         emitted.extend(copied)
 
-    engines = [e for e in (safe_engine, asymmetric_engine, copy_engine) if e is not None]
+    if esports_engine:
+        es_sigs, es_counts = scan_esports_once(
+            settings=settings,
+            esports_engine=esports_engine,
+            dry_run=dry_run,
+            live=live,
+            ctx=ctx,
+        )
+        emitted.extend(es_sigs)
+        counts.candidates += es_counts.candidates
+        counts.orders_placed += es_counts.orders_placed
+        counts.fills += es_counts.fills
+        counts.resolved += es_counts.resolved
+        counts.risk_exits += es_counts.risk_exits
+
+    engines = [
+        e for e in (safe_engine, asymmetric_engine, copy_engine, esports_engine) if e is not None
+    ]
     counts.pending = sum(len(e.db.get_open_positions()) for e in engines)
     counts.fills += counts.resolved
     return emitted, counts
@@ -469,6 +538,7 @@ def run_loop(
     safe_engine: Engine | None,
     asymmetric_engine: Engine | None = None,
     copy_engine: Engine | None = None,
+    esports_engine: Engine | None = None,
     dry_run: bool,
     once: bool,
     live: LiveTrader | None = None,
@@ -482,11 +552,15 @@ def run_loop(
         named_engines.append(("asymmetric", asymmetric_engine))
     if copy_engine is not None:
         named_engines.append(("copy", copy_engine))
+    if esports_engine is not None:
+        named_engines.append(("esports", esports_engine))
     poll_seconds = (
         settings.copy.poll_interval_seconds
         if copy_engine is not None
         else settings.poll_interval_seconds
     )
+    if esports_engine is not None and copy_engine is None:
+        poll_seconds = min(poll_seconds, settings.esports.poll_interval_seconds)
     last = ""
     try:
         ctx = ExecutionContext()
@@ -496,6 +570,7 @@ def run_loop(
             safe_engine=safe_engine,
             asymmetric_engine=asymmetric_engine,
             copy_engine=copy_engine,
+            esports_engine=esports_engine,
             dry_run=dry_run,
             live=live,
             ctx=ctx,
@@ -513,6 +588,7 @@ def run_loop(
                 safe_engine=safe_engine,
                 asymmetric_engine=asymmetric_engine,
                 copy_engine=copy_engine,
+                esports_engine=esports_engine,
                 dry_run=dry_run,
                 live=live,
                 ctx=ctx,
@@ -759,3 +835,226 @@ def run_esports_loop(
     finally:
         pass
     return last
+
+
+class MomentumRunner:
+    """Stream-driven weather momentum trader with HTTP poll fallback."""
+
+    def __init__(
+        self,
+        *,
+        settings: Settings,
+        engine: Engine,
+        dry_run: bool,
+        live: LiveTrader | None = None,
+        data_dir: Path | None = None,
+    ) -> None:
+        self.settings = settings
+        self.engine = engine
+        self.dry_run = dry_run
+        self.live = live
+        self.data_dir = data_dir
+        self._lock = threading.Lock()
+        self._executing = False
+        self._watch_by_token: dict[str, TokenWatch] = {}
+        self._exit_store = MomentumExitStore(engine.db.data_dir)
+        self._ctx = ExecutionContext()
+        self._counts = ScanCounts()
+        self._refresh_universe()
+
+    def _refresh_universe(self) -> None:
+        watches = build_token_watches(self.engine, self.settings)
+        self._watch_by_token = {w.token_id: w for w in watches}
+        log.info(
+            "momentum universe: %d buckets across %d tokens",
+            len(watches),
+            len(self._watch_by_token),
+        )
+
+    def _handle_tick(self, tick: MarketTick) -> None:
+        watch = self._watch_by_token.get(tick.token_id)
+        if watch is None:
+            return
+        with self._lock:
+            if self._executing:
+                return
+            self._executing = True
+        try:
+            self._process_tick(watch, tick)
+        finally:
+            with self._lock:
+                self._executing = False
+
+    def _process_tick(self, watch: TokenWatch, tick: MarketTick) -> None:
+        if self.live is not None:
+            _sync_live_engines(self.live, [("momentum", self.engine)])
+        positions = self.engine.db.get_open_positions()
+        self._exit_store.prune_closed(positions)
+
+        for sig in momentum_exits(
+            self.engine,
+            watch,
+            tick,
+            self.settings,
+            positions,
+            exit_store=self._exit_store,
+        ):
+            filled = execute_signal(
+                self.engine,
+                sig,
+                self.dry_run,
+                live=self.live,
+                ctx=self._ctx,
+                strategy="momentum",
+            )
+            if filled:
+                self._counts.orders_placed += 1
+                self._counts.fills += 1
+                self._counts.risk_exits += 1
+            positions = self.engine.db.get_open_positions()
+
+        sig = analyze_momentum_entry(
+            self.engine, watch, tick, self.settings, positions
+        )
+        if sig is None:
+            return
+        filled = execute_signal(
+            self.engine,
+            sig,
+            self.dry_run,
+            live=self.live,
+            ctx=self._ctx,
+            strategy="momentum",
+        )
+        if filled:
+            self._counts.orders_placed += 1
+            self._counts.fills += 1
+
+    def poll_once(self) -> ScanCounts:
+        self._counts = ScanCounts()
+        if self.live is not None:
+            _sync_live_engines(self.live, [("momentum", self.engine)])
+        _purge_logs([self.engine])
+        if self.live is None:
+            try:
+                self.engine.check_orders()
+            except Exception as e:
+                log.debug("check_orders: %s", e)
+            self._counts.resolved += _resolve(self.engine)
+
+        self._refresh_universe()
+        for token_id, watch in list(self._watch_by_token.items()):
+            try:
+                book = self.engine.api.get_order_book(token_id)
+            except Exception:
+                continue
+            self._process_tick(watch, tick_from_order_book(token_id, book))
+
+        self._counts.pending = len(self.engine.db.get_open_positions())
+        self._log_scan()
+        return self._counts
+
+    def _log_scan(self) -> None:
+        n_tokens = len(self._watch_by_token)
+        reason = (
+            f"momentum scan: {n_tokens} tokens watched / "
+            f"{self._counts.orders_placed} orders / {self._counts.pending} open"
+        )
+        log_decision(
+            self.engine.db.data_dir,
+            strategy="momentum",
+            decision="scan",
+            reason=reason,
+            tokens_watched=n_tokens,
+            orders_placed=self._counts.orders_placed,
+            pending_positions=self._counts.pending,
+        )
+        append_activity(
+            self.engine.db.data_dir,
+            level="info",
+            event="momentum_scan",
+            strategy="momentum",
+            message=reason,
+            tokens_watched=n_tokens,
+            orders_placed=self._counts.orders_placed,
+            pending_positions=self._counts.pending,
+        )
+        log.info("Momentum — %s", reason)
+
+    def run_poll_loop(self, *, once: bool) -> str:
+        poll_seconds = max(2, self.settings.momentum.poll_interval_seconds)
+        named = [("momentum", self.engine)]
+        last = print_scan_update(self.poll_once(), named, data_dir=self.data_dir)
+        if once:
+            return last
+        refresh_at = time.monotonic()
+        while True:
+            time.sleep(poll_seconds)
+            if time.monotonic() - refresh_at >= 300:
+                self._refresh_universe()
+                refresh_at = time.monotonic()
+            last = print_scan_update(self.poll_once(), named, data_dir=self.data_dir)
+        return last
+
+    def run_ws_loop(self) -> str:
+        named = [("momentum", self.engine)]
+        scan_counts = ScanCounts()
+        last = ""
+
+        def on_tick(tick: MarketTick) -> None:
+            nonlocal last
+            before = self._counts.orders_placed
+            self._handle_tick(tick)
+            if self._counts.orders_placed != before:
+                scan_counts.orders_placed = self._counts.orders_placed
+                scan_counts.fills = self._counts.fills
+                scan_counts.pending = len(self.engine.db.get_open_positions())
+                last = print_scan_update(scan_counts, named, data_dir=self.data_dir)
+
+        async def _main() -> None:
+            refresh_at = time.monotonic()
+            while True:
+                if time.monotonic() - refresh_at >= 300:
+                    self._refresh_universe()
+                    refresh_at = time.monotonic()
+                await run_market_websocket(
+                    self._watch_by_token.keys(),
+                    on_tick,
+                    ws_url=self.settings.momentum.ws_url,
+                )
+
+        try:
+            asyncio.run(_main())
+        except KeyboardInterrupt:
+            pass
+        return last
+
+    def run(self, *, once: bool) -> str:
+        cfg = self.settings.momentum
+        if cfg.use_websocket and not once:
+            try:
+                return self.run_ws_loop()
+            except RuntimeError as exc:
+                log.warning("momentum WS unavailable (%s) — falling back to HTTP poll", exc)
+        return self.run_poll_loop(once=once)
+
+
+def run_momentum_loop(
+    *,
+    settings: Settings,
+    momentum_engine: Engine,
+    dry_run: bool,
+    once: bool,
+    live: LiveTrader | None = None,
+    data_dir: Path | None = None,
+) -> str:
+    """Weather momentum: stream buckets and trade 90¢ entries with TP/SL."""
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    runner = MomentumRunner(
+        settings=settings,
+        engine=momentum_engine,
+        dry_run=dry_run,
+        live=live,
+        data_dir=data_dir,
+    )
+    return runner.run(once=once)

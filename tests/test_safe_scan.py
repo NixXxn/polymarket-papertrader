@@ -91,7 +91,7 @@ def test_safe_autoscales_with_cash(monkeypatch):
 
     sig = analyze_safe_event(engine, MagicMock(), city, event_date, [bucket], settings, [])
     assert sig is not None
-    assert sig.amount_usd == 10.0
+    assert sig.amount_usd == 1.0
     assert "76-77" in sig.reason
 
 

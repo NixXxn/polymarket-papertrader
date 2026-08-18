@@ -106,6 +106,27 @@ class EsportsSettings:
 
 
 @dataclass(frozen=True)
+class MomentumSettings:
+    ws_url: str
+    use_websocket: bool
+    poll_interval_seconds: int
+    mode: str
+    specific_token_id: str
+    entry_trigger_price: float
+    take_profit_price: float | None
+    stop_loss_price: float
+    order_size_shares: float
+    use_share_sizing: bool
+    position_usd: float
+    max_position_usd: float
+    max_open_positions: int
+    min_event_volume: float
+    entry_price_buffer: float
+    exit_slippage_buffer: float
+    cities: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class CopySettings:
     username: str
     wallet: str
@@ -138,6 +159,7 @@ class Settings:
     safe: SafeSettings
     asymmetric: AsymmetricSettings
     esports: EsportsSettings
+    momentum: MomentumSettings
     edge: EdgeSettings
     copy: CopySettings
     cities: dict[str, City] = field(default_factory=dict)
@@ -203,6 +225,7 @@ def load_settings(
     asymmetric_raw = raw["asymmetric"]
     edge_raw = raw.get("edge") or {}
     esports_raw = raw.get("esports") or {}
+    momentum_raw = raw.get("momentum") or {}
     copy_raw = raw.get("copy") or {}
     live_raw = raw.get("live") or {}
     mode = normalize_mode(str(raw.get("mode") or PAPER))
@@ -284,6 +307,34 @@ def load_settings(
             search_limit=int(esports_raw.get("search_limit", 40)),
             tag_slug=str(esports_raw.get("tag_slug") or "esports"),
             exclude_slug_patterns=tuple(esports_raw.get("exclude_slug_patterns") or ()),
+        ),
+        momentum=MomentumSettings(
+            ws_url=str(
+                momentum_raw.get("ws_url")
+                or "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+            ),
+            use_websocket=bool(momentum_raw.get("use_websocket", True)),
+            poll_interval_seconds=int(momentum_raw.get("poll_interval_seconds", 5)),
+            mode=str(momentum_raw.get("mode") or "ANY_BUCKET").upper(),
+            specific_token_id=str(momentum_raw.get("specific_token_id") or ""),
+            entry_trigger_price=float(momentum_raw.get("entry_trigger_price", 0.90)),
+            take_profit_price=(
+                float(momentum_raw["take_profit_price"])
+                if momentum_raw.get("take_profit_price") is not None
+                else 0.98
+            ),
+            stop_loss_price=float(momentum_raw.get("stop_loss_price", 0.75)),
+            order_size_shares=float(momentum_raw.get("order_size_shares", 50.0)),
+            use_share_sizing=bool(momentum_raw.get("use_share_sizing", True)),
+            position_usd=float(momentum_raw.get("position_usd", 50)),
+            max_position_usd=float(momentum_raw.get("max_position_usd", 100)),
+            max_open_positions=int(momentum_raw.get("max_open_positions", 1)),
+            min_event_volume=float(
+                momentum_raw.get("min_event_volume", raw.get("min_event_volume", 200))
+            ),
+            entry_price_buffer=float(momentum_raw.get("entry_price_buffer", 0.01)),
+            exit_slippage_buffer=float(momentum_raw.get("exit_slippage_buffer", 0.01)),
+            cities=tuple(momentum_raw.get("cities") or ("nyc", "miami", "atlanta")),
         ),
         edge=EdgeSettings(
             min_ask=float(edge_raw.get("min_ask", 0.45)),

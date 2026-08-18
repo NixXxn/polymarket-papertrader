@@ -202,8 +202,8 @@ def test_format_scan_update_includes_strategy_breakdown():
             ],
         ),
     )
-    assert "safe 2 (2 buys/0 sells), win rate 0%;" in text
-    assert "edge 10 (10 buys/0 sells), win rate 25%;" in text
+    assert "safe 2 (2 buys/0 sells), win rate 0.0%;" in text
+    assert "edge 10 (10 buys/0 sells), win rate 25.0%;" in text
     assert "Open positions:" in text
     assert (
         "safe Yes Highest temperature in Atlanta on August 13? 94-95°F "

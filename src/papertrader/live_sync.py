@@ -97,14 +97,14 @@ class LiveSyncState:
 
 def _state_path(data_dir: Path | str) -> Path:
     root = Path(data_dir)
-    if root.name in ("safe", "asymmetric", "copy", "edge", "esports"):
+    if root.name in ("safe", "asymmetric", "copy", "edge", "esports", "momentum"):
         root = root.parent
     return root / "live_sync_state.json"
 
 
 def _root_data_dir(data_dir: Path | str) -> Path:
     root = Path(data_dir)
-    if root.name in ("safe", "asymmetric", "copy", "edge", "esports"):
+    if root.name in ("safe", "asymmetric", "copy", "edge", "esports", "momentum"):
         return root.parent
     return root
 

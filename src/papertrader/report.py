@@ -80,11 +80,51 @@ def mark_positions(engine: Engine) -> float:
     return total
 
 
+def _sell_realized_pnl(trades_chronological: list) -> dict[int, float]:
+    """Per-sell realized P&L using running average cost basis."""
+    from collections import defaultdict
+
+    shares: dict[tuple[str, str], float] = defaultdict(float)
+    cost: dict[tuple[str, str], float] = defaultdict(float)
+    out: dict[int, float] = {}
+    for t in trades_chronological:
+        key = (t.market_condition_id, t.outcome)
+        if t.side == "buy":
+            shares[key] += t.shares
+            cost[key] += t.amount_usd
+        elif t.side == "sell":
+            held = shares.get(key, 0.0)
+            if held > 0:
+                avg_entry = cost[key] / held
+                sold = min(t.shares, held)
+                cost_of_sold = avg_entry * sold
+                shares[key] = held - sold
+                cost[key] = max(cost[key] - cost_of_sold, 0.0)
+            else:
+                cost_of_sold = t.avg_price * t.shares
+            proceeds = t.amount_usd - t.fee
+            out[t.id] = proceeds - cost_of_sold
+    return out
+
+
+def realized_pnl_total(trades_chronological: list) -> float:
+    """Sum of realized P&L across all sell trades (open positions excluded)."""
+    return sum(_sell_realized_pnl(trades_chronological).values())
+
+
 def account_stats(engine: Engine) -> dict:
     account = engine.get_account()
     positions_value = mark_positions(engine)
     trades = engine.db.get_trades(limit=10_000)
-    return compute_stats(trades, account, positions_value)
+    chronological = list(reversed(trades))
+    raw = compute_stats(trades, account, positions_value)
+    realized = realized_pnl_total(chronological)
+    raw["realized_pnl"] = realized
+    raw["pnl"] = realized
+    raw["roi_pct"] = (
+        (realized / account.starting_balance * 100) if account.starting_balance else 0.0
+    )
+    return raw
 
 
 def _strategy_stats(name: str, raw: dict) -> StrategyStats:
@@ -166,7 +206,7 @@ def format_scan_update(counts: ScanCounts, stats: CombinedStats) -> str:
     if stats.by_strategy:
         strategy_lines = "".join(
             f"{s.name} {s.trades} ({s.buys} buys/{s.sells} sells), "
-            f"win rate {s.win_rate * 100:.0f}%;\n"
+            f"win rate {s.win_rate * 100:.1f}%;\n"
             for s in stats.by_strategy
         )
     return (
@@ -180,11 +220,13 @@ def format_scan_update(counts: ScanCounts, stats: CombinedStats) -> str:
         f"Cash {fmt_money(stats.cash)};\n"
         f"positions {fmt_money(stats.positions)};\n"
         f"total {fmt_money(stats.total)}\n"
-        f"P&L {fmt_pnl(stats.pnl)};\n"
-        f"ROI {stats.roi_pct:.2f}%.\n"
+        f"P&L (realisiert) {fmt_pnl(stats.pnl)};\n"
+        f"ROI (realisiert) {stats.roi_pct:.2f}%.\n"
+        f"Kontostand {fmt_money(stats.total)} "
+        f"(Cash {fmt_money(stats.cash)} + offen {fmt_money(stats.positions)}).\n"
         f"Trades {stats.trades} ({stats.buys} buys/{stats.sells} sells);\n"
         f"{strategy_lines}"
-        f"win rate {stats.win_rate * 100:.0f}%;\n"
+        f"win rate {stats.win_rate * 100:.1f}%;\n"
         f"max drawdown {stats.max_drawdown * 100:.2f}%;\n"
         f"fees {fmt_money(stats.fees)};\n"
         f"average trade {fmt_money(stats.avg_trade)};"

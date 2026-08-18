@@ -9,12 +9,12 @@ from papertrader.accounts import data_dir_from_env, make_engine, reset_all_strat
 from papertrader.config import ROOT, load_settings
 from papertrader.execution import get_shared_live_client
 from papertrader.live import LiveTrader, PyClobLiveClient
-from papertrader.loop import run_copy_loop, run_esports_loop, run_loop
+from papertrader.loop import run_copy_loop, run_esports_loop, run_loop, run_momentum_loop
 from papertrader.mode import ModeError, load_dotenv_file, resolve_mode
 
 log = logging.getLogger("papertrader")
 
-_STRATEGIES = ("safe", "asymmetric", "both", "copy", "esports")
+_STRATEGIES = ("safe", "asymmetric", "both", "copy", "esports", "momentum")
 
 
 def _setup_logging() -> None:
@@ -91,11 +91,16 @@ def _start(
     safe_engine = None
     asymmetric_engine = None
     copy_engine = None
+    esports_engine = None
     if strategy in ("safe", "both"):
         safe_engine = make_engine("safe", resolved.data_dir, settings.starting_balance, reset=reset)
     if strategy in ("asymmetric", "both"):
         asymmetric_engine = make_engine(
             "asymmetric", resolved.data_dir, settings.starting_balance, reset=reset
+        )
+    if strategy in ("esports", "both"):
+        esports_engine = make_engine(
+            "esports", resolved.data_dir, settings.starting_balance, reset=reset
         )
     if strategy == "copy":
         copy_engine = make_engine("copy", resolved.data_dir, settings.starting_balance, reset=reset)
@@ -111,9 +116,6 @@ def _start(
         )
         return
     if strategy == "esports":
-        esports_engine = make_engine(
-            "esports", resolved.data_dir, settings.starting_balance, reset=reset
-        )
         if live is not None:
             live.sync_cash(esports_engine)
         run_esports_loop(
@@ -125,11 +127,27 @@ def _start(
             data_dir=resolved.data_dir,
         )
         return
+    if strategy == "momentum":
+        momentum_engine = make_engine(
+            "momentum", resolved.data_dir, settings.starting_balance, reset=reset
+        )
+        if live is not None:
+            live.sync_cash(momentum_engine)
+        run_momentum_loop(
+            settings=settings,
+            momentum_engine=momentum_engine,
+            dry_run=dry_run,
+            once=once,
+            live=live,
+            data_dir=resolved.data_dir,
+        )
+        return
     run_loop(
         settings=settings,
         safe_engine=safe_engine,
         asymmetric_engine=asymmetric_engine,
         copy_engine=copy_engine,
+        esports_engine=esports_engine,
         dry_run=dry_run,
         once=once,
         live=live,
@@ -138,7 +156,12 @@ def _start(
 
 
 @main.command("run")
-@click.option("--strategy", type=click.Choice(_STRATEGIES), default="both")
+@click.option(
+    "--strategy",
+    type=click.Choice(_STRATEGIES),
+    default="both",
+    help="both = safe + asymmetric + esports; esports runs on its own poll interval.",
+)
 @click.option("--dry-run", is_flag=True, help="Log would-be trades without filling.")
 @click.option("--once", is_flag=True, help="Run a single scan then exit.")
 @click.option("--reset", is_flag=True, help="Wipe paper accounts and start from configured balance.")
@@ -224,7 +247,7 @@ def status_cmd(cli_mode: str | None, data_dir: Path | None) -> None:
             click.echo("  CLOB balance: unavailable")
         else:
             click.echo(f"  CLOB balance: ${wallet_bal:.2f}")
-    for name in ("safe", "asymmetric", "copy", "esports"):
+    for name in ("safe", "asymmetric", "copy", "esports", "momentum"):
         engine = make_engine(name, resolved.data_dir, settings.starting_balance)
         try:
             if (
@@ -234,7 +257,7 @@ def status_cmd(cli_mode: str | None, data_dir: Path | None) -> None:
                 and name == "copy"
             ):
                 LiveTrader(live_client).sync_cash(engine)
-            elif name in ("safe", "asymmetric", "esports"):
+            elif name in ("safe", "asymmetric", "esports", "momentum"):
                 acct = engine.get_account()
                 if acct.cash == 0 and acct.starting_balance == 0:
                     engine.init_account(settings.starting_balance)

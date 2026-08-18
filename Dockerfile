@@ -17,7 +17,7 @@ COPY src ./src
 COPY docker/entrypoint.sh /entrypoint.sh
 
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -e ".[dashboard,live]" \
+    && pip install --no-cache-dir -e ".[dashboard,live,momentum]" \
     && chmod +x /entrypoint.sh
 
 ENV PYTHONUNBUFFERED=1 \

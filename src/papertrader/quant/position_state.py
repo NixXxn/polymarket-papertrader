@@ -19,7 +19,7 @@ class PositionExitStore:
 
     def __init__(self, data_dir: Path | str) -> None:
         self._root = Path(data_dir)
-        if self._root.name in ("safe", "asymmetric", "copy", "edge", "esports"):
+        if self._root.name in ("safe", "asymmetric", "copy", "edge", "esports", "momentum"):
             self._root = self._root.parent
         self._path = self._root / "position_exit_state.json"
         self._states: dict[str, ExitState] = {}

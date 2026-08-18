@@ -46,6 +46,7 @@
     .strategy-asymmetric { color:var(--warn); }
     .strategy-copy { color:#c084fc; }
     .strategy-esports { color:#34d399; }
+    .strategy-momentum { color:#fbbf24; }
     .right { text-align:right; }
     .muted { color:var(--muted); }
     .status { padding:16px; color:var(--muted); }
@@ -72,7 +73,7 @@
   <div class="top">
     <div>
       <h1>Papertrader Dashboard</h1>
-      <div class="sub" id="meta">Safe · Asymmetric · Copy · Esports</div>
+      <div class="sub" id="meta">Safe · Asymmetric · Copy · Esports · Momentum</div>
     </div>
     <div class="actions">
       <input id="search" placeholder="Markt suchen…">
@@ -82,6 +83,7 @@
         <option value="asymmetric">Asymmetric</option>
         <option value="copy">Copy (legacy)</option>
         <option value="esports">Esports</option>
+        <option value="momentum">Momentum</option>
       </select>
       <label class="muted" for="budgetInput" style="font-size:12px">Budget $</label>
       <input id="budgetInput" type="number" min="1" step="1" style="width:88px" title="Cash pro Strategie (setzt alle Ledger zurück)">
@@ -91,9 +93,9 @@
   </div>
 
   <div class="grid">
-    <div class="card"><div class="label">P&amp;L</div><div class="value" id="pnl">–</div><div class="mini" id="totalValue">Total –</div></div>
-    <div class="card"><div class="label">ROI</div><div class="value" id="roi">–</div><div class="mini">seit Start</div></div>
-    <div class="card"><div class="label">Cash</div><div class="value" id="cash">–</div><div class="mini" id="positionsVal">Positionen –</div></div>
+    <div class="card"><div class="label">P&amp;L (realisiert)</div><div class="value" id="pnl">–</div><div class="mini" id="totalValue">Kontostand –</div></div>
+    <div class="card"><div class="label">ROI (realisiert)</div><div class="value" id="roi">–</div><div class="mini">nur geschlossene Trades</div></div>
+    <div class="card"><div class="label">Cash</div><div class="value" id="cash">–</div><div class="mini" id="positionsVal">Offene Positionen –</div></div>
     <div class="card"><div class="label">Win Rate</div><div class="value" id="winRate">–</div><div class="mini" id="tradeCounts">Trades –</div></div>
     <div class="card"><div class="label">Max Drawdown</div><div class="value" id="maxDd">–</div><div class="mini" id="fees">Fees –</div></div>
     <div class="card"><div class="label">Offene Positionen</div><div class="value" id="openCount">–</div><div class="mini" id="avgTrade">Ø Trade –</div></div>
@@ -104,32 +106,6 @@
   <div class="section card" id="copySection" hidden>
     <h2>Copy Trader (Legacy)</h2>
     <div class="pill-row" id="copyPills"></div>
-  </div>
-
-  <div class="section" id="activitySection">
-    <h2>Aktivitäts- &amp; Entscheidungs-Log</h2>
-    <div class="pill-row" id="activityMeta"></div>
-    <div class="filter-row">
-      <select id="activityFilter">
-        <option value="all">Alle Events</option>
-        <option value="buy">Käufe (buy)</option>
-        <option value="skip">Übersprungen (skip)</option>
-        <option value="sell">Verkäufe (sell)</option>
-        <option value="dry_run">Dry-Run</option>
-        <option value="executed">Ausgeführt</option>
-        <option value="error">Fehler</option>
-        <option value="scan">Scan</option>
-      </select>
-    </div>
-    <div class="table-wrap">
-      <table id="activityTable">
-        <thead><tr>
-          <th>Zeit</th><th>Level</th><th>Event</th><th>Strategie</th><th>Details</th>
-        </tr></thead>
-        <tbody id="activityBody"></tbody>
-      </table>
-      <div id="activityStatus" class="status">Lade…</div>
-    </div>
   </div>
 
   <div class="section" id="openOrdersSection" hidden>
@@ -158,7 +134,7 @@
   </div>
 
   <div class="section card">
-    <h2>Equity / P&amp;L Verlauf</h2>
+    <h2>Realisierte P&amp;L (Verlauf)</h2>
     <canvas id="equityChart" width="1200" height="180"></canvas>
   </div>
 
@@ -169,7 +145,7 @@
       <table id="posTable" hidden>
         <thead><tr>
           <th>Strategie</th><th>Markt</th><th>Side</th><th>Shares</th>
-          <th class="right">Entry</th><th class="right">Mark</th><th class="right">P&amp;L</th>
+          <th class="right">Entry</th><th class="right">Mark</th><th class="right">Unrealisiert</th>
         </tr></thead>
         <tbody id="posBody"></tbody>
       </table>
@@ -183,10 +159,36 @@
       <table id="tradeTable" hidden>
         <thead><tr>
           <th>Zeit</th><th>Strategie</th><th>Markt</th><th>Side</th>
-          <th class="right">Size</th><th class="right">Preis</th><th class="right">P&amp;L</th><th class="right" id="latencyHeader" hidden>Latenz</th>
+          <th class="right">Size</th><th class="right">Preis</th><th class="right">P&amp;L</th><th class="right">Win Rate</th><th class="right" id="latencyHeader" hidden>Latenz</th>
         </tr></thead>
         <tbody id="tradeBody"></tbody>
       </table>
+    </div>
+  </div>
+
+  <div class="section" id="activitySection">
+    <h2>Aktivitäts- &amp; Entscheidungs-Log</h2>
+    <div class="pill-row" id="activityMeta"></div>
+    <div class="filter-row">
+      <select id="activityFilter">
+        <option value="all">Alle Events</option>
+        <option value="buy">Käufe (buy)</option>
+        <option value="skip">Übersprungen (skip)</option>
+        <option value="sell">Verkäufe (sell)</option>
+        <option value="dry_run">Dry-Run</option>
+        <option value="executed">Ausgeführt</option>
+        <option value="error">Fehler</option>
+        <option value="scan">Scan</option>
+      </select>
+    </div>
+    <div class="table-wrap">
+      <table id="activityTable">
+        <thead><tr>
+          <th>Zeit</th><th>Level</th><th>Event</th><th>Strategie</th><th>Details</th>
+        </tr></thead>
+        <tbody id="activityBody"></tbody>
+      </table>
+      <div id="activityStatus" class="status">Lade…</div>
     </div>
   </div>
 </div>
@@ -245,10 +247,10 @@
     document.getElementById('roi').textContent = pct(p.roi_pct);
     document.getElementById('roi').className = 'value ' + pnlClass(p.roi_pct);
     document.getElementById('cash').textContent = money(p.cash);
-    document.getElementById('positionsVal').textContent = `Positionen ${money(p.positions)}`;
-    document.getElementById('totalValue').textContent = `Total ${money(p.total)}`;
-    document.getElementById('winRate').textContent = pct(p.win_rate * 100);
-    document.getElementById('tradeCounts').textContent = `${p.trades} Trades (${p.buys} buys / ${p.sells} sells)`;
+    document.getElementById('positionsVal').textContent = `Offene Positionen ${money(p.positions)} (Mark-to-Market)`;
+    document.getElementById('totalValue').textContent = `Kontostand ${money(p.total)}`;
+    document.getElementById('winRate').textContent = pct((p.win_rate_pct ?? p.win_rate * 100));
+    document.getElementById('tradeCounts').textContent = `${p.trades} Trades · ${p.sells} Verkäufe`;
     document.getElementById('maxDd').textContent = pct(p.max_drawdown * 100);
     document.getElementById('fees').textContent = `Fees ${money(p.fees)}`;
     document.getElementById('avgTrade').textContent = `Ø Trade ${money(p.avg_trade)}`;
@@ -261,8 +263,9 @@
       el.innerHTML = `
         <div class="label strategy-${esc(s.name)}">${esc(s.name)}</div>
         <div class="value ${pnlClass(s.pnl)}">${s.pnl >= 0 ? '+' : ''}${money(s.pnl)}</div>
-        <div class="mini">ROI ${pct(s.roi_pct)} · ${s.trades} Trades</div>
-        <div class="mini">Cash ${money(s.cash)} · Pos ${money(s.positions_value)}</div>`;
+        <div class="mini">ROI ${pct(s.roi_pct)} · Win Rate ${pct(s.win_rate_pct ?? s.win_rate * 100)}</div>
+        <div class="mini">${s.trades} Trades (${s.buys} buys / ${s.sells} sells)</div>
+        <div class="mini">Cash ${money(s.cash)} · Offen ${money(s.positions_value)}</div>`;
       sc.appendChild(el);
     }
   }
@@ -301,7 +304,7 @@
     const filtered = allActivity.filter(r => {
       if (filter === 'all') return true;
       if (filter === 'error') return r.level === 'error' || r.event === 'skipped_trade';
-      if (filter === 'scan') return (r.decision || r.event || '') === 'scan' || r.event === 'esports_scan';
+      if (filter === 'scan') return (r.decision || r.event || '') === 'scan' || r.event === 'esports_scan' || r.event === 'momentum_scan';
       const d = (r.decision || r.event || '').toLowerCase();
       return d === filter || (filter === 'error' && r.level === 'warn');
     });
@@ -389,7 +392,7 @@
     const pts = (history && history.length) ? history.map(r => ({ts:r.ts, value:r.total})) : curve;
     if (!pts.length) {
       ctx.fillStyle = '#94a3b8';
-      ctx.fillText('Noch keine Historie', 16, h/2);
+      ctx.fillText('Noch keine realisierten Trades', 16, h/2);
       return;
     }
     const vals = pts.map(p => Number(p.value));
@@ -451,6 +454,9 @@
       const pnlCell = t.side === 'sell' && t.realized_pnl != null
         ? `<td class="right ${pnlClass(t.realized_pnl)}">${t.realized_pnl >= 0 ? '+' : ''}${money(t.realized_pnl)}</td>`
         : `<td class="right muted">–</td>`;
+      const winCell = t.side === 'sell' && t.realized_pnl != null
+        ? `<td class="right ${pnlClass(t.realized_pnl)}">${t.realized_pnl >= 0 ? 'Win' : 'Loss'}</td>`
+        : `<td class="right muted">–</td>`;
       const latCell = showLatency
         ? `<td class="right muted">${t.copy_latency_ms != null ? ms(t.copy_latency_ms) : '–'}</td>`
         : '';
@@ -463,6 +469,7 @@
         <td class="right">${money(t.amount_usd)}</td>
         <td class="right">${price(t.avg_price)}</td>
         ${pnlCell}
+        ${winCell}
         ${latCell}`;
       tbody.appendChild(tr);
     }

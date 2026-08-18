@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -13,7 +12,13 @@ from papertrader.config import ROOT, load_settings
 from papertrader.markets import polymarket_event_url
 from papertrader.mode import ResolvedMode, load_dotenv_file, resolve_mode
 from papertrader.paths import DEFAULT_LIVE_DATA_DIR, data_dir_from_env
-from papertrader.report import account_stats, combine_engines, mark_positions
+from papertrader.report import (
+    account_stats,
+    combine_engines,
+    mark_positions,
+    realized_pnl_total,
+    _sell_realized_pnl,
+)
 from papertrader.live_sync import load_live_open_orders, load_live_sync_meta
 from papertrader.scan_history import load_scan_history
 from papertrader.decision_log import load_decisions
@@ -25,7 +30,7 @@ from papertrader.trade_log import (
 )
 
 
-STRATEGIES = ("safe", "asymmetric", "copy", "esports")
+STRATEGIES = ("safe", "asymmetric", "copy", "esports", "momentum")
 
 
 def _resolve_dashboard(
@@ -79,31 +84,6 @@ def _engine_exists(data_dir: Path, name: str) -> bool:
 def open_engines(data_dir: Path, starting_balance: float) -> list[tuple[str, Engine]]:
     """Open every configured strategy ledger (creates paper account on first view)."""
     return [(name, make_engine(name, data_dir, starting_balance)) for name in STRATEGIES]
-
-
-def _sell_realized_pnl(trades_chronological: list[Any]) -> dict[int, float]:
-    """Per-sell realized P&L using running average cost basis."""
-    shares: dict[tuple[str, str], float] = defaultdict(float)
-    cost: dict[tuple[str, str], float] = defaultdict(float)
-    out: dict[int, float] = {}
-    for t in trades_chronological:
-        key = (t.market_condition_id, t.outcome)
-        if t.side == "buy":
-            shares[key] += t.shares
-            cost[key] += t.amount_usd
-        elif t.side == "sell":
-            held = shares.get(key, 0.0)
-            if held > 0:
-                avg_entry = cost[key] / held
-                sold = min(t.shares, held)
-                cost_of_sold = avg_entry * sold
-                shares[key] = held - sold
-                cost[key] = max(cost[key] - cost_of_sold, 0.0)
-            else:
-                cost_of_sold = t.avg_price * t.shares
-            proceeds = t.amount_usd - t.fee
-            out[t.id] = proceeds - cost_of_sold
-    return out
 
 
 def _trade_row(
@@ -164,20 +144,26 @@ def _position_row(strategy: str, engine: Engine, pos: Any) -> dict[str, Any]:
 
 
 def _equity_curve(engines: list[tuple[str, Engine]]) -> list[dict[str, Any]]:
-    points: list[tuple[str, float]] = []
+    """Cumulative realized P&L over time (only closed sells count)."""
+    events: list[tuple[str, float]] = []
     for _name, engine in engines:
-        account = engine.get_account()
         trades = list(reversed(engine.db.get_trades(limit=10_000)))
-        cumulative = account.starting_balance
+        pnl_map = _sell_realized_pnl(trades)
         for t in trades:
-            if t.side == "buy":
-                cumulative -= t.amount_usd + t.fee
-            else:
-                cumulative += t.amount_usd - t.fee
+            if t.side != "sell":
+                continue
+            pnl = pnl_map.get(t.id)
+            if pnl is None:
+                continue
             ts = t.created_at[:19] if t.created_at else ""
-            points.append((ts, cumulative))
-    points.sort(key=lambda p: p[0])
-    return [{"ts": ts, "value": val} for ts, val in points[-200:]]
+            events.append((ts, pnl))
+    events.sort(key=lambda row: row[0])
+    cumulative = 0.0
+    points: list[dict[str, Any]] = []
+    for ts, pnl in events:
+        cumulative += pnl
+        points.append({"ts": ts, "value": cumulative})
+    return points[-200:]
 
 
 def _copy_meta(data_dir: Path, settings: Any) -> dict[str, Any]:
@@ -274,11 +260,13 @@ def fetch_dashboard(
             "positions": combined.positions,
             "total": combined.total,
             "pnl": combined.pnl,
+            "realized_pnl": combined.pnl,
             "roi_pct": combined.roi_pct,
             "trades": combined.trades,
             "buys": combined.buys,
             "sells": combined.sells,
             "win_rate": combined.win_rate,
+            "win_rate_pct": combined.win_rate * 100,
             "max_drawdown": combined.max_drawdown,
             "fees": combined.fees,
             "avg_trade": combined.avg_trade,
@@ -294,11 +282,13 @@ def fetch_dashboard(
                     "buys": s.buys,
                     "sells": s.sells,
                     "win_rate": s.win_rate,
+                    "win_rate_pct": s.win_rate * 100,
                     "cash": raw["cash"],
                     "positions_value": raw["positions_value"],
                     "total_value": raw["total_value"],
                     "starting_balance": raw["starting_balance"],
                     "pnl": raw["pnl"],
+                    "realized_pnl": raw.get("realized_pnl", raw["pnl"]),
                     "roi_pct": raw["roi_pct"],
                     "sharpe_ratio": raw["sharpe_ratio"],
                     "max_drawdown": raw["max_drawdown"],

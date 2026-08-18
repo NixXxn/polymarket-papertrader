@@ -8,21 +8,28 @@ from pm_trader.models import Position
 
 
 @dataclass
-class EsportsExitState:
+class MomentumExitState:
     market_slug: str
     take_profit_limit_placed: bool = False
     take_profit_price: float | None = None
 
 
-class EsportsExitStore:
-    """Tracks resting 2x take-profit limits for esports positions."""
+class MomentumExitStore:
+    """Tracks resting take-profit limits for momentum weather positions."""
 
     def __init__(self, data_dir: Path | str) -> None:
         self._root = Path(data_dir)
-        if self._root.name in ("safe", "asymmetric", "copy", "edge", "esports", "momentum"):
+        if self._root.name in (
+            "safe",
+            "asymmetric",
+            "copy",
+            "edge",
+            "esports",
+            "momentum",
+        ):
             self._root = self._root.parent
-        self._path = self._root / "esports_exit_state.json"
-        self._states: dict[str, EsportsExitState] = {}
+        self._path = self._root / "momentum_exit_state.json"
+        self._states: dict[str, MomentumExitState] = {}
         self._load()
 
     @staticmethod
@@ -45,7 +52,7 @@ class EsportsExitStore:
             if not isinstance(slug, str):
                 continue
             tp = row.get("take_profit_price")
-            self._states[key] = EsportsExitState(
+            self._states[key] = MomentumExitState(
                 market_slug=slug,
                 take_profit_limit_placed=bool(row.get("take_profit_limit_placed")),
                 take_profit_price=float(tp) if tp is not None else None,
@@ -69,7 +76,7 @@ class EsportsExitStore:
         take_profit_price: float,
     ) -> None:
         key = self._key(condition_id, outcome)
-        self._states[key] = EsportsExitState(
+        self._states[key] = MomentumExitState(
             market_slug=market_slug,
             take_profit_limit_placed=True,
             take_profit_price=take_profit_price,

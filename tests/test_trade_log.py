@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from papertrader.dashboard.data import _sell_realized_pnl
+from papertrader.report import _sell_realized_pnl
 from papertrader.trade_log import (
     append_copy_event,
     append_skipped,
