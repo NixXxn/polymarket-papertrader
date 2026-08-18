@@ -24,6 +24,7 @@
     button:hover { border-color:var(--accent); }
     .grid { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:12px; margin-bottom:20px; }
     .grid-3 { grid-template-columns:repeat(3,minmax(0,1fr)); }
+    .grid-4 { grid-template-columns:repeat(4,minmax(0,1fr)); }
     .card { background:var(--panel); border:1px solid var(--border); border-radius:14px; padding:15px; }
     .label { color:var(--muted); font-size:12px; text-transform:uppercase; letter-spacing:.05em; }
     .value { font-size:22px; margin-top:7px; font-weight:700; }
@@ -43,6 +44,7 @@
     .strategy-safe { color:var(--accent); }
     .strategy-asymmetric { color:var(--warn); }
     .strategy-copy { color:#c084fc; }
+    .strategy-esports { color:#34d399; }
     .right { text-align:right; }
     .muted { color:var(--muted); }
     .status { padding:16px; color:var(--muted); }
@@ -61,7 +63,7 @@
     .decision-dry_run { color:var(--accent); }
     .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px; }
     .filter-row { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:10px; }
-    @media (max-width:600px) { .grid,.grid-3 { grid-template-columns:repeat(2,minmax(0,1fr)); } .wrap{padding:14px} }
+    @media (max-width:600px) { .grid,.grid-3,.grid-4 { grid-template-columns:repeat(2,minmax(0,1fr)); } .wrap{padding:14px} }
   </style>
 </head>
 <body>
@@ -69,7 +71,7 @@
   <div class="top">
     <div>
       <h1>Papertrader Dashboard</h1>
-      <div class="sub" id="meta">Safe + Asymmetric · Paper</div>
+      <div class="sub" id="meta">Safe · Asymmetric · Copy · Esports</div>
     </div>
     <div class="actions">
       <input id="search" placeholder="Markt suchen…">
@@ -78,6 +80,7 @@
         <option value="safe">Safe</option>
         <option value="asymmetric">Asymmetric</option>
         <option value="copy">Copy (legacy)</option>
+        <option value="esports">Esports</option>
       </select>
       <button id="refresh">Aktualisieren</button>
     </div>
@@ -92,7 +95,7 @@
     <div class="card"><div class="label">Offene Positionen</div><div class="value" id="openCount">–</div><div class="mini" id="avgTrade">Ø Trade –</div></div>
   </div>
 
-  <div class="section grid grid-3" id="strategyCards"></div>
+  <div class="section grid grid-4" id="strategyCards"></div>
 
   <div class="section card" id="copySection" hidden>
     <h2>Copy Trader (Legacy)</h2>

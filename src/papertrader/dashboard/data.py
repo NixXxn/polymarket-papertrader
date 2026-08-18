@@ -33,12 +33,8 @@ def _engine_exists(data_dir: Path, name: str) -> bool:
 
 
 def open_engines(data_dir: Path, starting_balance: float) -> list[tuple[str, Engine]]:
-    engines: list[tuple[str, Engine]] = []
-    for name in STRATEGIES:
-        if not _engine_exists(data_dir, name):
-            continue
-        engines.append((name, make_engine(name, data_dir, starting_balance)))
-    return engines
+    """Open every configured strategy ledger (creates paper account on first view)."""
+    return [(name, make_engine(name, data_dir, starting_balance)) for name in STRATEGIES]
 
 
 def _sell_realized_pnl(trades_chronological: list[Any]) -> dict[int, float]:
