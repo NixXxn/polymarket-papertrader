@@ -22,6 +22,7 @@
     button, select, input { background:var(--panel); color:var(--text); border:1px solid var(--border); border-radius:10px; padding:9px 11px; }
     button { cursor:pointer; }
     button:hover { border-color:var(--accent); }
+    button.danger:hover { border-color:var(--bad); }
     .grid { display:grid; grid-template-columns:repeat(6,minmax(0,1fr)); gap:12px; margin-bottom:20px; }
     .grid-3 { grid-template-columns:repeat(3,minmax(0,1fr)); }
     .grid-4 { grid-template-columns:repeat(4,minmax(0,1fr)); }
@@ -82,6 +83,9 @@
         <option value="copy">Copy (legacy)</option>
         <option value="esports">Esports</option>
       </select>
+      <label class="muted" for="budgetInput" style="font-size:12px">Budget $</label>
+      <input id="budgetInput" type="number" min="1" step="1" style="width:88px" title="Cash pro Strategie (setzt alle Ledger zurück)">
+      <button id="setBudget" class="danger" title="Alle Strategien auf dieses Budget zurücksetzen">Budget setzen</button>
       <button id="refresh">Aktualisieren</button>
     </div>
   </div>
@@ -487,6 +491,10 @@
       drawEquity(data.equity_curve || [], data.scan_history || []);
       renderPositions();
       renderTrades();
+      if (data.starting_balance != null) {
+        const input = document.getElementById('budgetInput');
+        if (!input.dataset.touched) input.value = Math.round(Number(data.starting_balance));
+      }
     } catch (e) {
       status.hidden = false;
       status.classList.add('error');
@@ -498,6 +506,38 @@
     renderActivity(allActivity, window._liveSync || {}, window._mode || 'paper');
   });
   document.getElementById('refresh').addEventListener('click', load);
+  document.getElementById('budgetInput').addEventListener('input', () => {
+    document.getElementById('budgetInput').dataset.touched = '1';
+  });
+  document.getElementById('setBudget').addEventListener('click', async () => {
+    const balance = Number(document.getElementById('budgetInput').value);
+    if (!Number.isFinite(balance) || balance <= 0) {
+      alert('Bitte ein gültiges Budget eingeben.');
+      return;
+    }
+    let msg = `Alle Strategien auf $${balance} zurücksetzen?\n\nPositionen und Trade-Historie werden gelöscht.`;
+    if (window._mode === 'live') {
+      msg += '\n\nLive-Modus: betrifft nur lokale Ledger, nicht dein Polymarket-Wallet.';
+    }
+    if (!confirm(msg)) return;
+    const btn = document.getElementById('setBudget');
+    btn.disabled = true;
+    try {
+      const r = await fetch('/api/reset-balances', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({balance}),
+      });
+      const data = await r.json();
+      if (!r.ok || !data.ok) throw new Error(data.error || 'Zurücksetzen fehlgeschlagen');
+      document.getElementById('budgetInput').dataset.touched = '';
+      await load();
+    } catch (e) {
+      alert(`Fehler: ${e.message}`);
+    } finally {
+      btn.disabled = false;
+    }
+  });
   document.getElementById('filter').addEventListener('change', () => { renderTrades(); renderPositions(); });
   document.getElementById('search').addEventListener('input', () => { renderTrades(); renderPositions(); });
   load();

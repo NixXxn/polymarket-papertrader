@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from papertrader.accounts import make_engine
-from papertrader.dashboard.data import fetch_dashboard
+from papertrader.dashboard.app import app
+from papertrader.dashboard.data import fetch_dashboard, reset_strategy_budgets
 from papertrader.decision_log import log_decision
 from papertrader.report import CombinedStats, ScanCounts
 from papertrader.scan_history import append_scan, load_scan_history
@@ -81,3 +82,33 @@ def test_fetch_dashboard_with_engines_and_logs(tmp_path):
     assert payload["copy"]["latency"]["count"] == 1
     assert any(r.get("feed") == "decision" for r in payload["activity_log"])
     assert any(r.get("decision") == "skip" for r in payload["decisions"])
+
+
+def test_reset_strategy_budgets(tmp_path):
+    make_engine("safe", tmp_path, starting_balance=100.0, reset=True)
+    make_engine("asymmetric", tmp_path, starting_balance=100.0, reset=True)
+    result = reset_strategy_budgets(data_dir=tmp_path, mode="paper", balance=500.0)
+    assert result["ok"] is True
+    assert len(result["strategies"]) == 4
+    assert all(s["cash"] == 500.0 for s in result["strategies"])
+    payload = fetch_dashboard(data_dir=tmp_path, mode="paper")
+    assert payload["portfolio"]["by_strategy"][0]["cash"] == 500.0
+    assert payload["portfolio"]["by_strategy"][0]["trades"] == 0
+
+
+def test_reset_balances_api(tmp_path):
+    make_engine("safe", tmp_path, starting_balance=50.0, reset=True)
+    client = app.test_client()
+    resp = client.post(
+        "/api/reset-balances?mode=paper",
+        json={"balance": 500, "data_dir": str(tmp_path)},
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert data["balance"] == 500.0
+    engine = make_engine("safe", tmp_path, 50.0)
+    try:
+        assert engine.get_account().cash == 500.0
+    finally:
+        engine.close()

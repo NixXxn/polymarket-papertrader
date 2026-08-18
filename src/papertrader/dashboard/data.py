@@ -8,10 +8,10 @@ from typing import Any
 
 from pm_trader.engine import Engine
 
-from papertrader.accounts import make_engine
-from papertrader.config import load_settings
+from papertrader.accounts import make_engine, reset_all_strategies
+from papertrader.config import ROOT, load_settings
 from papertrader.markets import polymarket_event_url
-from papertrader.mode import resolve_mode
+from papertrader.mode import ResolvedMode, load_dotenv_file, resolve_mode
 from papertrader.paths import DEFAULT_LIVE_DATA_DIR, data_dir_from_env
 from papertrader.report import account_stats, combine_engines, mark_positions
 from papertrader.live_sync import load_live_open_orders, load_live_sync_meta
@@ -26,6 +26,50 @@ from papertrader.trade_log import (
 
 
 STRATEGIES = ("safe", "asymmetric", "copy", "esports")
+
+
+def _resolve_dashboard(
+    data_dir: Path | None = None,
+    mode: str | None = None,
+) -> tuple[Any, ResolvedMode]:
+    load_dotenv_file(ROOT / ".env")
+    settings = load_settings()
+    resolved = resolve_mode(
+        settings_mode=settings.mode,
+        cli_mode=mode,
+        confirm_live=False,
+        data_dir=data_dir or data_dir_from_env(),
+        clob_host=settings.live.clob_host,
+        chain_id=settings.live.chain_id,
+        signature_type=settings.live.signature_type,
+        funder=settings.live.funder,
+        require_credentials=False,
+    )
+    return settings, resolved
+
+
+def reset_strategy_budgets(
+    *,
+    data_dir: Path | None = None,
+    mode: str | None = None,
+    balance: float,
+) -> dict[str, Any]:
+    """Wipe all strategy ledgers and set cash to ``balance``."""
+    if balance <= 0:
+        raise ValueError("balance must be positive")
+    _settings, resolved = _resolve_dashboard(data_dir, mode)
+    results = reset_all_strategies(resolved.data_dir, balance)
+    return {
+        "ok": True,
+        "mode": resolved.mode,
+        "data_dir": str(resolved.data_dir),
+        "balance": balance,
+        "is_live": resolved.is_live,
+        "strategies": [
+            {"name": name, "cash": cash, "starting_balance": starting}
+            for name, cash, starting in results
+        ],
+    }
 
 
 def _engine_exists(data_dir: Path, name: str) -> bool:
@@ -164,18 +208,7 @@ def fetch_dashboard(
     data_dir: Path | None = None,
     mode: str | None = None,
 ) -> dict[str, Any]:
-    settings = load_settings()
-    resolved = resolve_mode(
-        settings_mode=settings.mode,
-        cli_mode=mode,
-        confirm_live=False,
-        data_dir=data_dir or data_dir_from_env(),
-        clob_host=settings.live.clob_host,
-        chain_id=settings.live.chain_id,
-        signature_type=settings.live.signature_type,
-        funder=settings.live.funder,
-        require_credentials=False,
-    )
+    settings, resolved = _resolve_dashboard(data_dir, mode)
     engines = open_engines(resolved.data_dir, settings.starting_balance)
     try:
         if not engines:
@@ -183,6 +216,8 @@ def fetch_dashboard(
                 "ok": True,
                 "mode": resolved.mode,
                 "data_dir": str(resolved.data_dir),
+                "starting_balance": settings.starting_balance,
+                "is_live": resolved.is_live,
                 "updated_at": datetime.now(timezone.utc).isoformat(),
                 "portfolio": {
                     "cash": 0,
@@ -276,6 +311,8 @@ def fetch_dashboard(
             "mode": resolved.mode,
             "data_dir": str(resolved.data_dir),
             "is_live_ledger": resolved.data_dir == DEFAULT_LIVE_DATA_DIR,
+            "is_live": resolved.is_live,
+            "starting_balance": settings.starting_balance,
             "poll_interval_seconds": settings.poll_interval_seconds,
             "updated_at": datetime.now(timezone.utc).isoformat(),
             "portfolio": portfolio,
