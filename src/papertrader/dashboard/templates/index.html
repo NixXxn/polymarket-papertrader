@@ -114,6 +114,7 @@
         <option value="dry_run">Dry-Run</option>
         <option value="executed">Ausgeführt</option>
         <option value="error">Fehler</option>
+        <option value="scan">Scan</option>
       </select>
     </div>
     <div class="table-wrap">
@@ -201,7 +202,7 @@
     no_ask: 'kein Ask',
     ask_size_too_small: 'zu wenig Volumen',
     ask_too_cheap: 'Ask <2¢ (settled)',
-    ask_too_expensive: 'Ask >10¢',
+    ask_too_expensive: 'Ask >45¢',
     already_in_position: 'bereits investiert',
     order_book_error: 'Orderbuch-Fehler',
     low_model_prob: 'Modell <20%',
@@ -209,6 +210,15 @@
     low_edge: 'Edge zu klein',
     forecast_mismatch: 'Forecast passt nicht',
     ask_too_high: 'Ask zu hoch',
+    event_outside_horizon: 'Event außerhalb 3h',
+    low_event_volume: 'Volumen zu niedrig',
+    prop_market: 'Prop-Markt',
+    not_match_market: 'kein Match',
+    market_outside_horizon: 'Markt außerhalb 3h',
+    no_valid_ask: 'kein gültiger Ask',
+    max_open_positions: 'max Positionen',
+    already_in_event: 'bereits im Event',
+    insufficient_cash: 'zu wenig Cash',
   };
   const failLabel = k => REJECT_LABELS[k] || k;
   const formatNotable = rows => {
@@ -287,6 +297,7 @@
     const filtered = allActivity.filter(r => {
       if (filter === 'all') return true;
       if (filter === 'error') return r.level === 'error' || r.event === 'skipped_trade';
+      if (filter === 'scan') return (r.decision || r.event || '') === 'scan' || r.event === 'esports_scan';
       const d = (r.decision || r.event || '').toLowerCase();
       return d === filter || (filter === 'error' && r.level === 'warn');
     });
@@ -307,6 +318,7 @@
       if (r.ensemble_members != null) detailParts.push(`Ensemble ${r.ensemble_members} (${r.ensemble_source || '–'})`);
       if (r.api_error) detailParts.push(`API: ${r.api_error}`);
       if (r.notable_buckets && r.notable_buckets.length) detailParts.push(formatNotable(r.notable_buckets));
+      else if (r.candidates != null) detailParts.push(`candidates=${r.candidates} markets=${r.match_markets ?? '–'} events=${r.events_in_horizon ?? '–'}`);
       else if (r.near_miss) {
         const n = r.near_miss;
         detailParts.push(`Nächster Kandidat: ${n.bucket} Ask ${n.ask == null ? 'kein' : price(n.ask)+'¢'}, P=${Math.round((n.p_model||0)*100)}% → ${failLabel(n.fail)}`);

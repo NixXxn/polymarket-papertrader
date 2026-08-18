@@ -97,6 +97,7 @@ class EsportsSettings:
     max_open_positions: int
     min_event_volume: float
     search_queries: tuple[str, ...]
+    event_tags: tuple[str, ...]
     search_limit: int
     tag_slug: str
     exclude_slug_patterns: tuple[str, ...]
@@ -256,7 +257,7 @@ def load_settings(
             horizon_hours=float(esports_raw.get("horizon_hours", 3)),
             poll_interval_seconds=int(esports_raw.get("poll_interval_seconds", 60)),
             min_ask=float(esports_raw.get("min_ask", 0.02)),
-            max_ask=float(esports_raw.get("max_ask", 0.15)),
+            max_ask=float(esports_raw.get("max_ask", 0.45)),
             take_profit_multiple=float(esports_raw.get("take_profit_multiple", 2.0)),
             position_usd=float(esports_raw.get("position_usd", 5)),
             max_position_usd=float(esports_raw.get("max_position_usd", 25)),
@@ -264,7 +265,14 @@ def load_settings(
             min_event_volume=float(
                 esports_raw.get("min_event_volume", raw.get("min_event_volume", 200))
             ),
-            search_queries=tuple(esports_raw.get("search_queries") or ("lol", "cs2", "valorant", "dota")),
+            search_queries=tuple(
+                esports_raw.get("search_queries")
+                or ("lck", "lpl", "lec", "vct", "cs2", "dota2", "lol")
+            ),
+            event_tags=tuple(
+                esports_raw.get("event_tags")
+                or ("league-of-legends", "valorant", "dota-2", "esports")
+            ),
             search_limit=int(esports_raw.get("search_limit", 40)),
             tag_slug=str(esports_raw.get("tag_slug") or "esports"),
             exclude_slug_patterns=tuple(esports_raw.get("exclude_slug_patterns") or ()),

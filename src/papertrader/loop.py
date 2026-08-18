@@ -13,7 +13,7 @@ from papertrader.execution import ExecutionContext, log_fill_latency
 from papertrader.live import LiveTrader
 from papertrader.quant.position_state import PositionExitStore
 from papertrader.copytrade import sync_copy_trades
-from papertrader.decision_log import log_decision, purge_stale_logs
+from papertrader.decision_log import log_decision, purge_stale_logs, format_skip_summary
 from papertrader.markets import city_local_today, discover_events, event_dates, temperature_event_slug
 from papertrader.report import ScanCounts, combine_engines, format_scan_update
 from papertrader.scan_history import append_scan
@@ -584,6 +584,50 @@ def run_copy_loop(
     return last_summary
 
 
+def _log_esports_scan(
+    engine: Engine,
+    *,
+    stats,
+    orders_placed: int,
+    pending: int,
+) -> None:
+    skip_summary = format_skip_summary(dict(stats.rejects)) if stats.rejects else ""
+    reason = (
+        f"esports scan: {stats.candidates} buyable / {stats.match_markets} match markets / "
+        f"{stats.events_in_horizon} live events / {stats.events_seen} scanned"
+    )
+    log_decision(
+        engine.db.data_dir,
+        strategy="esports",
+        decision="scan",
+        reason=reason,
+        candidates=stats.candidates,
+        match_markets=stats.match_markets,
+        events_in_horizon=stats.events_in_horizon,
+        events_seen=stats.events_seen,
+        orders_placed=orders_placed,
+        pending_positions=pending,
+        skip_summary=skip_summary or None,
+        notable_buckets=stats.notable or None,
+    )
+    append_activity(
+        engine.db.data_dir,
+        level="info",
+        event="esports_scan",
+        strategy="esports",
+        message=reason if not skip_summary else f"{reason} — {skip_summary}",
+        candidates=stats.candidates,
+        match_markets=stats.match_markets,
+        events_in_horizon=stats.events_in_horizon,
+        events_seen=stats.events_seen,
+        orders_placed=orders_placed,
+        pending_positions=pending,
+        skip_summary=skip_summary or None,
+        notable_buckets=stats.notable or None,
+    )
+    log.info("Esports scan — %s%s", stats.summary(), f" | {skip_summary}" if skip_summary else "")
+
+
 def _esports_exit_pass(
     esports_engine: Engine,
     settings: Settings,
@@ -633,10 +677,12 @@ def scan_esports_once(
     _esports_exit_pass(
         esports_engine, settings, dry_run=dry_run, live=live, ctx=ctx, emitted=emitted, counts=counts
     )
-    candidates = discover_esports_markets(esports_engine, settings, now=now)
+    discovery = discover_esports_markets(esports_engine, settings, now=now)
+    candidates = discovery.candidates
+    stats = discovery.stats
+    counts.candidates = stats.candidates
     positions = esports_engine.db.get_open_positions()
     for candidate in candidates:
-        counts.candidates += 1
         sig = analyze_esports_candidate(esports_engine, candidate, settings, positions)
         if sig is None:
             continue
@@ -664,6 +710,12 @@ def scan_esports_once(
         )
     counts.pending = len(esports_engine.db.get_open_positions())
     counts.fills += counts.resolved
+    _log_esports_scan(
+        esports_engine,
+        stats=stats,
+        orders_placed=counts.orders_placed,
+        pending=counts.pending,
+    )
     return emitted, counts
 
 

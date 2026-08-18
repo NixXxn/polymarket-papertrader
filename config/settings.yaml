@@ -88,13 +88,14 @@ esports:
   horizon_hours: 3
   poll_interval_seconds: 60
   min_ask: 0.02
-  max_ask: 0.15
+  max_ask: 0.45
   take_profit_multiple: 2.0
   position_usd: 5
   max_position_usd: 25
   max_open_positions: 20
   min_event_volume: 500
-  search_queries: [lol, cs2, valorant, dota]
+  search_queries: [lck, lpl, lec, vct, cs2, dota2, lol]
+  event_tags: [league-of-legends, valorant, dota-2, esports]
   search_limit: 40
   tag_slug: esports
 

@@ -52,6 +52,8 @@ def analyze_esports_candidate(
             reason="max_open_positions",
             slug=candidate.market.slug,
             open_positions=len(open_positions),
+            ask=candidate.ask,
+            ends_at=candidate.end_at.isoformat(),
         )
         return None
     if _in_position(open_positions, candidate.market.condition_id, candidate.outcome):

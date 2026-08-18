@@ -141,6 +141,19 @@ REJECT_LABELS: dict[str, str] = {
     "low_edge": "Edge zu klein",
     "forecast_mismatch": "Forecast passt nicht zum Bucket",
     "ask_too_high": "Ask zu hoch",
+    "event_outside_horizon": "Event endet außerhalb des 3h-Fensters",
+    "no_event_end": "Event ohne Enddatum",
+    "event_closed": "Event geschlossen",
+    "low_event_volume": "Event-Volumen zu niedrig",
+    "prop_market": "Prop-Markt (kein Match)",
+    "not_match_market": "kein Match-Markt",
+    "market_outside_horizon": "Markt endet außerhalb des Fensters",
+    "market_closed": "Markt geschlossen",
+    "market_unavailable": "Markt nicht ladbar",
+    "no_valid_ask": "kein gültiger Ask",
+    "max_open_positions": "max. offene Positionen",
+    "already_in_event": "bereits im Event investiert",
+    "insufficient_cash": "zu wenig Cash",
 }
 
 

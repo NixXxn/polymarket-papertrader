@@ -7,8 +7,10 @@ from unittest.mock import MagicMock
 from papertrader.config import load_settings
 from papertrader.esports_markets import (
     EsportsCandidate,
+    EsportsScanStats,
     _is_prop_market,
     _looks_like_match_market,
+    _resolve_end_at,
     discover_esports_markets,
 )
 from papertrader.esports_state import EsportsExitStore
@@ -49,6 +51,14 @@ def test_match_and_prop_filters():
     assert not _looks_like_match_market("Total maps", "lol-alpha-beta-both-teams-win")
     assert _is_prop_market("lol-alpha-beta-both-teams-win", ())
     assert not _is_prop_market("lol-alpha-beta-2026-08-18-game1", ())
+
+
+def test_resolve_end_at_uses_series_end_when_game_end_stale():
+    now = datetime(2026, 8, 18, 11, 0, tzinfo=timezone.utc)
+    event = {"endDate": "2026-08-18T14:00:00Z"}
+    row = {"endDate": "2026-08-18T10:00:00Z"}
+    end = _resolve_end_at(row, event, now=now)
+    assert end == datetime(2026, 8, 18, 14, 0, tzinfo=timezone.utc)
 
 
 def test_analyze_esports_buy_cheap(tmp_path):
@@ -111,17 +121,17 @@ def test_esports_exit_store_roundtrip(tmp_path):
     assert not store.take_profit_placed("0xabc", "beta")
 
 
-def test_discover_esports_skips_out_of_horizon(monkeypatch):
+def test_discover_esports_finds_near_horizon_market(monkeypatch):
     settings = load_settings()
     engine = MagicMock()
     now = datetime(2026, 8, 18, 12, 0, tzinfo=timezone.utc)
-    far_end = (now + timedelta(hours=10)).strftime("%Y-%m-%dT%H:%M:%SZ")
     near_end = (now + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
     event_near = {
         "slug": "lol-alpha-beta-2026-08-18",
         "title": "LoL: Alpha vs Beta",
         "volume": 5000,
         "closed": False,
+        "endDate": near_end,
         "markets": [
             {
                 "slug": "lol-alpha-beta-2026-08-18-game1",
@@ -135,23 +145,25 @@ def test_discover_esports_skips_out_of_horizon(monkeypatch):
             }
         ],
     }
-    event_far = {
-        **event_near,
-        "markets": [{**event_near["markets"][0], "endDate": far_end, "conditionId": "0xfar"}],
-    }
 
     def _gamma_get(path, params=None):
         if path == "/public-search":
-            return {"events": [event_far, event_near]}
-        if path == "/events":
-            return [event_near]
-        return {}
+            return {"events": [event_near]}
+        return []
 
     engine.api._gamma_get.side_effect = _gamma_get
     engine.api.get_order_book.return_value = SimpleNamespace(
         asks=[FakeLevel(0.08, 100)],
         bids=[FakeLevel(0.06, 50)],
     )
-    found = discover_esports_markets(engine, settings, now=now)
-    assert len(found) == 1
-    assert found[0].market.condition_id == "0xnear"
+    result = discover_esports_markets(engine, settings, now=now)
+    assert len(result.candidates) == 1
+    assert result.stats.candidates == 1
+    assert result.candidates[0].market.condition_id == "0xnear"
+
+
+def test_scan_stats_summary():
+    stats = EsportsScanStats(candidates=2, match_markets=5, events_in_horizon=3, events_seen=10)
+    stats.bump("ask_too_expensive", 2)
+    assert "2 buyable" in stats.summary()
+    assert "ask_too_expensive=2" in stats.summary()
