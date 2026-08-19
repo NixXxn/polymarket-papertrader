@@ -16,8 +16,8 @@ user_agent: "polymarket-papertrader/0.1 (paper trading; local use)"
 safe:
   cities: [miami, atlanta, nyc, chicago, dallas, houston, austin, phoenix, denver, los-angeles]
   # High-certainty mode: only enter when YES is already near certain (around 90%).
-  min_ask: 0.88
-  max_ask: 0.95
+  min_ask: 0.86
+  max_ask: 0.97
   max_open_positions: 20
   min_sell_bid: 0.02
   # Safe-only paper bankroll override for larger test sizing.

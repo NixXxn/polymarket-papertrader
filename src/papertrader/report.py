@@ -42,6 +42,7 @@ class CombinedStats:
     positions: float
     total: float
     pnl: float
+    unrealized_pnl: float
     roi_pct: float
     trades: int
     buys: int
@@ -119,6 +120,8 @@ def account_stats(engine: Engine) -> dict:
     chronological = list(reversed(trades))
     raw = compute_stats(trades, account, positions_value)
     realized = realized_pnl_total(chronological)
+    total_pnl = float(raw.get("pnl", 0.0))
+    raw["unrealized_pnl"] = total_pnl - realized
     raw["realized_pnl"] = realized
     raw["pnl"] = realized
     raw["roi_pct"] = (
@@ -164,14 +167,15 @@ def _open_position_links(named_engines: list[tuple[str, Engine]]) -> list[OpenPo
 def combine_engines(named_engines: list[tuple[str, Engine]]) -> CombinedStats:
     labeled = [(name, account_stats(engine)) for name, engine in named_engines]
     if not labeled:
-        return CombinedStats(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
+        return CombinedStats(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0)
     stats_list = [raw for _, raw in labeled]
     cash = sum(s["cash"] for s in stats_list)
     positions = sum(s["positions_value"] for s in stats_list)
     total = sum(s["total_value"] for s in stats_list)
     starting = sum(s["starting_balance"] for s in stats_list)
-    pnl = total - starting
-    roi = (pnl / starting * 100) if starting else 0.0
+    realized_pnl = sum(float(s.get("realized_pnl", 0.0)) for s in stats_list)
+    unrealized_pnl = sum(float(s.get("unrealized_pnl", 0.0)) for s in stats_list)
+    roi = (realized_pnl / starting * 100) if starting else 0.0
     trades = sum(s["total_trades"] for s in stats_list)
     buys = sum(s["buy_count"] for s in stats_list)
     sells = sum(s["sell_count"] for s in stats_list)
@@ -187,7 +191,8 @@ def combine_engines(named_engines: list[tuple[str, Engine]]) -> CombinedStats:
         cash=cash,
         positions=positions,
         total=total,
-        pnl=pnl,
+        pnl=realized_pnl,
+        unrealized_pnl=unrealized_pnl,
         roi_pct=roi,
         trades=trades,
         buys=buys,
@@ -221,6 +226,7 @@ def format_scan_update(counts: ScanCounts, stats: CombinedStats) -> str:
         f"positions {fmt_money(stats.positions)};\n"
         f"total {fmt_money(stats.total)}\n"
         f"P&L (realisiert) {fmt_pnl(stats.pnl)};\n"
+        f"P&L (unrealisiert) {fmt_pnl(stats.unrealized_pnl)};\n"
         f"ROI (realisiert) {stats.roi_pct:.2f}%.\n"
         f"Kontostand {fmt_money(stats.total)} "
         f"(Cash {fmt_money(stats.cash)} + offen {fmt_money(stats.positions)}).\n"

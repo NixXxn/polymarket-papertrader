@@ -279,13 +279,44 @@
     for (const s of (p.by_strategy || [])) {
       const el = document.createElement('div');
       el.className = 'card';
+      const strategyBudget = Math.round(Number(s.cash ?? s.starting_balance ?? 0));
       el.innerHTML = `
         <div class="label strategy-${esc(s.name)}">${esc(s.name)}</div>
         <div class="value ${pnlClass(s.pnl)}">${s.pnl >= 0 ? '+' : ''}${money(s.pnl)}</div>
         <div class="mini">ROI ${pct(s.roi_pct)} · Win Rate ${pct(s.win_rate_pct ?? s.win_rate * 100)}</div>
         <div class="mini">${s.trades} Trades (${s.buys} buys / ${s.sells} sells)</div>
-        <div class="mini">Cash ${money(s.cash)} · Offen ${money(s.positions_value)}</div>`;
+        <div class="mini">Cash ${money(s.cash)} · Offen ${money(s.positions_value)}</div>
+        <div class="mini" style="margin-top:8px;display:flex;gap:6px;align-items:center;">
+          <input class="strategy-budget-input" data-strategy="${esc(s.name)}" type="number" min="1" step="1" value="${strategyBudget}" style="width:96px" title="Budget nur für ${esc(s.name)}">
+          <button class="set-strategy-budget" data-strategy="${esc(s.name)}" title="Nur diese Strategie zurücksetzen">Setzen</button>
+        </div>`;
       sc.appendChild(el);
+    }
+  }
+
+  async function setSingleStrategyBudget(strategy, balance, button) {
+    if (!Number.isFinite(balance) || balance <= 0) {
+      alert('Bitte ein gültiges Budget eingeben.');
+      return;
+    }
+    let msg = `Strategie "${strategy}" auf $${balance} setzen?\n\nNur dieses Strategie-Ledger wird zurückgesetzt (Trades/Positionen dieser Strategie werden gelöscht).`;
+    if (window._mode === 'live') {
+      msg += '\n\nLive-Modus: betrifft nur lokale Ledger, nicht dein Polymarket-Wallet.';
+    }
+    if (!confirm(msg)) return;
+    button.disabled = true;
+    try {
+      const r = await fetch('/api/set-strategy-budget', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({strategy, balance}),
+      });
+      await readJsonOrThrow(r);
+      await load();
+    } catch (e) {
+      alert(`Fehler: ${e.message}`);
+    } finally {
+      button.disabled = false;
     }
   }
 
@@ -586,6 +617,14 @@
   });
   document.getElementById('filter').addEventListener('change', () => { renderTrades(); renderPositions(); });
   document.getElementById('search').addEventListener('input', () => { renderTrades(); renderPositions(); });
+  document.getElementById('strategyCards').addEventListener('click', async (e) => {
+    const btn = e.target.closest('.set-strategy-budget');
+    if (!btn) return;
+    const strategy = btn.dataset.strategy;
+    const input = document.querySelector(`.strategy-budget-input[data-strategy="${strategy}"]`);
+    const balance = Number(input?.value);
+    await setSingleStrategyBudget(strategy, balance, btn);
+  });
   load();
   setInterval(load, 15000);
 </script>

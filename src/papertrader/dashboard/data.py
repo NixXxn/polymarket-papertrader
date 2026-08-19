@@ -7,7 +7,7 @@ from typing import Any
 
 from pm_trader.engine import Engine
 
-from papertrader.accounts import make_engine, reset_all_strategies
+from papertrader.accounts import STRATEGY_NAMES, make_engine, reset_all_strategies
 from papertrader.config import ROOT, load_settings
 from papertrader.markets import polymarket_event_url
 from papertrader.mode import ResolvedMode, load_dotenv_file, resolve_mode
@@ -92,6 +92,45 @@ def reset_strategy_budgets(
     }
 
 
+def set_strategy_budget(
+    *,
+    strategy: str,
+    balance: float,
+    data_dir: Path | None = None,
+    mode: str | None = None,
+) -> dict[str, Any]:
+    """Reset one strategy ledger and set its cash/start balance."""
+    if strategy not in STRATEGY_NAMES:
+        raise ValueError(f"unknown strategy: {strategy}")
+    if balance <= 0:
+        raise ValueError("balance must be positive")
+    settings, resolved = _resolve_dashboard(data_dir, mode)
+    if strategy == "safe":
+        settings_balance = float(getattr(settings.safe, "starting_balance", 0) or settings.starting_balance)
+    else:
+        settings_balance = settings.starting_balance
+    # Always reset the selected strategy ledger to make the new budget effective immediately.
+    engine = make_engine(strategy, resolved.data_dir, balance, reset=True)
+    try:
+        acct = engine.get_account()
+    finally:
+        engine.close()
+    return {
+        "ok": True,
+        "mode": resolved.mode,
+        "data_dir": str(resolved.data_dir),
+        "strategy": strategy,
+        "balance": float(balance),
+        "is_live": resolved.is_live,
+        "account": {
+            "name": strategy,
+            "cash": acct.cash,
+            "starting_balance": acct.starting_balance,
+            "default_balance": settings_balance,
+        },
+    }
+
+
 def reset_all_statistics(
     *,
     data_dir: Path | None = None,
@@ -129,9 +168,14 @@ def _engine_exists(data_dir: Path, name: str) -> bool:
     return (data_dir / name / "paper.db").is_file()
 
 
-def open_engines(data_dir: Path, starting_balance: float) -> list[tuple[str, Engine]]:
+def open_engines(data_dir: Path, settings: Any) -> list[tuple[str, Engine]]:
     """Open every configured strategy ledger (creates paper account on first view)."""
-    return [(name, make_engine(name, data_dir, starting_balance)) for name in STRATEGIES]
+    safe_balance = float(getattr(settings.safe, "starting_balance", 0) or settings.starting_balance)
+    pairs: list[tuple[str, Engine]] = []
+    for name in STRATEGIES:
+        balance = safe_balance if name == "safe" else settings.starting_balance
+        pairs.append((name, make_engine(name, data_dir, balance)))
+    return pairs
 
 
 def _trade_row(
@@ -243,7 +287,7 @@ def fetch_dashboard(
     mode: str | None = None,
 ) -> dict[str, Any]:
     settings, resolved = _resolve_dashboard(data_dir, mode)
-    engines = open_engines(resolved.data_dir, settings.starting_balance)
+    engines = open_engines(resolved.data_dir, settings)
     try:
         if not engines:
             return {
@@ -309,6 +353,7 @@ def fetch_dashboard(
             "total": combined.total,
             "pnl": combined.pnl,
             "realized_pnl": combined.pnl,
+            "unrealized_pnl": combined.unrealized_pnl,
             "roi_pct": combined.roi_pct,
             "trades": combined.trades,
             "buys": combined.buys,
@@ -337,6 +382,7 @@ def fetch_dashboard(
                     "starting_balance": raw["starting_balance"],
                     "pnl": raw["pnl"],
                     "realized_pnl": raw.get("realized_pnl", raw["pnl"]),
+                    "unrealized_pnl": raw.get("unrealized_pnl", 0.0),
                     "roi_pct": raw["roi_pct"],
                     "sharpe_ratio": raw["sharpe_ratio"],
                     "max_drawdown": raw["max_drawdown"],

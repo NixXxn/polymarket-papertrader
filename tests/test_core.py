@@ -180,6 +180,7 @@ def test_format_scan_update_includes_strategy_breakdown():
             positions=19.0,
             total=91.0,
             pnl=-9.0,
+            unrealized_pnl=0.0,
             roi_pct=-9.0,
             trades=12,
             buys=12,

@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from papertrader.accounts import make_engine
 from papertrader.dashboard.app import app
-from papertrader.dashboard.data import fetch_dashboard, reset_all_statistics, reset_strategy_budgets
+from papertrader.dashboard.data import (
+    fetch_dashboard,
+    reset_all_statistics,
+    reset_strategy_budgets,
+    set_strategy_budget,
+)
 from papertrader.decision_log import log_decision
 from papertrader.report import CombinedStats, ScanCounts
 from papertrader.scan_history import append_scan, load_scan_history
@@ -16,6 +21,7 @@ def test_scan_history_roundtrip(tmp_path):
         positions=10,
         total=50,
         pnl=0,
+        unrealized_pnl=0,
         roi_pct=0,
         trades=0,
         buys=0,
@@ -96,6 +102,23 @@ def test_reset_strategy_budgets(tmp_path):
     assert payload["portfolio"]["by_strategy"][0]["trades"] == 0
 
 
+def test_set_single_strategy_budget(tmp_path):
+    make_engine("safe", tmp_path, starting_balance=100.0, reset=True)
+    make_engine("asymmetric", tmp_path, starting_balance=100.0, reset=True)
+    result = set_strategy_budget(data_dir=tmp_path, mode="paper", strategy="safe", balance=750.0)
+    assert result["ok"] is True
+    assert result["strategy"] == "safe"
+    assert result["account"]["cash"] == 750.0
+    safe_engine = make_engine("safe", tmp_path, 100.0)
+    asym_engine = make_engine("asymmetric", tmp_path, 100.0)
+    try:
+        assert safe_engine.get_account().cash == 750.0
+        assert asym_engine.get_account().cash == 100.0
+    finally:
+        safe_engine.close()
+        asym_engine.close()
+
+
 def test_fetch_dashboard_activity_includes_strategy_decisions(tmp_path):
     from papertrader.decision_log import log_decision
     from papertrader.trade_log import build_activity_feed
@@ -171,3 +194,17 @@ def test_reset_statistics_api(tmp_path):
     assert data["ok"] is True
     payload = fetch_dashboard(data_dir=tmp_path, mode="paper")
     assert payload["decisions"] == []
+
+
+def test_set_strategy_budget_api(tmp_path):
+    make_engine("safe", tmp_path, starting_balance=100.0, reset=True)
+    client = app.test_client()
+    resp = client.post(
+        "/api/set-strategy-budget?mode=paper",
+        json={"strategy": "safe", "balance": 900, "data_dir": str(tmp_path)},
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    assert data["strategy"] == "safe"
+    assert data["balance"] == 900.0
