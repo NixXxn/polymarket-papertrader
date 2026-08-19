@@ -90,6 +90,7 @@
       <label class="muted" for="budgetInput" style="font-size:12px">Budget $</label>
       <input id="budgetInput" type="number" min="1" step="1" style="width:88px" title="Cash pro Strategie (setzt alle Ledger zurück)">
       <button id="setBudget" class="danger" title="Alle Strategien auf dieses Budget zurücksetzen">Budget setzen</button>
+      <button id="resetStats" class="danger" title="Alle Statistiken und Logs löschen">Reset all statistics</button>
       <button id="refresh">Aktualisieren</button>
     </div>
   </div>
@@ -539,6 +540,29 @@
       });
       const data = await r.json();
       if (!r.ok || !data.ok) throw new Error(data.error || 'Zurücksetzen fehlgeschlagen');
+      document.getElementById('budgetInput').dataset.touched = '';
+      await load();
+    } catch (e) {
+      alert(`Fehler: ${e.message}`);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+  document.getElementById('resetStats').addEventListener('click', async () => {
+    let msg = 'Alle Statistiken zurücksetzen und alle Logs/Trades löschen?\n\nDanach startest du im Dashboard von 0.';
+    if (window._mode === 'live') {
+      msg += '\n\nLive-Modus: betrifft nur lokale Ledger, nicht dein Polymarket-Wallet.';
+    }
+    if (!confirm(msg)) return;
+    const btn = document.getElementById('resetStats');
+    btn.disabled = true;
+    try {
+      const r = await fetch('/api/reset-statistics', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+      });
+      const data = await r.json();
+      if (!r.ok || !data.ok) throw new Error(data.error || 'Reset fehlgeschlagen');
       document.getElementById('budgetInput').dataset.touched = '';
       await load();
     } catch (e) {

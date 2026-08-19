@@ -194,6 +194,8 @@ def analyze_asymmetric_event(
             src = f"{src}+openweather"
             sigma = ow_est.sigma_f
 
+        p_model = min(max(p_model, 1e-6), 1.0 - 1e-6)
+
         if p_model < cfg.min_model_prob:
             rejects["low_model_prob"] += 1
             _near_miss(bucket, ask, ask_size, p_model, "low_model_prob")

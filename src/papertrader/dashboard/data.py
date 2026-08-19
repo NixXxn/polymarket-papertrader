@@ -32,6 +32,21 @@ from papertrader.trade_log import (
 
 STRATEGIES = ("safe", "asymmetric", "contrarian", "copy", "esports", "momentum")
 
+_RESET_STATS_FILES = (
+    "activity.jsonl",
+    "decisions.jsonl",
+    "skipped_trades.jsonl",
+    "shadow_ledger.jsonl",
+    "scan_history.jsonl",
+    "oddspapi_cache.json",
+    "oddspapi_quota.json",
+    "live_sync_state.json",
+    "esports_exit_state.json",
+    "momentum_exit_state.json",
+    "copy/copy_events.jsonl",
+    "copy/copied_trades.json",
+)
+
 
 def _resolve_dashboard(
     data_dir: Path | None = None,
@@ -70,6 +85,39 @@ def reset_strategy_budgets(
         "data_dir": str(resolved.data_dir),
         "balance": balance,
         "is_live": resolved.is_live,
+        "strategies": [
+            {"name": name, "cash": cash, "starting_balance": starting}
+            for name, cash, starting in results
+        ],
+    }
+
+
+def reset_all_statistics(
+    *,
+    data_dir: Path | None = None,
+    mode: str | None = None,
+    balance: float | None = None,
+) -> dict[str, Any]:
+    """Reset all ledgers and delete dashboard/log/statistics artifacts."""
+    settings, resolved = _resolve_dashboard(data_dir, mode)
+    amount = float(balance if balance is not None else settings.starting_balance)
+    if amount <= 0:
+        raise ValueError("balance must be positive")
+    results = reset_all_strategies(resolved.data_dir, amount)
+    deleted: list[str] = []
+    root = resolved.data_dir
+    for rel in _RESET_STATS_FILES:
+        p = root / rel
+        if p.is_file():
+            p.unlink()
+            deleted.append(rel)
+    return {
+        "ok": True,
+        "mode": resolved.mode,
+        "data_dir": str(resolved.data_dir),
+        "balance": amount,
+        "is_live": resolved.is_live,
+        "deleted_files": deleted,
         "strategies": [
             {"name": name, "cash": cash, "starting_balance": starting}
             for name, cash, starting in results

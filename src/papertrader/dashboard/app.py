@@ -7,7 +7,7 @@ from pathlib import Path
 from flask import Flask, jsonify, render_template, request, Response
 
 from papertrader.config import ROOT
-from papertrader.dashboard.data import fetch_dashboard, reset_strategy_budgets
+from papertrader.dashboard.data import fetch_dashboard, reset_all_statistics, reset_strategy_budgets
 from papertrader.mode import load_dotenv_file
 
 app = Flask(__name__, template_folder=str(Path(__file__).parent / "templates"))
@@ -83,6 +83,28 @@ def reset_balances_api():
             data_dir=P(data_dir) if data_dir else None,
             mode=mode,
             balance=float(balance),
+        )
+        return jsonify(payload)
+    except (TypeError, ValueError) as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/reset-statistics", methods=["POST"])
+@requires_auth
+def reset_statistics_api():
+    try:
+        body = request.get_json(silent=True) or {}
+        mode = request.args.get("mode") or body.get("mode")
+        data_dir = request.args.get("data_dir") or body.get("data_dir")
+        balance = body.get("balance")
+        from pathlib import Path as P
+
+        payload = reset_all_statistics(
+            data_dir=P(data_dir) if data_dir else None,
+            mode=mode,
+            balance=float(balance) if balance is not None else None,
         )
         return jsonify(payload)
     except (TypeError, ValueError) as exc:

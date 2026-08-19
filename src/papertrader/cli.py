@@ -93,13 +93,14 @@ def _start(
     contrarian_engine = None
     copy_engine = None
     esports_engine = None
+    momentum_engine = None
     if strategy in ("safe", "both"):
         safe_engine = make_engine("safe", resolved.data_dir, settings.starting_balance, reset=reset)
     if strategy in ("asymmetric", "both"):
         asymmetric_engine = make_engine(
             "asymmetric", resolved.data_dir, settings.starting_balance, reset=reset
         )
-    if strategy == "contrarian":
+    if strategy in ("contrarian", "both"):
         contrarian_engine = make_engine(
             "contrarian", resolved.data_dir, settings.starting_balance, reset=reset
         )
@@ -132,10 +133,11 @@ def _start(
             data_dir=resolved.data_dir,
         )
         return
-    if strategy == "momentum":
+    if strategy in ("momentum", "both"):
         momentum_engine = make_engine(
             "momentum", resolved.data_dir, settings.starting_balance, reset=reset
         )
+    if strategy == "momentum":
         if live is not None:
             live.sync_cash(momentum_engine)
         run_momentum_loop(
@@ -154,6 +156,7 @@ def _start(
         contrarian_engine=contrarian_engine,
         copy_engine=copy_engine,
         esports_engine=esports_engine,
+        momentum_engine=momentum_engine,
         dry_run=dry_run,
         once=once,
         live=live,
@@ -166,7 +169,7 @@ def _start(
     "--strategy",
     type=click.Choice(_STRATEGIES),
     default="both",
-    help="both = safe + asymmetric + esports; esports runs on its own poll interval.",
+    help="both = safe + asymmetric + contrarian + esports + momentum.",
 )
 @click.option("--dry-run", is_flag=True, help="Log would-be trades without filling.")
 @click.option("--once", is_flag=True, help="Run a single scan then exit.")
@@ -219,7 +222,7 @@ def scan_cmd(
 @click.option("--mode", "cli_mode", type=click.Choice(["paper", "test", "live"], case_sensitive=False), default=None)
 @click.option("--data-dir", type=click.Path(path_type=Path), default=None)
 def status_cmd(cli_mode: str | None, data_dir: Path | None) -> None:
-    """Print portfolio snapshots for `safe` and `asymmetric`."""
+    """Print portfolio snapshots for all configured strategies."""
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("py_clob_client_v2").setLevel(logging.WARNING)
     settings = load_settings()

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from papertrader.accounts import make_engine
 from papertrader.dashboard.app import app
-from papertrader.dashboard.data import fetch_dashboard, reset_strategy_budgets
+from papertrader.dashboard.data import fetch_dashboard, reset_all_statistics, reset_strategy_budgets
 from papertrader.decision_log import log_decision
 from papertrader.report import CombinedStats, ScanCounts
 from papertrader.scan_history import append_scan, load_scan_history
@@ -135,3 +135,39 @@ def test_reset_balances_api(tmp_path):
         assert engine.get_account().cash == 500.0
     finally:
         engine.close()
+
+
+def test_reset_all_statistics_clears_logs_and_trades(tmp_path):
+    make_engine("safe", tmp_path, starting_balance=100.0, reset=True)
+    log_decision(
+        tmp_path,
+        strategy="safe",
+        decision="scan",
+        reason="test",
+    )
+    result = reset_all_statistics(data_dir=tmp_path, mode="paper")
+    assert result["ok"] is True
+    payload = fetch_dashboard(data_dir=tmp_path, mode="paper")
+    safe_row = next(s for s in payload["portfolio"]["by_strategy"] if s["name"] == "safe")
+    assert safe_row["trades"] == 0
+    assert payload["decisions"] == []
+
+
+def test_reset_statistics_api(tmp_path):
+    make_engine("safe", tmp_path, starting_balance=100.0, reset=True)
+    log_decision(
+        tmp_path,
+        strategy="safe",
+        decision="scan",
+        reason="test",
+    )
+    client = app.test_client()
+    resp = client.post(
+        "/api/reset-statistics?mode=paper",
+        json={"data_dir": str(tmp_path)},
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["ok"] is True
+    payload = fetch_dashboard(data_dir=tmp_path, mode="paper")
+    assert payload["decisions"] == []

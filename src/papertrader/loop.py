@@ -364,6 +364,7 @@ def scan_once(
     contrarian_engine: Engine | None = None,
     copy_engine: Engine | None = None,
     esports_engine: Engine | None = None,
+    momentum_engine: Engine | None = None,
     dry_run: bool,
     today: date | None = None,
     live: LiveTrader | None = None,
@@ -389,12 +390,21 @@ def scan_once(
         live_engines.append(("copy", copy_engine))
     if esports_engine is not None:
         live_engines.append(("esports", esports_engine))
+    if momentum_engine is not None:
+        live_engines.append(("momentum", momentum_engine))
     if live is not None and live_engines:
         _sync_live_engines(live, live_engines)
 
     purge_engines = [
         e
-        for e in (safe_engine, asymmetric_engine, contrarian_engine, copy_engine, esports_engine)
+        for e in (
+            safe_engine,
+            asymmetric_engine,
+            contrarian_engine,
+            copy_engine,
+            esports_engine,
+            momentum_engine,
+        )
         if e is not None
     ]
     _purge_logs(purge_engines)
@@ -430,55 +440,72 @@ def scan_once(
                     positions = safe_engine.db.get_open_positions()
 
     if asymmetric_engine:
-        if live is None:
-            try:
-                asymmetric_engine.check_orders()
-            except Exception as e:
-                log.debug("check_orders: %s", e)
-        if live is None:
-            counts.resolved += _resolve(asymmetric_engine)
-        positions = asymmetric_engine.db.get_open_positions()
-        for sig in asymmetric_exits(
-            asymmetric_engine, http, settings, positions, settings.cities
-        ):
-            filled = execute_signal(asymmetric_engine, sig, dry_run, live=live, ctx=ctx, strategy="asymmetric")
-            emitted.append(sig)
-            if filled:
-                counts.orders_placed += 1
-                counts.fills += 1
-                counts.risk_exits += 1
-        cities = settings.cities_for("asymmetric")
-        if settings.asymmetric.cities:
-            cities = [settings.cities[s] for s in settings.asymmetric.cities if s in settings.cities]
-        events = discover_events(asymmetric_engine, cities, settings, now=now)
-        _log_missing_markets(
-            asymmetric_engine,
-            strategy="asymmetric",
-            cities=cities,
-            events=events,
-            settings=settings,
-            now=now,
-        )
-        prefetch_combined_ensembles(http, events)
-        positions = asymmetric_engine.db.get_open_positions()
-        for _slug, event_date, city, buckets, _vol in events:
-            counts.candidates += len(buckets)
-            sig = analyze_asymmetric_event(
-                asymmetric_engine,
-                http,
-                city,
-                event_date,
-                buckets,
-                settings,
-                positions,
-            )
-            if sig:
+        try:
+            if live is None:
+                try:
+                    asymmetric_engine.check_orders()
+                except Exception as e:
+                    log.debug("check_orders: %s", e)
+            if live is None:
+                counts.resolved += _resolve(asymmetric_engine)
+            positions = asymmetric_engine.db.get_open_positions()
+            for sig in asymmetric_exits(
+                asymmetric_engine, http, settings, positions, settings.cities
+            ):
                 filled = execute_signal(asymmetric_engine, sig, dry_run, live=live, ctx=ctx, strategy="asymmetric")
                 emitted.append(sig)
                 if filled:
                     counts.orders_placed += 1
                     counts.fills += 1
-                    positions = asymmetric_engine.db.get_open_positions()
+                    counts.risk_exits += 1
+            cities = settings.cities_for("asymmetric")
+            if settings.asymmetric.cities:
+                cities = [settings.cities[s] for s in settings.asymmetric.cities if s in settings.cities]
+            events = discover_events(asymmetric_engine, cities, settings, now=now)
+            _log_missing_markets(
+                asymmetric_engine,
+                strategy="asymmetric",
+                cities=cities,
+                events=events,
+                settings=settings,
+                now=now,
+            )
+            prefetch_combined_ensembles(http, events)
+            positions = asymmetric_engine.db.get_open_positions()
+            for _slug, event_date, city, buckets, _vol in events:
+                counts.candidates += len(buckets)
+                sig = analyze_asymmetric_event(
+                    asymmetric_engine,
+                    http,
+                    city,
+                    event_date,
+                    buckets,
+                    settings,
+                    positions,
+                )
+                if sig:
+                    filled = execute_signal(asymmetric_engine, sig, dry_run, live=live, ctx=ctx, strategy="asymmetric")
+                    emitted.append(sig)
+                    if filled:
+                        counts.orders_placed += 1
+                        counts.fills += 1
+                        positions = asymmetric_engine.db.get_open_positions()
+        except Exception as e:
+            log.exception("asymmetric scan failed: %s", e)
+            append_activity(
+                asymmetric_engine.db.data_dir,
+                level="error",
+                event="scan_failed",
+                strategy="asymmetric",
+                message=str(e),
+            )
+            log_decision(
+                asymmetric_engine.db.data_dir,
+                strategy="asymmetric",
+                decision="scan_failed",
+                reason=str(e),
+                level="error",
+            )
 
     if contrarian_engine:
         if live is None:
@@ -573,9 +600,30 @@ def scan_once(
         counts.resolved += es_counts.resolved
         counts.risk_exits += es_counts.risk_exits
 
+    if momentum_engine:
+        momentum_counts = MomentumRunner(
+            settings=settings,
+            engine=momentum_engine,
+            dry_run=dry_run,
+            live=live,
+            data_dir=None,
+        ).poll_once()
+        counts.candidates += momentum_counts.candidates
+        counts.orders_placed += momentum_counts.orders_placed
+        counts.fills += momentum_counts.fills
+        counts.resolved += momentum_counts.resolved
+        counts.risk_exits += momentum_counts.risk_exits
+
     engines = [
         e
-        for e in (safe_engine, asymmetric_engine, contrarian_engine, copy_engine, esports_engine)
+        for e in (
+            safe_engine,
+            asymmetric_engine,
+            contrarian_engine,
+            copy_engine,
+            esports_engine,
+            momentum_engine,
+        )
         if e is not None
     ]
     counts.pending = sum(len(e.db.get_open_positions()) for e in engines)
@@ -604,6 +652,7 @@ def run_loop(
     contrarian_engine: Engine | None = None,
     copy_engine: Engine | None = None,
     esports_engine: Engine | None = None,
+    momentum_engine: Engine | None = None,
     dry_run: bool,
     once: bool,
     live: LiveTrader | None = None,
@@ -621,6 +670,8 @@ def run_loop(
         named_engines.append(("copy", copy_engine))
     if esports_engine is not None:
         named_engines.append(("esports", esports_engine))
+    if momentum_engine is not None:
+        named_engines.append(("momentum", momentum_engine))
     poll_seconds = (
         settings.copy.poll_interval_seconds
         if copy_engine is not None
@@ -628,6 +679,8 @@ def run_loop(
     )
     if esports_engine is not None and copy_engine is None:
         poll_seconds = min(poll_seconds, settings.esports.poll_interval_seconds)
+    if momentum_engine is not None:
+        poll_seconds = min(poll_seconds, settings.momentum.poll_interval_seconds)
     last = ""
     try:
         ctx = ExecutionContext()
@@ -639,6 +692,7 @@ def run_loop(
             contrarian_engine=contrarian_engine,
             copy_engine=copy_engine,
             esports_engine=esports_engine,
+            momentum_engine=momentum_engine,
             dry_run=dry_run,
             live=live,
             ctx=ctx,
@@ -658,6 +712,7 @@ def run_loop(
                 contrarian_engine=contrarian_engine,
                 copy_engine=copy_engine,
                 esports_engine=esports_engine,
+                momentum_engine=momentum_engine,
                 dry_run=dry_run,
                 live=live,
                 ctx=ctx,

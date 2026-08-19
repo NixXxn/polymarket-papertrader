@@ -30,6 +30,8 @@ def allocate_correlated_kelly(
     )
     allocated: list[tuple[CorrelatedBet, float]] = []
     for bet in bets:
+        if not (0.0 < bet.p < 1.0):
+            continue
         result = engine.compute(bet.p, bet.price, bankroll)
         if result.skipped or result.stake_usd is None:
             continue

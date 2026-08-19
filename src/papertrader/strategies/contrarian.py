@@ -199,8 +199,8 @@ def analyze_contrarian_event(
             rejects["model_yes_not_tail"] += 1
             continue
 
-        fair_p_no = max(0.0, 1.0 - fair_p_yes)
-        p_model_no = max(0.0, 1.0 - p_model_yes)
+        fair_p_no = min(max(1e-6, 1.0 - fair_p_yes), 1.0 - 1e-6)
+        p_model_no = min(max(1e-6, 1.0 - p_model_yes), 1.0 - 1e-6)
         if quote.yes_ask <= fair_p_yes + cfg.min_vig_edge:
             rejects["yes_not_overpriced"] += 1
             notable.append(
