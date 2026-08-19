@@ -30,7 +30,7 @@ from papertrader.trade_log import (
 )
 
 
-STRATEGIES = ("safe", "asymmetric", "copy", "esports", "momentum")
+STRATEGIES = ("safe", "asymmetric", "contrarian", "copy", "esports", "momentum")
 
 
 def _resolve_dashboard(

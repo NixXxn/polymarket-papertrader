@@ -35,6 +35,7 @@ from papertrader.weather_ws_client import MarketTick, run_market_websocket
 from papertrader.esports_markets import discover_esports_markets
 from papertrader.oddspapi import OddsPapiService, oddspapi_api_key
 from papertrader.strategies.asymmetric import analyze_asymmetric_event, asymmetric_exits
+from papertrader.strategies.contrarian import analyze_contrarian_event, contrarian_exits
 from papertrader.strategies.safe import analyze_safe_event, safe_exits
 from papertrader.weather import WeatherHttp
 from papertrader.weather.ensemble import prefetch_combined_ensembles
@@ -360,6 +361,7 @@ def scan_once(
     http: WeatherHttp,
     safe_engine: Engine | None,
     asymmetric_engine: Engine | None = None,
+    contrarian_engine: Engine | None = None,
     copy_engine: Engine | None = None,
     esports_engine: Engine | None = None,
     dry_run: bool,
@@ -381,6 +383,8 @@ def scan_once(
         live_engines.append(("safe", safe_engine))
     if asymmetric_engine is not None:
         live_engines.append(("asymmetric", asymmetric_engine))
+    if contrarian_engine is not None:
+        live_engines.append(("contrarian", contrarian_engine))
     if copy_engine is not None:
         live_engines.append(("copy", copy_engine))
     if esports_engine is not None:
@@ -390,7 +394,7 @@ def scan_once(
 
     purge_engines = [
         e
-        for e in (safe_engine, asymmetric_engine, copy_engine, esports_engine)
+        for e in (safe_engine, asymmetric_engine, contrarian_engine, copy_engine, esports_engine)
         if e is not None
     ]
     _purge_logs(purge_engines)
@@ -476,6 +480,63 @@ def scan_once(
                     counts.fills += 1
                     positions = asymmetric_engine.db.get_open_positions()
 
+    if contrarian_engine:
+        if live is None:
+            try:
+                contrarian_engine.check_orders()
+            except Exception as e:
+                log.debug("check_orders: %s", e)
+        if live is None:
+            counts.resolved += _resolve(contrarian_engine)
+        positions = contrarian_engine.db.get_open_positions()
+        for sig in contrarian_exits(
+            contrarian_engine, http, settings, positions, settings.cities
+        ):
+            filled = execute_signal(
+                contrarian_engine, sig, dry_run, live=live, ctx=ctx, strategy="contrarian"
+            )
+            emitted.append(sig)
+            if filled:
+                counts.orders_placed += 1
+                counts.fills += 1
+                counts.risk_exits += 1
+        cities = settings.cities_for("contrarian")
+        if settings.contrarian.cities:
+            cities = [
+                settings.cities[s] for s in settings.contrarian.cities if s in settings.cities
+            ]
+        events = discover_events(contrarian_engine, cities, settings, now=now)
+        _log_missing_markets(
+            contrarian_engine,
+            strategy="contrarian",
+            cities=cities,
+            events=events,
+            settings=settings,
+            now=now,
+        )
+        prefetch_combined_ensembles(http, events)
+        positions = contrarian_engine.db.get_open_positions()
+        for _slug, event_date, city, buckets, _vol in events:
+            counts.candidates += len(buckets)
+            sigs = analyze_contrarian_event(
+                contrarian_engine,
+                http,
+                city,
+                event_date,
+                buckets,
+                settings,
+                positions,
+            )
+            for sig in sigs:
+                filled = execute_signal(
+                    contrarian_engine, sig, dry_run, live=live, ctx=ctx, strategy="contrarian"
+                )
+                emitted.append(sig)
+                if filled:
+                    counts.orders_placed += 1
+                    counts.fills += 1
+                    positions = contrarian_engine.db.get_open_positions()
+
     if copy_engine:
         is_live = live is not None
 
@@ -513,7 +574,9 @@ def scan_once(
         counts.risk_exits += es_counts.risk_exits
 
     engines = [
-        e for e in (safe_engine, asymmetric_engine, copy_engine, esports_engine) if e is not None
+        e
+        for e in (safe_engine, asymmetric_engine, contrarian_engine, copy_engine, esports_engine)
+        if e is not None
     ]
     counts.pending = sum(len(e.db.get_open_positions()) for e in engines)
     counts.fills += counts.resolved
@@ -538,6 +601,7 @@ def run_loop(
     settings: Settings,
     safe_engine: Engine | None,
     asymmetric_engine: Engine | None = None,
+    contrarian_engine: Engine | None = None,
     copy_engine: Engine | None = None,
     esports_engine: Engine | None = None,
     dry_run: bool,
@@ -551,6 +615,8 @@ def run_loop(
         named_engines.append(("safe", safe_engine))
     if asymmetric_engine is not None:
         named_engines.append(("asymmetric", asymmetric_engine))
+    if contrarian_engine is not None:
+        named_engines.append(("contrarian", contrarian_engine))
     if copy_engine is not None:
         named_engines.append(("copy", copy_engine))
     if esports_engine is not None:
@@ -570,6 +636,7 @@ def run_loop(
             http=http,
             safe_engine=safe_engine,
             asymmetric_engine=asymmetric_engine,
+            contrarian_engine=contrarian_engine,
             copy_engine=copy_engine,
             esports_engine=esports_engine,
             dry_run=dry_run,
@@ -588,6 +655,7 @@ def run_loop(
                 http=http,
                 safe_engine=safe_engine,
                 asymmetric_engine=asymmetric_engine,
+                contrarian_engine=contrarian_engine,
                 copy_engine=copy_engine,
                 esports_engine=esports_engine,
                 dry_run=dry_run,

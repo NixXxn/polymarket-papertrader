@@ -14,7 +14,7 @@ from papertrader.mode import ModeError, load_dotenv_file, resolve_mode
 
 log = logging.getLogger("papertrader")
 
-_STRATEGIES = ("safe", "asymmetric", "both", "copy", "esports", "momentum")
+_STRATEGIES = ("safe", "asymmetric", "contrarian", "both", "copy", "esports", "momentum")
 
 
 def _setup_logging() -> None:
@@ -90,6 +90,7 @@ def _start(
         log.info("Paper/test mode. Simulator ledger: %s", resolved.data_dir)
     safe_engine = None
     asymmetric_engine = None
+    contrarian_engine = None
     copy_engine = None
     esports_engine = None
     if strategy in ("safe", "both"):
@@ -97,6 +98,10 @@ def _start(
     if strategy in ("asymmetric", "both"):
         asymmetric_engine = make_engine(
             "asymmetric", resolved.data_dir, settings.starting_balance, reset=reset
+        )
+    if strategy == "contrarian":
+        contrarian_engine = make_engine(
+            "contrarian", resolved.data_dir, settings.starting_balance, reset=reset
         )
     if strategy in ("esports", "both"):
         esports_engine = make_engine(
@@ -146,6 +151,7 @@ def _start(
         settings=settings,
         safe_engine=safe_engine,
         asymmetric_engine=asymmetric_engine,
+        contrarian_engine=contrarian_engine,
         copy_engine=copy_engine,
         esports_engine=esports_engine,
         dry_run=dry_run,
@@ -247,7 +253,7 @@ def status_cmd(cli_mode: str | None, data_dir: Path | None) -> None:
             click.echo("  CLOB balance: unavailable")
         else:
             click.echo(f"  CLOB balance: ${wallet_bal:.2f}")
-    for name in ("safe", "asymmetric", "copy", "esports", "momentum"):
+    for name in ("safe", "asymmetric", "contrarian", "copy", "esports", "momentum"):
         engine = make_engine(name, resolved.data_dir, settings.starting_balance)
         try:
             if (
@@ -257,7 +263,7 @@ def status_cmd(cli_mode: str | None, data_dir: Path | None) -> None:
                 and name == "copy"
             ):
                 LiveTrader(live_client).sync_cash(engine)
-            elif name in ("safe", "asymmetric", "esports", "momentum"):
+            elif name in ("safe", "asymmetric", "contrarian", "esports", "momentum"):
                 acct = engine.get_account()
                 if acct.cash == 0 and acct.starting_balance == 0:
                     engine.init_account(settings.starting_balance)

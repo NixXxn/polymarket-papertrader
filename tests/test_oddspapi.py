@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -101,9 +102,38 @@ def test_value_bet_uses_limit_when_edge_sufficient(monkeypatch, tmp_path):
     assert "value" in sig.reason
 
 
-def test_value_bet_skips_low_edge(monkeypatch, tmp_path):
+def test_value_bet_falls_back_to_swing_on_low_edge(monkeypatch, tmp_path):
     monkeypatch.setenv("ODDSP_API_KEY", "test-key")
     settings = load_settings()
+    engine = MagicMock()
+    engine.db.data_dir = tmp_path
+    engine.get_account.return_value = SimpleNamespace(cash=500.0)
+    candidate = _candidate(ask=0.40)
+    fair = FairMatch(
+        fixture_id="fx1",
+        team1="alpha",
+        team2="beta",
+        fair_p1=0.30,
+        fair_p2=0.42,
+    )
+    sig = analyze_esports_candidate(
+        engine, candidate, settings, [], fair_matches=[fair]
+    )
+    assert sig is not None
+    assert sig.order_type == "fak"
+    assert "live swing" in sig.reason
+
+
+def test_value_bet_skips_low_edge_when_match_required(monkeypatch, tmp_path):
+    monkeypatch.setenv("ODDSP_API_KEY", "test-key")
+    settings = load_settings()
+    settings = replace(
+        settings,
+        esports=replace(
+            settings.esports,
+            oddspapi=replace(settings.esports.oddspapi, require_match=True),
+        ),
+    )
     engine = MagicMock()
     engine.db.data_dir = tmp_path
     candidate = _candidate(ask=0.40)

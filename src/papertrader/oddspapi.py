@@ -14,6 +14,7 @@ import httpx
 from papertrader.config import OddsPapiSettings
 from papertrader.esports_markets import EsportsCandidate
 from papertrader.paths import root_data_dir
+from papertrader.quant.shin import shin_probabilities
 
 log = logging.getLogger("papertrader.oddspapi")
 
@@ -115,27 +116,6 @@ class OddsPapiQuota:
             "daily_used": int(self._state.get("daily_used", 0)),
             "monthly_used": int(self._state.get("monthly_used", 0)),
         }
-
-
-def shin_probabilities(odds1: float, odds2: float) -> tuple[float, float]:
-    """Shin de-vig for two-way match-winner markets."""
-    if odds1 <= 0 or odds2 <= 0:
-        raise ValueError("odds must be positive")
-    pi1, pi2 = 1.0 / odds1, 1.0 / odds2
-    sum_pi = pi1 + pi2
-    z_low, z_high = 0.0, 0.9999
-    for _ in range(50):
-        z = (z_low + z_high) / 2.0
-        p1 = ((z**2 + 4 * (1 - z) * (pi1**2 / sum_pi)) ** 0.5 - z) / (2 * (1 - z))
-        p2 = ((z**2 + 4 * (1 - z) * (pi2**2 / sum_pi)) ** 0.5 - z) / (2 * (1 - z))
-        if p1 + p2 > 1.0:
-            z_low = z
-        else:
-            z_high = z
-    z = (z_low + z_high) / 2.0
-    p1 = ((z**2 + 4 * (1 - z) * (pi1**2 / sum_pi)) ** 0.5 - z) / (2 * (1 - z))
-    p2 = ((z**2 + 4 * (1 - z) * (pi2**2 / sum_pi)) ** 0.5 - z) / (2 * (1 - z))
-    return p1, p2
 
 
 def _norm_team(name: str) -> str:

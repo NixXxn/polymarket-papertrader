@@ -6,13 +6,13 @@ from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 from papertrader.buckets import TempRange, bucket_bounds_f
-from papertrader.config import AsymmetricSettings, City, EdgeSettings
+from papertrader.config import AsymmetricSettings, City, ContrarianSettings, EdgeSettings
 
 
 def remaining_rise_f(
     city: City,
     event_date: date,
-    settings: EdgeSettings | AsymmetricSettings,
+    settings: EdgeSettings | AsymmetricSettings | ContrarianSettings,
     now: datetime,
     observed_high_f: float | None,
 ) -> float:
@@ -30,7 +30,7 @@ def is_mathematically_impossible(
     *,
     city: City,
     event_date: date,
-    settings: EdgeSettings | AsymmetricSettings,
+    settings: EdgeSettings | AsymmetricSettings | ContrarianSettings,
     observed_high_f: float | None,
     ensemble_p95_f: float | None,
     now: datetime,

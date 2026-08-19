@@ -81,6 +81,56 @@ asymmetric:
       vienna,
     ]
 
+# Strategy 2: fade overpriced YES longshots — buy NO with Shin devig + maker limits.
+contrarian:
+  min_yes_ask: 0.02
+  max_yes_ask: 0.20
+  max_model_yes: 0.08
+  min_edge: 0.06
+  min_vig_edge: 0.01
+  maker_tick: 0.01
+  max_no_bets_per_event: 3
+  kelly_fraction: 0.25
+  max_event_fraction: 0.10
+  min_event_volume: 200
+  min_ensemble_members: 8
+  max_position_usd: 25
+  max_open_positions: 30
+  take_profit_no_bid: 0.85
+  stop_loss_no_bid: 0.35
+  min_no_entry: 0.50
+  exit_model_yes: 0.15
+  exit_model_prob_min_days_ahead: 0
+  min_sell_bid: 0.02
+  max_hourly_rise_f: 4.0
+  high_hour_local: 20
+  cities:
+    [
+      denver,
+      chicago,
+      dallas,
+      phoenix,
+      houston,
+      austin,
+      nyc,
+      london,
+      wellington,
+      cape-town,
+      munich,
+      guangzhou,
+      warsaw,
+      karachi,
+      beijing,
+      wuhan,
+      seoul,
+      shanghai,
+      tokyo,
+      busan,
+      chongqing,
+      manila,
+      vienna,
+    ]
+
 copy:
   wallet: "0x09b045baad1fbe115c70785635a261411774a3b6"
   scale: 0.05

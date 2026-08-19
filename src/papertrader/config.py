@@ -105,6 +105,32 @@ class OddsPapiSettings:
 
 
 @dataclass(frozen=True)
+class ContrarianSettings:
+    min_yes_ask: float
+    max_yes_ask: float
+    max_model_yes: float
+    min_edge: float
+    min_vig_edge: float
+    maker_tick: float
+    max_no_bets_per_event: int
+    kelly_fraction: float
+    max_event_fraction: float
+    min_event_volume: float
+    min_ensemble_members: int
+    max_position_usd: float
+    max_open_positions: int
+    take_profit_no_bid: float
+    stop_loss_no_bid: float
+    min_no_entry: float
+    exit_model_yes: float
+    exit_model_prob_min_days_ahead: int
+    min_sell_bid: float
+    max_hourly_rise_f: float
+    high_hour_local: int
+    cities: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class EsportsSettings:
     horizon_hours: float
     poll_interval_seconds: int
@@ -177,6 +203,7 @@ class Settings:
     live: LiveSettings
     safe: SafeSettings
     asymmetric: AsymmetricSettings
+    contrarian: ContrarianSettings
     esports: EsportsSettings
     momentum: MomentumSettings
     edge: EdgeSettings
@@ -243,6 +270,7 @@ def load_settings(
     safe_raw = raw["safe"]
     asymmetric_raw = raw["asymmetric"]
     edge_raw = raw.get("edge") or {}
+    contrarian_raw = raw.get("contrarian") or {}
     esports_raw = raw.get("esports") or {}
     oddspapi_raw = esports_raw.get("oddspapi") or {}
     momentum_raw = raw.get("momentum") or {}
@@ -303,6 +331,34 @@ def load_settings(
             exit_model_prob_min_days_ahead=int(
                 asymmetric_raw.get("exit_model_prob_min_days_ahead", 0)
             ),
+        ),
+        contrarian=ContrarianSettings(
+            min_yes_ask=float(contrarian_raw.get("min_yes_ask", 0.02)),
+            max_yes_ask=float(contrarian_raw.get("max_yes_ask", 0.20)),
+            max_model_yes=float(contrarian_raw.get("max_model_yes", 0.08)),
+            min_edge=float(contrarian_raw.get("min_edge", 0.06)),
+            min_vig_edge=float(contrarian_raw.get("min_vig_edge", 0.01)),
+            maker_tick=float(contrarian_raw.get("maker_tick", 0.01)),
+            max_no_bets_per_event=int(contrarian_raw.get("max_no_bets_per_event", 3)),
+            kelly_fraction=float(contrarian_raw.get("kelly_fraction", 0.25)),
+            max_event_fraction=float(contrarian_raw.get("max_event_fraction", 0.10)),
+            min_event_volume=float(
+                contrarian_raw.get("min_event_volume", raw.get("min_event_volume", 200))
+            ),
+            min_ensemble_members=int(contrarian_raw.get("min_ensemble_members", 8)),
+            max_position_usd=float(contrarian_raw.get("max_position_usd", 25)),
+            max_open_positions=int(contrarian_raw.get("max_open_positions", 30)),
+            take_profit_no_bid=float(contrarian_raw.get("take_profit_no_bid", 0.85)),
+            stop_loss_no_bid=float(contrarian_raw.get("stop_loss_no_bid", 0.35)),
+            min_no_entry=float(contrarian_raw.get("min_no_entry", 0.50)),
+            exit_model_yes=float(contrarian_raw.get("exit_model_yes", 0.15)),
+            exit_model_prob_min_days_ahead=int(
+                contrarian_raw.get("exit_model_prob_min_days_ahead", 0)
+            ),
+            min_sell_bid=float(contrarian_raw.get("min_sell_bid", 0.02)),
+            max_hourly_rise_f=float(contrarian_raw.get("max_hourly_rise_f", 4.0)),
+            high_hour_local=int(contrarian_raw.get("high_hour_local", 20)),
+            cities=tuple(contrarian_raw.get("cities") or ()),
         ),
         esports=EsportsSettings(
             horizon_hours=float(esports_raw.get("horizon_hours", 6)),
