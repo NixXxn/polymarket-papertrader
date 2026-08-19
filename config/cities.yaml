@@ -29,7 +29,7 @@ cities:
     lon: -96.8518
     tz: America/Chicago
     country: US
-    strategies: [asymmetric]
+    strategies: [safe, asymmetric]
     position_usd: 2
   houston:
     name: Houston
@@ -39,7 +39,7 @@ cities:
     lon: -95.2789
     tz: America/Chicago
     country: US
-    strategies: [asymmetric]
+    strategies: [safe, asymmetric]
     position_usd: 2
   austin:
     name: Austin
@@ -49,7 +49,7 @@ cities:
     lon: -97.6699
     tz: America/Chicago
     country: US
-    strategies: [asymmetric]
+    strategies: [safe, asymmetric]
     position_usd: 2
   nyc:
     name: New York City
@@ -59,7 +59,7 @@ cities:
     lon: -73.8740
     tz: America/New_York
     country: US
-    strategies: [asymmetric]
+    strategies: [safe, asymmetric]
     position_usd: 2
   chicago:
     name: Chicago
@@ -69,7 +69,7 @@ cities:
     lon: -87.9073
     tz: America/Chicago
     country: US
-    strategies: [asymmetric]
+    strategies: [safe, asymmetric]
     position_usd: 2
   los-angeles:
     name: Los Angeles
@@ -79,7 +79,7 @@ cities:
     lon: -118.4081
     tz: America/Los_Angeles
     country: US
-    strategies: [asymmetric]
+    strategies: [safe, asymmetric]
     position_usd: 2
   denver:
     name: Denver
@@ -89,7 +89,7 @@ cities:
     lon: -104.6737
     tz: America/Denver
     country: US
-    strategies: [asymmetric]
+    strategies: [safe, asymmetric]
     position_usd: 2
   phoenix:
     name: Phoenix
@@ -99,7 +99,7 @@ cities:
     lon: -112.0116
     tz: America/Phoenix
     country: US
-    strategies: [asymmetric]
+    strategies: [safe, asymmetric]
     position_usd: 2
   london:
     name: London

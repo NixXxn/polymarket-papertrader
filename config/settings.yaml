@@ -14,7 +14,7 @@ forecast_disagreement_f: 3.0
 user_agent: "polymarket-papertrader/0.1 (paper trading; local use)"
 
 safe:
-  cities: [miami, atlanta]
+  cities: [miami, atlanta, nyc, chicago, dallas, houston, austin, phoenix, denver, los-angeles]
   # High-certainty mode: only enter when YES is already near certain (around 90%).
   min_ask: 0.88
   max_ask: 0.95
@@ -28,6 +28,14 @@ safe:
   position_usd:
     miami: 1000
     atlanta: 1000
+    nyc: 1000
+    chicago: 1000
+    dallas: 1000
+    houston: 1000
+    austin: 1000
+    phoenix: 1000
+    denver: 1000
+    los-angeles: 1000
 
 # Strategy 1: asymmetric tail-risk arb (cheap YES, ensemble >> market, hedge ~35¢).
 asymmetric:
