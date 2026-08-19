@@ -26,9 +26,11 @@ class City:
 @dataclass(frozen=True)
 class SafeSettings:
     cities: tuple[str, ...]
+    min_ask: float
     max_ask: float
     max_open_positions: int
     min_sell_bid: float
+    starting_balance: float | None
     min_edge: float
     min_edge_high: float
     min_edge_low: float
@@ -353,9 +355,15 @@ def load_settings(
         ),
         safe=SafeSettings(
             cities=tuple(safe_raw["cities"]),
+            min_ask=float(safe_raw.get("min_ask", 0.0)),
             max_ask=float(safe_raw["max_ask"]),
             max_open_positions=int(safe_raw["max_open_positions"]),
             min_sell_bid=float(safe_raw["min_sell_bid"]),
+            starting_balance=(
+                float(safe_raw["starting_balance"])
+                if safe_raw.get("starting_balance") is not None
+                else None
+            ),
             min_edge=float(safe_raw["min_edge"]),
             min_edge_high=float(safe_raw["min_edge_high"]),
             min_edge_low=float(safe_raw["min_edge_low"]),

@@ -15,15 +15,19 @@ user_agent: "polymarket-papertrader/0.1 (paper trading; local use)"
 
 safe:
   cities: [miami, atlanta]
-  max_ask: 0.60
-  max_open_positions: 50
+  # High-certainty mode: only enter when YES is already near certain (around 90%).
+  min_ask: 0.88
+  max_ask: 0.95
+  max_open_positions: 20
   min_sell_bid: 0.02
-  min_edge: 0.15
-  min_edge_high: 0.25
-  min_edge_low: 0.10
+  # Safe-only paper bankroll override for larger test sizing.
+  starting_balance: 10000
+  min_edge: 0.01
+  min_edge_high: 0.02
+  min_edge_low: 0.005
   position_usd:
-    miami: 5
-    atlanta: 4
+    miami: 1000
+    atlanta: 1000
 
 # Strategy 1: asymmetric tail-risk arb (cheap YES, ensemble >> market, hedge ~35¢).
 asymmetric:

@@ -98,7 +98,8 @@ def _start(
     volspike_engine = None
     closingsoon_engine = None
     if strategy in ("safe", "both"):
-        safe_engine = make_engine("safe", resolved.data_dir, settings.starting_balance, reset=reset)
+        safe_starting_balance = settings.safe.starting_balance or settings.starting_balance
+        safe_engine = make_engine("safe", resolved.data_dir, safe_starting_balance, reset=reset)
     if strategy in ("asymmetric", "both"):
         asymmetric_engine = make_engine(
             "asymmetric", resolved.data_dir, settings.starting_balance, reset=reset
@@ -285,9 +286,10 @@ def status_cmd(cli_mode: str | None, data_dir: Path | None) -> None:
             ):
                 LiveTrader(live_client).sync_cash(engine)
             elif name in ("safe", "asymmetric", "contrarian", "esports", "momentum", "meanrev", "volspike", "closingsoon"):
+                init_balance = settings.safe.starting_balance or settings.starting_balance if name == "safe" else settings.starting_balance
                 acct = engine.get_account()
                 if acct.cash == 0 and acct.starting_balance == 0:
-                    engine.init_account(settings.starting_balance)
+                    engine.init_account(init_balance)
             acct = engine.get_account()
             positions = engine.db.get_open_positions()
             click.echo(f"=== {name} ===")

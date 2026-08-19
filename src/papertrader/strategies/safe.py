@@ -132,10 +132,13 @@ def analyze_safe_event(
         if ask_size < settings.min_best_ask_size:
             rejects["ask_size_too_small"] = rejects.get("ask_size_too_small", 0) + 1
             continue
-        if ask >= settings.safe.max_ask:
+        if ask < settings.safe.min_ask:
+            rejects["ask_too_low"] = rejects.get("ask_too_low", 0) + 1
+            continue
+        if ask > settings.safe.max_ask:
             rejects["ask_too_high"] = rejects.get("ask_too_high", 0) + 1
             continue
-        edge = (settings.forecast_confidence - ask) / ask if ask > 0 else 0.0
+        edge = ask - settings.safe.min_ask
         if edge < threshold:
             rejects["low_edge"] = rejects.get("low_edge", 0) + 1
             continue
@@ -165,11 +168,12 @@ def analyze_safe_event(
         return None
     bucket: BucketMarket = best["bucket"]
     base = settings.safe.position_usd.get(city.slug, city.position_usd)
+    safe_starting_balance = settings.safe.starting_balance or settings.starting_balance
     remaining_slots = settings.safe.max_open_positions - len(open_positions)
     size = scaled_size(
         base,
-        cash=account_cash(engine, settings.starting_balance),
-        starting_balance=settings.starting_balance,
+        cash=account_cash(engine, safe_starting_balance),
+        starting_balance=safe_starting_balance,
         remaining_slots=remaining_slots,
         min_usd=settings.min_position_usd,
     )
@@ -186,7 +190,7 @@ def analyze_safe_event(
     reason = (
         f"safe consensus {consensus.temp_f:.1f}F ({consensus.confidence}) "
         f"matches {bucket.bucket_text} ask={best['ask']:.3f} "
-        f"edge={best['edge_percent']*100:.1f}%"
+        f"certainty_edge={best['edge_percent']*100:.1f}pp"
     )
     _log_safe(
         engine,
