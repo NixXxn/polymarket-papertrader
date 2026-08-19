@@ -14,7 +14,7 @@ from papertrader.mode import ModeError, load_dotenv_file, resolve_mode
 
 log = logging.getLogger("papertrader")
 
-_STRATEGIES = ("safe", "asymmetric", "contrarian", "both", "copy", "esports", "momentum")
+_STRATEGIES = ("safe", "asymmetric", "contrarian", "both", "copy", "esports", "momentum", "meanrev", "volspike", "closingsoon")
 
 
 def _setup_logging() -> None:
@@ -94,6 +94,9 @@ def _start(
     copy_engine = None
     esports_engine = None
     momentum_engine = None
+    meanrev_engine = None
+    volspike_engine = None
+    closingsoon_engine = None
     if strategy in ("safe", "both"):
         safe_engine = make_engine("safe", resolved.data_dir, settings.starting_balance, reset=reset)
     if strategy in ("asymmetric", "both"):
@@ -137,6 +140,18 @@ def _start(
         momentum_engine = make_engine(
             "momentum", resolved.data_dir, settings.starting_balance, reset=reset
         )
+    if strategy in ("meanrev", "both"):
+        meanrev_engine = make_engine(
+            "meanrev", resolved.data_dir, settings.starting_balance, reset=reset
+        )
+    if strategy in ("volspike", "both"):
+        volspike_engine = make_engine(
+            "volspike", resolved.data_dir, settings.starting_balance, reset=reset
+        )
+    if strategy in ("closingsoon", "both"):
+        closingsoon_engine = make_engine(
+            "closingsoon", resolved.data_dir, settings.starting_balance, reset=reset
+        )
     if strategy == "momentum":
         if live is not None:
             live.sync_cash(momentum_engine)
@@ -157,6 +172,9 @@ def _start(
         copy_engine=copy_engine,
         esports_engine=esports_engine,
         momentum_engine=momentum_engine,
+        meanrev_engine=meanrev_engine,
+        volspike_engine=volspike_engine,
+        closingsoon_engine=closingsoon_engine,
         dry_run=dry_run,
         once=once,
         live=live,
@@ -169,7 +187,7 @@ def _start(
     "--strategy",
     type=click.Choice(_STRATEGIES),
     default="both",
-    help="both = safe + asymmetric + contrarian + esports + momentum.",
+    help="both = safe + asymmetric + contrarian + esports + momentum + meanrev + volspike + closingsoon.",
 )
 @click.option("--dry-run", is_flag=True, help="Log would-be trades without filling.")
 @click.option("--once", is_flag=True, help="Run a single scan then exit.")
@@ -256,7 +274,7 @@ def status_cmd(cli_mode: str | None, data_dir: Path | None) -> None:
             click.echo("  CLOB balance: unavailable")
         else:
             click.echo(f"  CLOB balance: ${wallet_bal:.2f}")
-    for name in ("safe", "asymmetric", "contrarian", "copy", "esports", "momentum"):
+    for name in ("safe", "asymmetric", "contrarian", "copy", "esports", "momentum", "meanrev", "volspike", "closingsoon"):
         engine = make_engine(name, resolved.data_dir, settings.starting_balance)
         try:
             if (
@@ -266,7 +284,7 @@ def status_cmd(cli_mode: str | None, data_dir: Path | None) -> None:
                 and name == "copy"
             ):
                 LiveTrader(live_client).sync_cash(engine)
-            elif name in ("safe", "asymmetric", "contrarian", "esports", "momentum"):
+            elif name in ("safe", "asymmetric", "contrarian", "esports", "momentum", "meanrev", "volspike", "closingsoon"):
                 acct = engine.get_account()
                 if acct.cash == 0 and acct.starting_balance == 0:
                     engine.init_account(settings.starting_balance)

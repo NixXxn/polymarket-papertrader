@@ -30,7 +30,7 @@ from papertrader.trade_log import (
 )
 
 
-STRATEGIES = ("safe", "asymmetric", "contrarian", "copy", "esports", "momentum")
+STRATEGIES = ("safe", "asymmetric", "contrarian", "copy", "esports", "momentum", "meanrev", "volspike", "closingsoon")
 
 _RESET_STATS_FILES = (
     "activity.jsonl",

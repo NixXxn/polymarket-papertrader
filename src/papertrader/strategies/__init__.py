@@ -1,6 +1,9 @@
 from papertrader.strategies.asymmetric import analyze_asymmetric_event, asymmetric_exits
+from papertrader.strategies.closingsoon import analyze_closingsoon, closingsoon_exits
 from papertrader.strategies.contrarian import analyze_contrarian_event, contrarian_exits
+from papertrader.strategies.meanrev import analyze_meanrev, meanrev_exits
 from papertrader.strategies.safe import analyze_safe_event, safe_exits
+from papertrader.strategies.volspike import analyze_volspike, volspike_exits
 
 __all__ = [
     "analyze_safe_event",
@@ -9,4 +12,10 @@ __all__ = [
     "asymmetric_exits",
     "analyze_contrarian_event",
     "contrarian_exits",
+    "analyze_meanrev",
+    "meanrev_exits",
+    "analyze_volspike",
+    "volspike_exits",
+    "analyze_closingsoon",
+    "closingsoon_exits",
 ]

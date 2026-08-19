@@ -233,6 +233,54 @@ momentum:
   exit_slippage_buffer: 0.01
   cities: [nyc, miami, atlanta]
 
+# Mean reversion: fade 2σ+ price deviations on general Polymarket markets.
+meanrev:
+  min_liquidity: 5000
+  price_min: 0.05
+  price_max: 0.95
+  rolling_window: 168
+  min_z_score: 2.0
+  min_edge: 0.05
+  min_confidence: 0.55
+  kelly_fraction: 0.25
+  max_position_usd: 25
+  max_open_positions: 10
+  position_usd: 10
+  stop_loss_pct: 0.20
+  take_profit_pct: 0.15
+
+# Volume spike: follow 3x+ unusual volume surges (informed trading).
+volspike:
+  min_liquidity: 5000
+  price_min: 0.05
+  price_max: 0.95
+  volume_history_len: 48
+  spike_threshold: 3.0
+  min_edge: 0.05
+  min_confidence: 0.55
+  kelly_fraction: 0.25
+  max_position_usd: 25
+  max_open_positions: 10
+  position_usd: 10
+  stop_loss_pct: 0.20
+  take_profit_pct: 0.15
+
+# Closing soon: buy markets resolving in 6-48hrs with strong directional momentum.
+closingsoon:
+  min_liquidity: 5000
+  min_hours: 6
+  max_hours: 48
+  price_min: 0.15
+  price_max: 0.85
+  min_direction: 0.15
+  min_edge: 0.05
+  min_confidence: 0.55
+  kelly_fraction: 0.25
+  max_position_usd: 25
+  max_open_positions: 10
+  position_usd: 10
+  stop_loss_pct: 0.20
+
 live:
   clob_host: "https://clob.polymarket.com"
   chain_id: 137

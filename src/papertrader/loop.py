@@ -395,6 +395,9 @@ def scan_once(
     copy_engine: Engine | None = None,
     esports_engine: Engine | None = None,
     momentum_engine: Engine | None = None,
+    meanrev_engine: Engine | None = None,
+    volspike_engine: Engine | None = None,
+    closingsoon_engine: Engine | None = None,
     dry_run: bool,
     today: date | None = None,
     live: LiveTrader | None = None,
@@ -644,6 +647,72 @@ def scan_once(
         counts.resolved += momentum_counts.resolved
         counts.risk_exits += momentum_counts.risk_exits
 
+    if meanrev_engine:
+        try:
+            from papertrader.strategies.meanrev import analyze_meanrev, meanrev_exits
+            for sig in meanrev_exits(meanrev_engine, settings):
+                if execute_signal(meanrev_engine, sig, dry_run, live=live, ctx=ctx, strategy="meanrev"):
+                    counts.risk_exits += 1
+                emitted.append(sig)
+            for sig in analyze_meanrev(meanrev_engine, settings):
+                if execute_signal(meanrev_engine, sig, dry_run, live=live, ctx=ctx, strategy="meanrev"):
+                    counts.fills += 1
+                counts.orders_placed += 1
+                emitted.append(sig)
+        except Exception as e:
+            log.exception("meanrev scan failed: %s", e)
+            append_activity(
+                meanrev_engine.db.data_dir,
+                level="error",
+                event="scan_failed",
+                strategy="meanrev",
+                message=str(e),
+            )
+
+    if volspike_engine:
+        try:
+            from papertrader.strategies.volspike import analyze_volspike, volspike_exits
+            for sig in volspike_exits(volspike_engine, settings):
+                if execute_signal(volspike_engine, sig, dry_run, live=live, ctx=ctx, strategy="volspike"):
+                    counts.risk_exits += 1
+                emitted.append(sig)
+            for sig in analyze_volspike(volspike_engine, settings):
+                if execute_signal(volspike_engine, sig, dry_run, live=live, ctx=ctx, strategy="volspike"):
+                    counts.fills += 1
+                counts.orders_placed += 1
+                emitted.append(sig)
+        except Exception as e:
+            log.exception("volspike scan failed: %s", e)
+            append_activity(
+                volspike_engine.db.data_dir,
+                level="error",
+                event="scan_failed",
+                strategy="volspike",
+                message=str(e),
+            )
+
+    if closingsoon_engine:
+        try:
+            from papertrader.strategies.closingsoon import analyze_closingsoon, closingsoon_exits
+            for sig in closingsoon_exits(closingsoon_engine, settings):
+                if execute_signal(closingsoon_engine, sig, dry_run, live=live, ctx=ctx, strategy="closingsoon"):
+                    counts.risk_exits += 1
+                emitted.append(sig)
+            for sig in analyze_closingsoon(closingsoon_engine, settings):
+                if execute_signal(closingsoon_engine, sig, dry_run, live=live, ctx=ctx, strategy="closingsoon"):
+                    counts.fills += 1
+                counts.orders_placed += 1
+                emitted.append(sig)
+        except Exception as e:
+            log.exception("closingsoon scan failed: %s", e)
+            append_activity(
+                closingsoon_engine.db.data_dir,
+                level="error",
+                event="scan_failed",
+                strategy="closingsoon",
+                message=str(e),
+            )
+
     engines = [
         e
         for e in (
@@ -653,6 +722,9 @@ def scan_once(
             copy_engine,
             esports_engine,
             momentum_engine,
+            meanrev_engine,
+            volspike_engine,
+            closingsoon_engine,
         )
         if e is not None
     ]
@@ -683,6 +755,9 @@ def run_loop(
     copy_engine: Engine | None = None,
     esports_engine: Engine | None = None,
     momentum_engine: Engine | None = None,
+    meanrev_engine: Engine | None = None,
+    volspike_engine: Engine | None = None,
+    closingsoon_engine: Engine | None = None,
     dry_run: bool,
     once: bool,
     live: LiveTrader | None = None,
@@ -702,6 +777,12 @@ def run_loop(
         named_engines.append(("esports", esports_engine))
     if momentum_engine is not None:
         named_engines.append(("momentum", momentum_engine))
+    if meanrev_engine is not None:
+        named_engines.append(("meanrev", meanrev_engine))
+    if volspike_engine is not None:
+        named_engines.append(("volspike", volspike_engine))
+    if closingsoon_engine is not None:
+        named_engines.append(("closingsoon", closingsoon_engine))
     poll_seconds = (
         settings.copy.poll_interval_seconds
         if copy_engine is not None
@@ -723,6 +804,9 @@ def run_loop(
             copy_engine=copy_engine,
             esports_engine=esports_engine,
             momentum_engine=momentum_engine,
+            meanrev_engine=meanrev_engine,
+            volspike_engine=volspike_engine,
+            closingsoon_engine=closingsoon_engine,
             dry_run=dry_run,
             live=live,
             ctx=ctx,
@@ -743,6 +827,9 @@ def run_loop(
                 copy_engine=copy_engine,
                 esports_engine=esports_engine,
                 momentum_engine=momentum_engine,
+                meanrev_engine=meanrev_engine,
+                volspike_engine=volspike_engine,
+                closingsoon_engine=closingsoon_engine,
                 dry_run=dry_run,
                 live=live,
                 ctx=ctx,

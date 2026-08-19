@@ -172,6 +172,57 @@ class MomentumSettings:
 
 
 @dataclass(frozen=True)
+class MeanReversionSettings:
+    min_liquidity: float
+    price_min: float
+    price_max: float
+    rolling_window: int
+    min_z_score: float
+    min_edge: float
+    min_confidence: float
+    kelly_fraction: float
+    max_position_usd: float
+    max_open_positions: int
+    position_usd: float
+    stop_loss_pct: float
+    take_profit_pct: float
+
+
+@dataclass(frozen=True)
+class VolumeSpikeSettings:
+    min_liquidity: float
+    price_min: float
+    price_max: float
+    volume_history_len: int
+    spike_threshold: float
+    min_edge: float
+    min_confidence: float
+    kelly_fraction: float
+    max_position_usd: float
+    max_open_positions: int
+    position_usd: float
+    stop_loss_pct: float
+    take_profit_pct: float
+
+
+@dataclass(frozen=True)
+class ClosingSoonSettings:
+    min_liquidity: float
+    min_hours: float
+    max_hours: float
+    price_min: float
+    price_max: float
+    min_direction: float
+    min_edge: float
+    min_confidence: float
+    kelly_fraction: float
+    max_position_usd: float
+    max_open_positions: int
+    position_usd: float
+    stop_loss_pct: float
+
+
+@dataclass(frozen=True)
 class CopySettings:
     username: str
     wallet: str
@@ -206,6 +257,9 @@ class Settings:
     contrarian: ContrarianSettings
     esports: EsportsSettings
     momentum: MomentumSettings
+    meanrev: MeanReversionSettings
+    volspike: VolumeSpikeSettings
+    closingsoon: ClosingSoonSettings
     edge: EdgeSettings
     copy: CopySettings
     cities: dict[str, City] = field(default_factory=dict)
@@ -275,6 +329,9 @@ def load_settings(
     oddspapi_raw = esports_raw.get("oddspapi") or {}
     momentum_raw = raw.get("momentum") or {}
     copy_raw = raw.get("copy") or {}
+    meanrev_raw = raw.get("meanrev") or {}
+    volspike_raw = raw.get("volspike") or {}
+    closingsoon_raw = raw.get("closingsoon") or {}
     live_raw = raw.get("live") or {}
     mode = normalize_mode(str(raw.get("mode") or PAPER))
     return Settings(
@@ -437,6 +494,51 @@ def load_settings(
             entry_price_buffer=float(momentum_raw.get("entry_price_buffer", 0.01)),
             exit_slippage_buffer=float(momentum_raw.get("exit_slippage_buffer", 0.01)),
             cities=tuple(momentum_raw.get("cities") or ("nyc", "miami", "atlanta")),
+        ),
+        meanrev=MeanReversionSettings(
+            min_liquidity=float(meanrev_raw.get("min_liquidity", 5000)),
+            price_min=float(meanrev_raw.get("price_min", 0.05)),
+            price_max=float(meanrev_raw.get("price_max", 0.95)),
+            rolling_window=int(meanrev_raw.get("rolling_window", 168)),
+            min_z_score=float(meanrev_raw.get("min_z_score", 2.0)),
+            min_edge=float(meanrev_raw.get("min_edge", 0.05)),
+            min_confidence=float(meanrev_raw.get("min_confidence", 0.55)),
+            kelly_fraction=float(meanrev_raw.get("kelly_fraction", 0.25)),
+            max_position_usd=float(meanrev_raw.get("max_position_usd", 25)),
+            max_open_positions=int(meanrev_raw.get("max_open_positions", 10)),
+            position_usd=float(meanrev_raw.get("position_usd", 10)),
+            stop_loss_pct=float(meanrev_raw.get("stop_loss_pct", 0.20)),
+            take_profit_pct=float(meanrev_raw.get("take_profit_pct", 0.15)),
+        ),
+        volspike=VolumeSpikeSettings(
+            min_liquidity=float(volspike_raw.get("min_liquidity", 5000)),
+            price_min=float(volspike_raw.get("price_min", 0.05)),
+            price_max=float(volspike_raw.get("price_max", 0.95)),
+            volume_history_len=int(volspike_raw.get("volume_history_len", 48)),
+            spike_threshold=float(volspike_raw.get("spike_threshold", 3.0)),
+            min_edge=float(volspike_raw.get("min_edge", 0.05)),
+            min_confidence=float(volspike_raw.get("min_confidence", 0.55)),
+            kelly_fraction=float(volspike_raw.get("kelly_fraction", 0.25)),
+            max_position_usd=float(volspike_raw.get("max_position_usd", 25)),
+            max_open_positions=int(volspike_raw.get("max_open_positions", 10)),
+            position_usd=float(volspike_raw.get("position_usd", 10)),
+            stop_loss_pct=float(volspike_raw.get("stop_loss_pct", 0.20)),
+            take_profit_pct=float(volspike_raw.get("take_profit_pct", 0.15)),
+        ),
+        closingsoon=ClosingSoonSettings(
+            min_liquidity=float(closingsoon_raw.get("min_liquidity", 5000)),
+            min_hours=float(closingsoon_raw.get("min_hours", 6)),
+            max_hours=float(closingsoon_raw.get("max_hours", 48)),
+            price_min=float(closingsoon_raw.get("price_min", 0.15)),
+            price_max=float(closingsoon_raw.get("price_max", 0.85)),
+            min_direction=float(closingsoon_raw.get("min_direction", 0.15)),
+            min_edge=float(closingsoon_raw.get("min_edge", 0.05)),
+            min_confidence=float(closingsoon_raw.get("min_confidence", 0.55)),
+            kelly_fraction=float(closingsoon_raw.get("kelly_fraction", 0.25)),
+            max_position_usd=float(closingsoon_raw.get("max_position_usd", 25)),
+            max_open_positions=int(closingsoon_raw.get("max_open_positions", 10)),
+            position_usd=float(closingsoon_raw.get("position_usd", 10)),
+            stop_loss_pct=float(closingsoon_raw.get("stop_loss_pct", 0.20)),
         ),
         edge=EdgeSettings(
             min_ask=float(edge_raw.get("min_ask", 0.45)),
