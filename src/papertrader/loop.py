@@ -233,6 +233,8 @@ def execute_signal(
                 )
             return filled
         if signal.order_type == "limit" and signal.limit_price is not None:
+            before = engine.db.get_trades(limit=1)
+            before_trade_id = before[0].id if before else None
             if signal.esports_take_profit and signal.action == "sell":
                 _mark_esports_take_profit(engine, signal)
             if signal.momentum_take_profit and signal.action == "sell":
@@ -262,19 +264,47 @@ def execute_signal(
                     order_type="gtc",
                 )
             engine.check_orders()
+            after = engine.db.get_trades(limit=1)
+            after_trade_id = after[0].id if after else None
+            filled = after_trade_id != before_trade_id
             log_fill_latency(f"PAPER LIMIT {signal.action.upper()} {signal.slug}", started)
+            if filled:
+                log_decision(
+                    engine.db.data_dir,
+                    strategy=strategy,
+                    decision="executed",
+                    reason=signal.reason,
+                    city=signal.city.slug if signal.city else None,
+                    slug=signal.slug,
+                    action=signal.action,
+                    amount_usd=signal.amount_usd,
+                    shares=signal.shares,
+                )
+                return True
+            append_activity(
+                engine.db.data_dir,
+                level="info",
+                event="limit_order_submitted",
+                strategy=strategy,
+                message="limit order placed but not immediately filled",
+                slug=signal.slug,
+                outcome=signal.outcome,
+                action=signal.action,
+                limit_price=signal.limit_price,
+            )
             log_decision(
                 engine.db.data_dir,
                 strategy=strategy,
-                decision="executed",
+                decision="limit_submitted",
                 reason=signal.reason,
                 city=signal.city.slug if signal.city else None,
                 slug=signal.slug,
                 action=signal.action,
                 amount_usd=signal.amount_usd,
                 shares=signal.shares,
+                limit_price=signal.limit_price,
             )
-            return True
+            return False
         if signal.action == "buy":
             result = engine.buy(
                 signal.slug, signal.outcome, float(signal.amount_usd or 0), order_type="fak"
