@@ -147,6 +147,21 @@ esports:
       "-first-half-",
       "-1h-",
     ]
+  # OddsPapi fair-value overlay (ODDSP_API_KEY in .env). 4 sports × 2 calls = 8 req/refresh.
+  oddspapi:
+    enabled: true
+    min_edge: 0.06
+    primary_bookmaker: pinnacle
+    fallback_bookmakers: [ggbet, bet365]
+    sport_ids: [17, 18, 16, 61] # CS2, LoL, Dota 2, Valorant
+    max_daily_requests: 8
+    max_monthly_requests: 245
+    refresh_interval_hours: 3
+    kelly_fraction: 0.25
+    maker_edge_cents: 0.02
+    require_match: false
+    max_tournaments_per_sport: 8
+    base_url: "https://api.oddspapi.io/v4"
 
 # Weather momentum: WebSocket/poll stream; buy YES when bucket >= 85¢, TP 98¢, SL 75¢.
 momentum:

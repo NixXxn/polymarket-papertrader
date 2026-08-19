@@ -33,6 +33,7 @@ from papertrader.strategies.momentum import (
 )
 from papertrader.weather_ws_client import MarketTick, run_market_websocket
 from papertrader.esports_markets import discover_esports_markets
+from papertrader.oddspapi import OddsPapiService, oddspapi_api_key
 from papertrader.strategies.asymmetric import analyze_asymmetric_event, asymmetric_exits
 from papertrader.strategies.safe import analyze_safe_event, safe_exits
 from papertrader.weather import WeatherHttp
@@ -666,12 +667,21 @@ def _log_esports_scan(
     stats,
     orders_placed: int,
     pending: int,
+    fair_matches: int | None = None,
+    oddsp_quota: dict[str, int] | None = None,
 ) -> None:
     skip_summary = format_skip_summary(dict(stats.rejects)) if stats.rejects else ""
     reason = (
         f"esports scan: {stats.candidates} buyable / {stats.match_markets} match markets / "
         f"{stats.events_in_horizon} live events / {stats.events_seen} scanned"
     )
+    if fair_matches is not None:
+        reason += f" / {fair_matches} oddspapi fair"
+    if oddsp_quota:
+        reason += (
+            f" / oddsp quota {oddsp_quota.get('daily_used', 0)}d"
+            f" {oddsp_quota.get('monthly_used', 0)}m"
+        )
     log_decision(
         engine.db.data_dir,
         strategy="esports",
@@ -757,9 +767,23 @@ def scan_esports_once(
     candidates = discovery.candidates
     stats = discovery.stats
     counts.candidates = stats.candidates
+    fair_matches = None
+    oddsp_quota: dict[str, int] | None = None
+    oddsp = settings.esports.oddspapi
+    if oddsp.enabled and oddspapi_api_key():
+        oddsp_service = OddsPapiService(esports_engine.db.data_dir, oddsp)
+        cache = oddsp_service.refresh_if_needed()
+        fair_matches = cache.matches if cache else []
+        oddsp_quota = oddsp_service.quota_snapshot()
     positions = esports_engine.db.get_open_positions()
     for candidate in candidates:
-        sig = analyze_esports_candidate(esports_engine, candidate, settings, positions)
+        sig = analyze_esports_candidate(
+            esports_engine,
+            candidate,
+            settings,
+            positions,
+            fair_matches=fair_matches,
+        )
         if sig is None:
             continue
         filled = execute_signal(
@@ -791,6 +815,8 @@ def scan_esports_once(
         stats=stats,
         orders_placed=counts.orders_placed,
         pending=counts.pending,
+        fair_matches=len(fair_matches) if fair_matches is not None else None,
+        oddsp_quota=oddsp_quota,
     )
     return emitted, counts
 

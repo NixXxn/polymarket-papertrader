@@ -88,6 +88,23 @@ class AsymmetricSettings:
 
 
 @dataclass(frozen=True)
+class OddsPapiSettings:
+    enabled: bool
+    min_edge: float
+    primary_bookmaker: str
+    fallback_bookmakers: tuple[str, ...]
+    sport_ids: tuple[int, ...]
+    max_daily_requests: int
+    max_monthly_requests: int
+    refresh_interval_hours: float
+    kelly_fraction: float
+    maker_edge_cents: float
+    require_match: bool
+    max_tournaments_per_sport: int
+    base_url: str
+
+
+@dataclass(frozen=True)
 class EsportsSettings:
     horizon_hours: float
     poll_interval_seconds: int
@@ -104,6 +121,7 @@ class EsportsSettings:
     search_limit: int
     tag_slug: str
     exclude_slug_patterns: tuple[str, ...]
+    oddspapi: OddsPapiSettings
 
 
 @dataclass(frozen=True)
@@ -226,6 +244,7 @@ def load_settings(
     asymmetric_raw = raw["asymmetric"]
     edge_raw = raw.get("edge") or {}
     esports_raw = raw.get("esports") or {}
+    oddspapi_raw = esports_raw.get("oddspapi") or {}
     momentum_raw = raw.get("momentum") or {}
     copy_raw = raw.get("copy") or {}
     live_raw = raw.get("live") or {}
@@ -309,6 +328,31 @@ def load_settings(
             search_limit=int(esports_raw.get("search_limit", 40)),
             tag_slug=str(esports_raw.get("tag_slug") or "esports"),
             exclude_slug_patterns=tuple(esports_raw.get("exclude_slug_patterns") or ()),
+            oddspapi=OddsPapiSettings(
+                enabled=bool(oddspapi_raw.get("enabled", True)),
+                min_edge=float(oddspapi_raw.get("min_edge", 0.06)),
+                primary_bookmaker=str(oddspapi_raw.get("primary_bookmaker") or "pinnacle"),
+                fallback_bookmakers=tuple(
+                    oddspapi_raw.get("fallback_bookmakers") or ("ggbet", "bet365")
+                ),
+                sport_ids=tuple(
+                    int(x) for x in (oddspapi_raw.get("sport_ids") or (17, 18, 16, 61))
+                ),
+                max_daily_requests=int(oddspapi_raw.get("max_daily_requests", 8)),
+                max_monthly_requests=int(oddspapi_raw.get("max_monthly_requests", 245)),
+                refresh_interval_hours=float(
+                    oddspapi_raw.get("refresh_interval_hours", 3)
+                ),
+                kelly_fraction=float(oddspapi_raw.get("kelly_fraction", 0.25)),
+                maker_edge_cents=float(oddspapi_raw.get("maker_edge_cents", 0.02)),
+                require_match=bool(oddspapi_raw.get("require_match", False)),
+                max_tournaments_per_sport=int(
+                    oddspapi_raw.get("max_tournaments_per_sport", 8)
+                ),
+                base_url=str(
+                    oddspapi_raw.get("base_url") or "https://api.oddspapi.io/v4"
+                ),
+            ),
         ),
         momentum=MomentumSettings(
             ws_url=str(

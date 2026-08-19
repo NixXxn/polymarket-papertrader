@@ -10,6 +10,13 @@ from papertrader.decision_log import log_decision
 from papertrader.esports_markets import EsportsCandidate
 from papertrader.esports_state import EsportsExitStore
 from papertrader.markets import best_bid
+from papertrader.oddspapi import (
+    FairMatch,
+    find_fair_probability,
+    fractional_kelly_usd,
+    maker_buy_price,
+    oddspapi_api_key,
+)
 from papertrader.signals import Signal
 from papertrader.sizing import account_cash, scaled_size
 
@@ -42,9 +49,13 @@ def analyze_esports_candidate(
     candidate: EsportsCandidate,
     settings: Settings,
     open_positions: list[Position],
+    *,
+    fair_matches: list[FairMatch] | None = None,
 ) -> Signal | None:
-    """Buy cheap underdog side on live esports/sports matches ending soon."""
+    """Buy cheap underdog swings or value bets when OddsPapi shows edge."""
     cfg = settings.esports
+    oddsp = cfg.oddspapi
+    use_oddsp = oddsp.enabled and bool(oddspapi_api_key()) and fair_matches is not None
     if len(open_positions) >= cfg.max_open_positions:
         _log_esports(
             engine,
@@ -76,10 +87,98 @@ def analyze_esports_candidate(
             )
             return None
 
+    fair_match: FairMatch | None = None
+    fair_p: float | None = None
+    if use_oddsp:
+        matched = find_fair_probability(candidate, fair_matches or [])
+        if matched is not None:
+            fair_match, fair_p = matched
+        elif oddsp.require_match:
+            _log_esports(
+                engine,
+                decision="skip",
+                reason="no_oddspapi_match",
+                slug=candidate.market.slug,
+                outcome=candidate.outcome,
+            )
+            return None
+
     remaining_slots = cfg.max_open_positions - len(open_positions)
+    cash = account_cash(engine, settings.starting_balance)
+
+    if fair_p is not None:
+        edge = fair_p - candidate.ask
+        if edge < oddsp.min_edge:
+            _log_esports(
+                engine,
+                decision="skip",
+                reason="low_oddspapi_edge",
+                slug=candidate.market.slug,
+                outcome=candidate.outcome,
+                ask=candidate.ask,
+                fair_p=round(fair_p, 4),
+                edge=round(edge, 4),
+                min_edge=oddsp.min_edge,
+            )
+            return None
+        limit_price = maker_buy_price(
+            ask=candidate.ask,
+            fair_p=fair_p,
+            maker_edge_cents=oddsp.maker_edge_cents,
+        )
+        stake = fractional_kelly_usd(
+            fair_p=fair_p,
+            price=limit_price,
+            cash=cash,
+            kelly_fraction=oddsp.kelly_fraction,
+            max_usd=cfg.max_position_usd,
+            min_usd=settings.min_position_usd,
+        )
+        if stake is None:
+            _log_esports(
+                engine,
+                decision="skip",
+                reason="oddspapi_kelly_too_small",
+                slug=candidate.market.slug,
+                fair_p=round(fair_p, 4),
+                limit_price=limit_price,
+            )
+            return None
+        hours_left = (candidate.end_at - datetime.now(timezone.utc)).total_seconds() / 3600
+        reason = (
+            f"value {candidate.outcome} fair={fair_p:.3f} ask={candidate.ask:.3f} "
+            f"edge={edge:.3f} limit@{limit_price:.3f} "
+            f"ends in {hours_left:.1f}h — {candidate.event_title[:60]}"
+        )
+        _log_esports(
+            engine,
+            decision="buy",
+            reason=reason,
+            slug=candidate.market.slug,
+            outcome=candidate.outcome,
+            ask=candidate.ask,
+            fair_p=fair_p,
+            edge=edge,
+            limit_price=limit_price,
+            fixture_id=fair_match.fixture_id if fair_match else None,
+            event_slug=candidate.event_slug,
+            ends_at=candidate.end_at.isoformat(),
+        )
+        return Signal(
+            action="buy",
+            slug=candidate.market.slug,
+            outcome=candidate.outcome,
+            amount_usd=stake,
+            reason=reason,
+            order_type="limit",
+            limit_price=limit_price,
+            market_condition_id=candidate.market.condition_id,
+            event_slug=candidate.event_slug,
+        )
+
     stake = scaled_size(
         cfg.position_usd,
-        cash=account_cash(engine, settings.starting_balance),
+        cash=cash,
         starting_balance=settings.starting_balance,
         remaining_slots=remaining_slots,
         min_usd=settings.min_position_usd,
