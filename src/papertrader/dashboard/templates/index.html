@@ -230,6 +230,22 @@
     insufficient_cash: 'zu wenig Cash',
   };
   const failLabel = k => REJECT_LABELS[k] || k;
+  async function readJsonOrThrow(response) {
+    const text = await response.text();
+    let data = null;
+    try {
+      data = JSON.parse(text);
+    } catch (_err) {
+      const hint = text.trim().startsWith('<')
+        ? 'Dashboard API returned HTML. Bitte Dashboard neu starten, damit die neuen API-Routen geladen sind.'
+        : `Unerwartete API-Antwort: ${text.slice(0, 160)}`;
+      throw new Error(hint);
+    }
+    if (!response.ok || !data || data.ok === false) {
+      throw new Error((data && data.error) || `HTTP ${response.status}`);
+    }
+    return data;
+  }
   const formatNotable = rows => {
     if (!rows || !rows.length) return '';
     return rows.map(b => {
@@ -487,8 +503,7 @@
     status.textContent = 'Lade…';
     try {
       const r = await fetch('/api/dashboard', {cache:'no-store'});
-      const data = await r.json();
-      if (!r.ok || !data.ok) throw new Error(data.error || 'Fehler');
+      const data = await readJsonOrThrow(r);
       renderPortfolio(data.portfolio, data);
       renderCopy(data.copy || {});
       window._liveSync = data.live_sync || {};
@@ -538,8 +553,7 @@
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({balance}),
       });
-      const data = await r.json();
-      if (!r.ok || !data.ok) throw new Error(data.error || 'Zurücksetzen fehlgeschlagen');
+      await readJsonOrThrow(r);
       document.getElementById('budgetInput').dataset.touched = '';
       await load();
     } catch (e) {
@@ -561,8 +575,7 @@
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
       });
-      const data = await r.json();
-      if (!r.ok || !data.ok) throw new Error(data.error || 'Reset fehlgeschlagen');
+      await readJsonOrThrow(r);
       document.getElementById('budgetInput').dataset.touched = '';
       await load();
     } catch (e) {
