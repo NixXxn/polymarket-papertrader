@@ -2,42 +2,43 @@
 # mode: paper (test/sim, default) or live. Live still needs --confirm-live or
 # PAPERTRADER_LIVE=1 plus PAPERTRADER_PRIVATE_KEY. yaml alone cannot fire orders.
 mode: paper
-poll_interval_seconds: 180
+poll_interval_seconds: 30
 horizon_days: 3
 starting_balance: 500
 # position_usd values are the stake at starting_balance; live bets scale with cash.
 min_position_usd: 1
 min_event_volume: 200
 min_best_ask_size: 1
-forecast_confidence: 0.80
+# Assumed model P(yes) ceiling for safe favorite buys (ask must be <= this).
+forecast_confidence: 0.95
 forecast_disagreement_f: 3.0
 user_agent: "polymarket-papertrader/0.1 (paper trading; local use)"
 
 safe:
   cities: [miami, atlanta, nyc, chicago, dallas, houston, austin, phoenix, denver, los-angeles]
-  # High-certainty mode: only enter when YES is already near certain (around 90%).
-  min_ask: 0.86
-  max_ask: 0.97
-  max_open_positions: 20
+  # Prefer stronger market agreement with consensus (higher WR than 28¢ tails).
+  min_ask: 0.40
+  max_ask: 0.82
+  max_open_positions: 6
   min_sell_bid: 0.02
   # Safe-only paper bankroll override for larger test sizing.
   starting_balance: 10000
-  min_edge: 0.01
-  min_edge_high: 0.02
-  min_edge_low: 0.005
+  min_edge: 0.00
+  min_edge_high: 0.00
+  min_edge_low: 0.00
   position_usd:
-    miami: 1000
-    atlanta: 1000
-    nyc: 1000
-    chicago: 1000
-    dallas: 1000
-    houston: 1000
-    austin: 1000
-    phoenix: 1000
-    denver: 1000
-    los-angeles: 1000
+    miami: 100
+    atlanta: 100
+    nyc: 100
+    chicago: 100
+    dallas: 100
+    houston: 100
+    austin: 100
+    phoenix: 100
+    denver: 100
+    los-angeles: 100
 
-# Strategy 1: asymmetric tail-risk arb (cheap YES, ensemble >> market, hedge ~35¢).
+# Strategy 1: asymmetric tail-risk arb — paused during high win-rate optimization (low WR by design).
 asymmetric:
   min_ask: 0.02
   max_ask: 0.10
@@ -63,7 +64,7 @@ asymmetric:
   min_ensemble_members: 8
   position_usd: 1
   max_position_usd: 100
-  max_open_positions: 50
+  max_open_positions: 0
   max_hourly_rise_f: 4.0
   high_hour_local: 20
   cities:
@@ -101,17 +102,17 @@ contrarian:
   min_edge: 0.06
   min_vig_edge: 0.01
   maker_tick: 0.01
-  max_no_bets_per_event: 3
-  kelly_fraction: 0.25
-  max_event_fraction: 0.10
-  min_event_volume: 200
-  min_ensemble_members: 8
-  max_position_usd: 25
-  max_open_positions: 30
-  take_profit_no_bid: 0.85
-  stop_loss_no_bid: 0.35
-  min_no_entry: 0.50
-  exit_model_yes: 0.15
+  max_no_bets_per_event: 1
+  kelly_fraction: 0.10
+  max_event_fraction: 0.03
+  min_event_volume: 400
+  min_ensemble_members: 12
+  max_position_usd: 10
+  max_open_positions: 0
+  take_profit_no_bid: 0.90
+  stop_loss_no_bid: 0.45
+  min_no_entry: 0.60
+  exit_model_yes: 0.12
   exit_model_prob_min_days_ahead: 0
   min_sell_bid: 0.02
   max_hourly_rise_f: 4.0
@@ -149,18 +150,18 @@ copy:
   poll_interval_ms: 250
   recent_limit: 50
 
-# Esports + live sports: cheap in-play swings ending within 8h; TP +20%, SL at 80% of entry.
+# Esports + live sports: temporarily disabled during profitability monitoring (consistent realized losses).
 esports:
-  horizon_hours: 8
-  poll_interval_seconds: 60
-  min_ask: 0.02
-  max_ask: 0.45
+  horizon_hours: 6
+  poll_interval_seconds: 45
+  min_ask: 0.05
+  max_ask: 0.35
   take_profit_pct: 0.20
   stop_loss_entry_pct: 0.80
   position_usd: 5
-  max_position_usd: 25
-  max_open_positions: 20
-  min_event_volume: 100
+  max_position_usd: 20
+  max_open_positions: 0
+  min_event_volume: 150
   search_queries:
     [
       lck,
@@ -225,73 +226,73 @@ esports:
     max_tournaments_per_sport: 8
     base_url: "https://api.oddspapi.io/v4"
 
-# Weather momentum: WebSocket/poll stream; buy YES when bucket >= 85¢, TP 98¢, SL 75¢.
+# Weather momentum: high WR favorites — buy >= 80¢, TP 98¢, wider SL to avoid noise stops.
 momentum:
   ws_url: "wss://ws-subscriptions-clob.polymarket.com/ws/market"
   use_websocket: true
   poll_interval_seconds: 5
   mode: ANY_BUCKET
   specific_token_id: ""
-  entry_trigger_price: 0.85
+  entry_trigger_price: 0.80
   take_profit_price: 0.98
-  stop_loss_price: 0.75
-  order_size_shares: 50.0
+  stop_loss_price: 0.65
+  order_size_shares: 25.0
   use_share_sizing: true
-  position_usd: 50
-  max_position_usd: 100
-  max_open_positions: 1
+  position_usd: 40
+  max_position_usd: 80
+  max_open_positions: 5
   min_event_volume: 200
   entry_price_buffer: 0.01
   exit_slippage_buffer: 0.01
-  cities: [nyc, miami, atlanta]
+  cities: [nyc, miami, atlanta, chicago, dallas, houston]
 
-# Mean reversion: fade 2σ+ price deviations on general Polymarket markets.
+# Mean reversion: paused during high win-rate optimization.
 meanrev:
   min_liquidity: 5000
   price_min: 0.05
   price_max: 0.95
-  rolling_window: 168
-  min_z_score: 2.0
-  min_edge: 0.05
-  min_confidence: 0.55
+  rolling_window: 48
+  min_z_score: 1.25
+  min_edge: 0.02
+  min_confidence: 0.50
   kelly_fraction: 0.25
-  max_position_usd: 25
-  max_open_positions: 10
-  position_usd: 10
+  max_position_usd: 100
+  max_open_positions: 0
+  position_usd: 40
   stop_loss_pct: 0.20
   take_profit_pct: 0.15
 
-# Volume spike: follow 3x+ unusual volume surges (informed trading).
+# Volume spike: paused during high win-rate optimization.
 volspike:
   min_liquidity: 5000
   price_min: 0.05
   price_max: 0.95
-  volume_history_len: 48
-  spike_threshold: 3.0
-  min_edge: 0.05
-  min_confidence: 0.55
+  volume_history_len: 24
+  spike_threshold: 1.8
+  min_edge: 0.02
+  min_confidence: 0.50
   kelly_fraction: 0.25
-  max_position_usd: 25
-  max_open_positions: 10
-  position_usd: 10
+  max_position_usd: 100
+  max_open_positions: 0
+  position_usd: 40
   stop_loss_pct: 0.20
   take_profit_pct: 0.15
 
-# Closing soon: buy markets resolving in 6-48hrs with strong directional momentum.
+# Closing soon: high WR Yes/No favorites near resolution (hold toward $1).
 closingsoon:
-  min_liquidity: 5000
-  min_hours: 6
-  max_hours: 48
-  price_min: 0.15
-  price_max: 0.85
-  min_direction: 0.15
-  min_edge: 0.05
+  min_liquidity: 1500
+  min_hours: 2
+  max_hours: 72
+  price_min: 0.82
+  price_max: 0.95
+  min_direction: 0.32
+  min_edge: 0.01
   min_confidence: 0.55
-  kelly_fraction: 0.25
-  max_position_usd: 25
-  max_open_positions: 10
-  position_usd: 10
-  stop_loss_pct: 0.20
+  kelly_fraction: 0.20
+  max_position_usd: 40
+  max_open_positions: 6
+  position_usd: 20
+  stop_loss_pct: 0.40
 
 live:
   clob_host: "https://clob.polymarket.com"

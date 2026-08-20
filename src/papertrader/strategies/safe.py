@@ -104,6 +104,18 @@ def analyze_safe_event(
             confidence=getattr(consensus, "confidence", None),
         )
         return None
+    # Profitability filter: only trade when model confidence is very high.
+    if consensus.confidence != "very_high":
+        _log_safe(
+            engine,
+            decision="skip",
+            reason="confidence_too_low",
+            city=city,
+            event_date=event_date,
+            consensus_temp=consensus.temp_f,
+            confidence=consensus.confidence,
+        )
+        return None
 
     in_window = gfs_in_window()
     threshold = effective_edge_threshold(
@@ -138,6 +150,11 @@ def analyze_safe_event(
         if ask > settings.safe.max_ask:
             rejects["ask_too_high"] = rejects.get("ask_too_high", 0) + 1
             continue
+        # High win-rate mode: only buy when model is at least as bullish as the market.
+        if ask > settings.forecast_confidence:
+            rejects["model_below_market"] = rejects.get("model_below_market", 0) + 1
+            continue
+        # Prefer higher market certainty (closer to resolution favorite).
         edge = ask - settings.safe.min_ask
         if edge < threshold:
             rejects["low_edge"] = rejects.get("low_edge", 0) + 1
@@ -190,7 +207,7 @@ def analyze_safe_event(
     reason = (
         f"safe consensus {consensus.temp_f:.1f}F ({consensus.confidence}) "
         f"matches {bucket.bucket_text} ask={best['ask']:.3f} "
-        f"certainty_edge={best['edge_percent']*100:.1f}pp"
+        f"edge={best['edge_percent']*100:.1f}%"
     )
     _log_safe(
         engine,
@@ -224,6 +241,7 @@ def safe_exits(
     open_positions: list[Position],
     cities: dict[str, City],
 ) -> list[Signal]:
+    """High win-rate exits: hold favorites toward resolution; avoid locking noise losses."""
     signals: list[Signal] = []
     for pos in open_positions:
         if pos.shares <= 0:
@@ -233,11 +251,6 @@ def safe_exits(
         event_date = date_from_temp_slug(pos.market_slug)
         if rng is None or city is None or event_date is None:
             continue
-        consensus = get_consensus(http, city, event_date, settings)
-        if consensus is None or consensus.confidence == "skip":
-            continue
-        if forecast_matches_range(consensus.temp_f, rng):
-            continue
         try:
             token = engine.api.get_market(pos.market_slug).get_token_id(pos.outcome)
             book = engine.api.get_order_book(token)
@@ -246,7 +259,51 @@ def safe_exits(
         bid, _ = best_bid(book)
         if bid is None or bid < settings.safe.min_sell_bid:
             continue
-        reason = f"forecast shifted to {consensus.temp_f:.1f}F, no longer in bucket"
+
+        # Hard stop only on collapse vs entry — otherwise hold for resolution ($1).
+        # Absolute 0.35 stops wrongly kill mid-ask weather entries (~0.30).
+        catastrophic_bid = max(0.08, min(0.25, pos.avg_entry_price * 0.45))
+        if bid <= catastrophic_bid:
+            reason = f"catastrophic stop bid={bid:.3f}"
+            log_decision(
+                engine.db.data_dir,
+                strategy="safe",
+                decision="sell",
+                reason=reason,
+                city=city.slug,
+                event_date=event_date,
+                slug=pos.market_slug,
+                action="sell",
+                shares=pos.shares,
+                bid=bid,
+            )
+            signals.append(
+                Signal(
+                    action="sell",
+                    slug=pos.market_slug,
+                    outcome=pos.outcome,
+                    shares=pos.shares,
+                    city=city,
+                    reason=reason,
+                )
+            )
+            continue
+
+        consensus = get_consensus(http, city, event_date, settings)
+        if consensus is None or consensus.confidence == "skip":
+            continue
+        if forecast_matches_range(consensus.temp_f, rng):
+            continue
+        # Forecast drifted: only exit if we can leave near breakeven/profit.
+        # Do not crystallize large mark-to-market losses on noise.
+        if bid < pos.avg_entry_price * 0.98:
+            continue
+        if consensus.confidence not in ("high", "very_high"):
+            continue
+        reason = (
+            f"forecast shifted to {consensus.temp_f:.1f}F "
+            f"({consensus.confidence}); exit near flat bid={bid:.3f}"
+        )
         log_decision(
             engine.db.data_dir,
             strategy="safe",
@@ -267,7 +324,7 @@ def safe_exits(
                 outcome=pos.outcome,
                 shares=pos.shares,
                 city=city,
-                reason=f"forecast shifted to {consensus.temp_f:.1f}F, no longer in bucket",
+                reason=reason,
             )
         )
     return signals

@@ -11,7 +11,7 @@ from papertrader.strategies.safe import analyze_safe_event
 from helpers import FakeLevel, sample_city
 
 
-def test_safe_entry_on_matching_high_certainty_bucket(monkeypatch):
+def test_safe_entry_on_matching_value_bucket(monkeypatch):
     settings = load_settings()
     city = sample_city()
     event_date = date(2026, 8, 13)
@@ -33,8 +33,8 @@ def test_safe_entry_on_matching_high_certainty_bucket(monkeypatch):
     )
     engine = MagicMock()
     engine.api.get_order_book.return_value = SimpleNamespace(
-        asks=[FakeLevel(0.90, 100)],
-        bids=[FakeLevel(0.88, 50)],
+        asks=[FakeLevel(0.48, 100)],
+        bids=[FakeLevel(0.46, 50)],
     )
 
     from papertrader.weather.consensus import Consensus
@@ -50,7 +50,7 @@ def test_safe_entry_on_matching_high_certainty_bucket(monkeypatch):
     sig = analyze_safe_event(engine, MagicMock(), city, event_date, [bucket], settings, [])
     assert sig is not None
     assert sig.action == "buy"
-    assert sig.amount_usd == 500.0
+    assert sig.amount_usd == 100.0
 
 
 def test_safe_autoscales_with_cash(monkeypatch):
@@ -76,8 +76,8 @@ def test_safe_autoscales_with_cash(monkeypatch):
     engine = MagicMock()
     engine.get_account.return_value = SimpleNamespace(cash=100.0)
     engine.api.get_order_book.return_value = SimpleNamespace(
-        asks=[FakeLevel(0.90, 100)],
-        bids=[FakeLevel(0.88, 50)],
+        asks=[FakeLevel(0.48, 100)],
+        bids=[FakeLevel(0.46, 50)],
     )
     from papertrader.weather.consensus import Consensus
     import papertrader.strategies.safe as safe_mod
@@ -91,13 +91,13 @@ def test_safe_autoscales_with_cash(monkeypatch):
 
     sig = analyze_safe_event(engine, MagicMock(), city, event_date, [bucket], settings, [])
     assert sig is not None
-    assert sig.amount_usd == 5.0
+    assert sig.amount_usd == 1.0
     assert "76-77" in sig.reason
 
 
 def test_safe_skips_non_whitelist_city():
     settings = load_settings()
-    city = sample_city(slug="chicago", name="Chicago", station="KORD")
+    city = sample_city(slug="london", name="London", station="EGLC")
     sig = analyze_safe_event(
         MagicMock(), MagicMock(), city, date(2026, 8, 13), [], settings, []
     )
