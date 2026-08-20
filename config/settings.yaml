@@ -38,7 +38,7 @@ safe:
     denver: 100
     los-angeles: 100
 
-# Asymmetric: re-enabled with small book; entries use FAK at ask (taker).
+# Asymmetric: hold existing tails; no new entries (hurts win-rate / MTM).
 asymmetric:
   min_ask: 0.02
   max_ask: 0.12
@@ -64,7 +64,7 @@ asymmetric:
   min_ensemble_members: 8
   position_usd: 2
   max_position_usd: 25
-  max_open_positions: 15
+  max_open_positions: 0
   max_hourly_rise_f: 4.0
   high_hour_local: 20
   cities:
