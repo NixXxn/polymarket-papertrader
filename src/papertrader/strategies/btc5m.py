@@ -103,13 +103,14 @@ def predict_direction(
     time_factor = 1.0 - (seconds_left / WINDOW_SECONDS) * 0.35
     strength = min(1.0, abs(move_bps) / max(min_confirm_bps * 3.0, 1e-6))
     model_p = min(0.97, 0.55 + 0.40 * strength * time_factor)
-    if model_p >= 0.85:
+    if model_p >= 0.82:
         confidence = "very_high"
-    elif model_p >= 0.72:
+    elif model_p >= 0.68:
         confidence = "high"
     else:
         confidence = "medium"
-    if confidence == "medium":
+    # Allow medium only when the spot move is clearly confirmed.
+    if confidence == "medium" and abs(move_bps) < min_confirm_bps * 1.5:
         return None
     return BtcPrediction(
         side=side,

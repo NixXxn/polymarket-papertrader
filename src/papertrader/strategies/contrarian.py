@@ -316,8 +316,9 @@ def analyze_contrarian_event(
                 amount_usd=stake,
                 city=city,
                 event_slug=bucket.event_slug,
-                order_type="limit",
-                limit_price=bet.price,
+                # FAK at ask so paper/dashboard actually fills (maker undercuts often rest).
+                order_type="fak",
+                limit_price=None,
                 quant=QuantMeta(
                     p=bet.p,
                     sigma=0.0,

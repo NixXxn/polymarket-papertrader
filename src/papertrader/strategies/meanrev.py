@@ -1,17 +1,19 @@
-"""Mean Reversion strategy: fade 2σ+ price deviations from rolling average."""
+"""Mean Reversion strategy: fade price deviations from rolling average."""
 from __future__ import annotations
 
+import json
 import logging
 import math
 from collections import deque
 from dataclasses import dataclass
+from typing import Any
 
 from pm_trader.engine import Engine
 
-from papertrader.config import MeanReversionSettings, Settings
+from papertrader.config import Settings
 from papertrader.decision_log import log_decision
+from papertrader.markets import best_bid
 from papertrader.signals import Signal
-from papertrader.trade_log import append_activity
 
 log = logging.getLogger("papertrader")
 
@@ -25,8 +27,64 @@ class _MarketSnapshot:
     no_price: float
     liquidity: float
     volume_24h: float
-    token_id_yes: str
-    token_id_no: str
+    yes_outcome: str
+    no_outcome: str
+
+
+def _parse_json_list(raw: Any) -> list[Any]:
+    if raw is None:
+        return []
+    if isinstance(raw, list):
+        return raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return []
+        return parsed if isinstance(parsed, list) else []
+    return []
+
+
+def _yes_no_snapshot(
+    market: dict[str, Any],
+) -> tuple[float, float, str, str] | None:
+    """Return yes/no prices and canonical outcome labels for binary markets only."""
+    outcomes = [str(o) for o in _parse_json_list(market.get("outcomes"))]
+    outcome_set = {o.lower() for o in outcomes}
+    if outcome_set != {"yes", "no"}:
+        return None
+    yes_label = next(o for o in outcomes if o.lower() == "yes")
+    no_label = next(o for o in outcomes if o.lower() == "no")
+
+    tokens = market.get("tokens") or []
+    if tokens:
+        yt = next((t for t in tokens if (t.get("outcome") or "").upper() == "YES"), {})
+        nt = next((t for t in tokens if (t.get("outcome") or "").upper() == "NO"), {})
+        try:
+            if yt.get("price") is not None and nt.get("price") is not None:
+                return float(yt["price"]), float(nt["price"]), yes_label, no_label
+        except (TypeError, ValueError):
+            pass
+
+    prices_raw = _parse_json_list(market.get("outcomePrices"))
+    if outcomes and prices_raw and len(outcomes) == len(prices_raw):
+        mapped: dict[str, float] = {}
+        for outcome, price in zip(outcomes, prices_raw):
+            try:
+                mapped[outcome.lower()] = float(price)
+            except (TypeError, ValueError):
+                continue
+        if "yes" in mapped and "no" in mapped:
+            return mapped["yes"], mapped["no"], yes_label, no_label
+
+    best_ask = market.get("bestAsk")
+    if best_ask is not None:
+        try:
+            yes_p = float(best_ask)
+            return yes_p, max(0.0, 1.0 - yes_p), yes_label, no_label
+        except (TypeError, ValueError):
+            pass
+    return None
 
 
 class MeanReversionEngine:
@@ -36,26 +94,33 @@ class MeanReversionEngine:
         self._history: dict[str, deque[float]] = {}
         self._window = window
 
+    def configure(self, window: int) -> None:
+        if window == self._window:
+            return
+        self._window = max(10, window)
+        for cid, hist in list(self._history.items()):
+            self._history[cid] = deque(hist, maxlen=self._window)
+
     def update(self, cid: str, price: float) -> None:
         if cid not in self._history:
             self._history[cid] = deque(maxlen=self._window)
         self._history[cid].append(price)
 
-    def z_score(self, cid: str, price: float) -> float | None:
+    def z_score(self, cid: str, price: float, *, min_samples: int = 6) -> float | None:
         hist = self._history.get(cid)
-        if not hist or len(hist) < 10:
+        if not hist or len(hist) < min_samples:
             return None
         arr = list(hist)
         mu = sum(arr) / len(arr)
         variance = sum((x - mu) ** 2 for x in arr) / len(arr)
         sigma = math.sqrt(variance)
-        if sigma < 0.005:
+        if sigma < 0.004:
             return None
         return (price - mu) / sigma
 
-    def mean(self, cid: str) -> float | None:
+    def mean(self, cid: str, *, min_samples: int = 6) -> float | None:
         hist = self._history.get(cid)
-        if not hist or len(hist) < 10:
+        if not hist or len(hist) < min_samples:
             return None
         return sum(hist) / len(hist)
 
@@ -63,16 +128,27 @@ class MeanReversionEngine:
 _engine = MeanReversionEngine()
 
 
-def discover_general_markets(engine: Engine, settings: Settings) -> list[_MarketSnapshot]:
-    """Fetch active markets from Gamma API."""
+def discover_general_markets(
+    engine: Engine,
+    settings: Settings,
+    *,
+    min_liquidity: float | None = None,
+    price_min: float | None = None,
+    price_max: float | None = None,
+    limit: int = 200,
+) -> list[_MarketSnapshot]:
+    """Fetch active Yes/No markets from Gamma (volume-ranked)."""
     cfg = settings.meanrev
+    min_liq = float(min_liquidity if min_liquidity is not None else cfg.min_liquidity)
+    pmin = float(price_min if price_min is not None else cfg.price_min)
+    pmax = float(price_max if price_max is not None else cfg.price_max)
     try:
         data = engine.api._gamma_get(
             "/markets",
             params={
                 "active": "true",
                 "closed": "false",
-                "limit": 200,
+                "limit": limit,
                 "order": "volume24hr",
                 "ascending": "false",
             },
@@ -85,28 +161,31 @@ def discover_general_markets(engine: Engine, settings: Settings) -> list[_Market
     out: list[_MarketSnapshot] = []
     for m in data:
         try:
-            liq = float(m.get("liquidity") or 0)
-            if liq < cfg.min_liquidity:
+            liq = float(m.get("liquidity") or m.get("liquidityNum") or 0)
+            if liq < min_liq:
                 continue
-            tokens = m.get("tokens") or []
-            yt = next((t for t in tokens if (t.get("outcome") or "").upper() == "YES"), {})
-            nt = next((t for t in tokens if (t.get("outcome") or "").upper() == "NO"), {})
-            yes_p = float(yt.get("price") or 0.5)
-            no_p = float(nt.get("price") or 0.5)
-            if not (cfg.price_min <= yes_p <= cfg.price_max):
+            parsed = _yes_no_snapshot(m)
+            if parsed is None:
+                continue
+            yes_p, no_p, yes_label, no_label = parsed
+            if not (pmin <= yes_p <= pmax):
                 continue
             slug = m.get("slug") or m.get("conditionId") or ""
-            out.append(_MarketSnapshot(
-                condition_id=m.get("conditionId") or "",
-                slug=slug,
-                question=m.get("question") or "",
-                yes_price=yes_p,
-                no_price=no_p,
-                liquidity=liq,
-                volume_24h=float(m.get("volume24hr") or 0),
-                token_id_yes=yt.get("tokenId") or "",
-                token_id_no=nt.get("tokenId") or "",
-            ))
+            if not slug:
+                continue
+            out.append(
+                _MarketSnapshot(
+                    condition_id=m.get("conditionId") or "",
+                    slug=slug,
+                    question=m.get("question") or "",
+                    yes_price=yes_p,
+                    no_price=no_p,
+                    liquidity=liq,
+                    volume_24h=float(m.get("volume24hr") or 0),
+                    yes_outcome=yes_label,
+                    no_outcome=no_label,
+                )
+            )
         except Exception:
             continue
     return out
@@ -120,12 +199,20 @@ def analyze_meanrev(
 ) -> list[Signal]:
     """Scan general markets for mean-reversion opportunities."""
     cfg = settings.meanrev
+    _engine.configure(cfg.rolling_window)
     markets = discover_general_markets(engine, settings)
     signals: list[Signal] = []
 
     open_positions = engine.db.get_open_positions()
     open_slugs = {p.market_slug for p in open_positions}
     if len(open_positions) >= cfg.max_open_positions:
+        log_decision(
+            engine.db.data_dir,
+            strategy="meanrev",
+            decision="skip",
+            reason="max_open_positions",
+            open_positions=len(open_positions),
+        )
         return []
 
     for m in markets:
@@ -133,29 +220,31 @@ def analyze_meanrev(
             continue
         _engine.update(m.condition_id, m.yes_price)
         z = _engine.z_score(m.condition_id, m.yes_price)
-        if z is None:
-            continue
+        mu = _engine.mean(m.condition_id)
+        # Cold-start / flat tape: fade strong Yes/No skews so paper can fill while history warms.
+        if z is None or mu is None:
+            skew = m.yes_price - 0.5
+            if abs(skew) < max(0.18, cfg.min_edge * 6):
+                continue
+            z = skew / 0.05
+            mu = 0.5
         if abs(z) < cfg.min_z_score:
             continue
 
-        mu = _engine.mean(m.condition_id)
-        if mu is None:
-            continue
         ev = abs(m.yes_price - mu)
         if ev < cfg.min_edge:
             continue
 
-        # Fade the deviation: if price spiked up, sell/short (buy NO); if down, buy YES
+        # Fade the deviation: spike up → buy NO; dump → buy YES.
         if z > 0:
-            side = "No"
+            side = m.no_outcome
             price = m.no_price
         else:
-            side = "Yes"
+            side = m.yes_outcome
             price = m.yes_price
 
-        # Kelly sizing
         p = min(max(0.55, 0.5 + ev), 0.95)
-        b = max(0.01, (1 / price) - 1)
+        b = max(0.01, (1 / max(price, 0.01)) - 1)
         q = 1 - p
         f_kelly = max(0, (p * b - q) / b)
         size = min(
@@ -163,33 +252,49 @@ def analyze_meanrev(
             cfg.max_position_usd,
             cfg.position_usd,
         )
-        if size < 1:
+        if size < settings.min_position_usd:
             continue
 
-        signals.append(Signal(
-            action="buy",
-            slug=m.slug,
-            outcome=side,
-            reason=f"meanrev z={z:+.2f} ev={ev:.3f}",
-            amount_usd=round(size, 2),
-            order_type="limit",
-            limit_price=round(price, 2),
-            market_condition_id=m.condition_id,
-        ))
-
+        reason = f"meanrev z={z:+.2f} ev={ev:.3f} @ {price:.3f}"
+        signals.append(
+            Signal(
+                action="buy",
+                slug=m.slug,
+                outcome=side,
+                reason=reason,
+                amount_usd=round(size, 2),
+                order_type="fak",
+                limit_price=None,
+                market_condition_id=m.condition_id,
+            )
+        )
         log_decision(
             engine.db.data_dir,
             strategy="meanrev",
-            decision="signal",
-            reason=f"z={z:+.2f} ev={ev:.3f}",
+            decision="buy",
+            reason=reason,
             slug=m.slug,
             action="buy",
             amount_usd=round(size, 2),
+            z=round(z, 3),
         )
-
+        open_slugs.add(m.slug)
+        if len(signals) + len(open_positions) >= cfg.max_open_positions:
+            break
         if len(signals) >= max_signals:
             break
 
+    log_decision(
+        engine.db.data_dir,
+        strategy="meanrev",
+        decision="scan",
+        reason=(
+            f"meanrev scan: {len(signals)} signals / {len(markets)} markets / "
+            f"open={len(open_positions)}"
+        ),
+        signals=len(signals),
+        markets=len(markets),
+    )
     return signals
 
 
@@ -204,37 +309,44 @@ def meanrev_exits(
 
     for pos in positions:
         entry = pos.avg_entry_price
-        current_bid = entry  # approximate; real impl would fetch live bid
         try:
-            book = engine.get_order_book(pos.market_slug, pos.outcome)
-            if book and book.bids:
-                current_bid = float(book.bids[0].price)
+            market = engine.api.get_market(pos.market_slug)
+            token = market.get_token_id(pos.outcome)
+            book = engine.api.get_order_book(token)
+            bid, _ = best_bid(book)
+            if bid is None:
+                continue
+            current_bid = float(bid)
         except Exception:
             continue
 
-        # Take profit
         if current_bid >= entry * (1 + cfg.take_profit_pct):
-            signals.append(Signal(
-                action="sell",
-                slug=pos.market_slug,
-                outcome=pos.outcome,
-                reason=f"meanrev_tp bid={current_bid:.3f}",
-                shares=pos.shares,
-                order_type="limit",
-                limit_price=round(current_bid, 2),
-            ))
+            signals.append(
+                Signal(
+                    action="sell",
+                    slug=pos.market_slug,
+                    outcome=pos.outcome,
+                    reason=f"meanrev_tp bid={current_bid:.3f}",
+                    shares=pos.shares,
+                    order_type="fak",
+                    limit_price=None,
+                    market_condition_id=pos.market_condition_id,
+                )
+            )
             continue
 
-        # Stop loss
         if current_bid <= entry * (1 - cfg.stop_loss_pct):
-            signals.append(Signal(
-                action="sell",
-                slug=pos.market_slug,
-                outcome=pos.outcome,
-                reason=f"meanrev_sl bid={current_bid:.3f}",
-                shares=pos.shares,
-                order_type="limit",
-                limit_price=round(current_bid, 2),
-            ))
+            signals.append(
+                Signal(
+                    action="sell",
+                    slug=pos.market_slug,
+                    outcome=pos.outcome,
+                    reason=f"meanrev_sl bid={current_bid:.3f}",
+                    shares=pos.shares,
+                    order_type="fak",
+                    limit_price=None,
+                    market_condition_id=pos.market_condition_id,
+                )
+            )
 
     return signals
