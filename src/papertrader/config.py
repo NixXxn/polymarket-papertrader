@@ -225,6 +225,22 @@ class ClosingSoonSettings:
 
 
 @dataclass(frozen=True)
+class Btc5mSettings:
+    min_confirm_bps: float
+    min_entry_seconds_left: float
+    max_entry_seconds_left: float
+    min_ask: float
+    max_ask: float
+    min_edge: float
+    min_liquidity: float
+    look_ahead_windows: int
+    position_usd: float
+    max_position_usd: float
+    max_open_positions: int
+    stop_loss_pct: float
+
+
+@dataclass(frozen=True)
 class CopySettings:
     username: str
     wallet: str
@@ -262,6 +278,7 @@ class Settings:
     meanrev: MeanReversionSettings
     volspike: VolumeSpikeSettings
     closingsoon: ClosingSoonSettings
+    btc5m: Btc5mSettings
     edge: EdgeSettings
     copy: CopySettings
     cities: dict[str, City] = field(default_factory=dict)
@@ -334,6 +351,7 @@ def load_settings(
     meanrev_raw = raw.get("meanrev") or {}
     volspike_raw = raw.get("volspike") or {}
     closingsoon_raw = raw.get("closingsoon") or {}
+    btc5m_raw = raw.get("btc5m") or {}
     live_raw = raw.get("live") or {}
     mode = normalize_mode(str(raw.get("mode") or PAPER))
     return Settings(
@@ -547,6 +565,20 @@ def load_settings(
             max_open_positions=int(closingsoon_raw.get("max_open_positions", 10)),
             position_usd=float(closingsoon_raw.get("position_usd", 10)),
             stop_loss_pct=float(closingsoon_raw.get("stop_loss_pct", 0.20)),
+        ),
+        btc5m=Btc5mSettings(
+            min_confirm_bps=float(btc5m_raw.get("min_confirm_bps", 8.0)),
+            min_entry_seconds_left=float(btc5m_raw.get("min_entry_seconds_left", 12.0)),
+            max_entry_seconds_left=float(btc5m_raw.get("max_entry_seconds_left", 120.0)),
+            min_ask=float(btc5m_raw.get("min_ask", 0.58)),
+            max_ask=float(btc5m_raw.get("max_ask", 0.92)),
+            min_edge=float(btc5m_raw.get("min_edge", 0.04)),
+            min_liquidity=float(btc5m_raw.get("min_liquidity", 500.0)),
+            look_ahead_windows=int(btc5m_raw.get("look_ahead_windows", 2)),
+            position_usd=float(btc5m_raw.get("position_usd", 25.0)),
+            max_position_usd=float(btc5m_raw.get("max_position_usd", 50.0)),
+            max_open_positions=int(btc5m_raw.get("max_open_positions", 2)),
+            stop_loss_pct=float(btc5m_raw.get("stop_loss_pct", 0.45)),
         ),
         edge=EdgeSettings(
             min_ask=float(edge_raw.get("min_ask", 0.45)),

@@ -278,21 +278,36 @@ volspike:
   stop_loss_pct: 0.20
   take_profit_pct: 0.15
 
-# Closing soon: Yes/No favorites near resolution — FAK taker at live CLOB ask.
+# Closing soon: stricter favorites only (FAK taker at live CLOB ask).
 closingsoon:
-  min_liquidity: 1500
+  min_liquidity: 2000
   min_hours: 2
-  max_hours: 72
-  price_min: 0.75
-  price_max: 0.96
-  min_direction: 0.25
+  max_hours: 48
+  price_min: 0.88
+  price_max: 0.97
+  min_direction: 0.35
   min_edge: 0.01
   min_confidence: 0.55
   kelly_fraction: 0.20
-  max_position_usd: 40
-  max_open_positions: 10
+  max_position_usd: 30
+  max_open_positions: 8
   position_usd: 20
   stop_loss_pct: 0.40
+
+# BTC 5m Up/Down scalper: late-window spot-vs-open confirmation (high WR), FAK taker.
+btc5m:
+  min_confirm_bps: 8.0
+  min_entry_seconds_left: 12
+  max_entry_seconds_left: 120
+  min_ask: 0.58
+  max_ask: 0.92
+  min_edge: 0.04
+  min_liquidity: 500
+  look_ahead_windows: 2
+  position_usd: 25
+  max_position_usd: 50
+  max_open_positions: 2
+  stop_loss_pct: 0.45
 
 live:
   clob_host: "https://clob.polymarket.com"

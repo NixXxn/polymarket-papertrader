@@ -1,4 +1,5 @@
 from papertrader.strategies.asymmetric import analyze_asymmetric_event, asymmetric_exits
+from papertrader.strategies.btc5m import analyze_btc5m, btc5m_exits
 from papertrader.strategies.closingsoon import analyze_closingsoon, closingsoon_exits
 from papertrader.strategies.contrarian import analyze_contrarian_event, contrarian_exits
 from papertrader.strategies.meanrev import analyze_meanrev, meanrev_exits
@@ -18,4 +19,6 @@ __all__ = [
     "volspike_exits",
     "analyze_closingsoon",
     "closingsoon_exits",
+    "analyze_btc5m",
+    "btc5m_exits",
 ]

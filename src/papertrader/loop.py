@@ -398,6 +398,7 @@ def scan_once(
     meanrev_engine: Engine | None = None,
     volspike_engine: Engine | None = None,
     closingsoon_engine: Engine | None = None,
+    btc5m_engine: Engine | None = None,
     dry_run: bool,
     today: date | None = None,
     live: LiveTrader | None = None,
@@ -713,6 +714,28 @@ def scan_once(
                 message=str(e),
             )
 
+    if btc5m_engine:
+        try:
+            from papertrader.strategies.btc5m import analyze_btc5m, btc5m_exits
+            for sig in btc5m_exits(btc5m_engine, settings):
+                if execute_signal(btc5m_engine, sig, dry_run, live=live, ctx=ctx, strategy="btc5m"):
+                    counts.risk_exits += 1
+                emitted.append(sig)
+            for sig in analyze_btc5m(btc5m_engine, settings):
+                if execute_signal(btc5m_engine, sig, dry_run, live=live, ctx=ctx, strategy="btc5m"):
+                    counts.fills += 1
+                counts.orders_placed += 1
+                emitted.append(sig)
+        except Exception as e:
+            log.exception("btc5m scan failed: %s", e)
+            append_activity(
+                btc5m_engine.db.data_dir,
+                level="error",
+                event="scan_failed",
+                strategy="btc5m",
+                message=str(e),
+            )
+
     engines = [
         e
         for e in (
@@ -725,6 +748,7 @@ def scan_once(
             meanrev_engine,
             volspike_engine,
             closingsoon_engine,
+            btc5m_engine,
         )
         if e is not None
     ]
@@ -758,6 +782,7 @@ def run_loop(
     meanrev_engine: Engine | None = None,
     volspike_engine: Engine | None = None,
     closingsoon_engine: Engine | None = None,
+    btc5m_engine: Engine | None = None,
     dry_run: bool,
     once: bool,
     live: LiveTrader | None = None,
@@ -783,6 +808,8 @@ def run_loop(
         named_engines.append(("volspike", volspike_engine))
     if closingsoon_engine is not None:
         named_engines.append(("closingsoon", closingsoon_engine))
+    if btc5m_engine is not None:
+        named_engines.append(("btc5m", btc5m_engine))
     poll_seconds = (
         settings.copy.poll_interval_seconds
         if copy_engine is not None
@@ -792,6 +819,9 @@ def run_loop(
         poll_seconds = min(poll_seconds, settings.esports.poll_interval_seconds)
     if momentum_engine is not None:
         poll_seconds = min(poll_seconds, settings.momentum.poll_interval_seconds)
+    if btc5m_engine is not None:
+        # 5m windows need faster scans than weather strategies.
+        poll_seconds = min(poll_seconds, 15)
     last = ""
     try:
         ctx = ExecutionContext()
@@ -807,6 +837,7 @@ def run_loop(
             meanrev_engine=meanrev_engine,
             volspike_engine=volspike_engine,
             closingsoon_engine=closingsoon_engine,
+            btc5m_engine=btc5m_engine,
             dry_run=dry_run,
             live=live,
             ctx=ctx,
@@ -830,6 +861,7 @@ def run_loop(
                 meanrev_engine=meanrev_engine,
                 volspike_engine=volspike_engine,
                 closingsoon_engine=closingsoon_engine,
+                btc5m_engine=btc5m_engine,
                 dry_run=dry_run,
                 live=live,
                 ctx=ctx,
