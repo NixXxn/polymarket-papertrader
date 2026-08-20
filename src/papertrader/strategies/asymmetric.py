@@ -303,8 +303,9 @@ def analyze_asymmetric_event(
         amount_usd=kelly.stake_usd,
         city=city,
         event_slug=bucket.event_slug,
-        order_type="limit",
-        limit_price=best["ask"],
+        # Taker at ask: maker-below-ask tails rarely fill in paper/sim.
+        order_type="fak",
+        limit_price=None,
         quant=QuantMeta(
             p=best["p_model"],
             sigma=best["sigma"],

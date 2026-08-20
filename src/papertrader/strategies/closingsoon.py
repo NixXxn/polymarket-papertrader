@@ -203,6 +203,8 @@ def analyze_closingsoon(
                 "lol-",
                 "cs2-",
                 "dota-",
+                "qat",
+                "afc-",
             )
             if any(x in slug_l for x in sport_markers) or slug_l.startswith(sport_prefixes):
                 rejects["not_favorite"] += 1
@@ -248,15 +250,34 @@ def analyze_closingsoon(
                 rejects["tiny_size"] += 1
                 continue
 
+            # Gamma mid can sit below the live CLOB ask; maker limits then never fill.
+            # Near expiry we take the ask (FAK taker) when the book still looks like a favorite.
+            try:
+                market = engine.api.get_market(slug)
+                token = market.get_token_id(side)
+                book = engine.api.get_order_book(token)
+                from papertrader.markets import best_ask
+
+                ask, ask_size = best_ask(book)
+            except Exception:
+                rejects["no_price"] += 1
+                continue
+            if ask is None or ask_size <= 0:
+                rejects["no_price"] += 1
+                continue
+            if not (cfg.price_min <= ask <= cfg.price_max):
+                rejects["not_favorite"] += 1
+                continue
+
             signals.append(
                 Signal(
                     action="buy",
                     slug=slug,
                     outcome=side,
-                    reason=f"closingsoon {hours_left:.0f}h favorite@{price:.2f}",
+                    reason=f"closingsoon {hours_left:.0f}h favorite ask={ask:.2f} (taker)",
                     amount_usd=round(size, 2),
-                    order_type="limit",
-                    limit_price=round(min(0.99, price + 0.01), 2),
+                    order_type="fak",
+                    limit_price=None,
                     market_condition_id=m.get("conditionId") or "",
                 )
             )
@@ -264,11 +285,11 @@ def analyze_closingsoon(
                 engine.db.data_dir,
                 strategy="closingsoon",
                 decision="buy",
-                reason=f"hours={hours_left:.0f} price={price:.3f}",
+                reason=f"hours={hours_left:.0f} ask={ask:.3f} taker",
                 slug=slug,
                 action="buy",
                 amount_usd=round(size, 2),
-                ask=price,
+                ask=ask,
             )
             open_slugs.add(slug)
             seen_events.add(event_key)

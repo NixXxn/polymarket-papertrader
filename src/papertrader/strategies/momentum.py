@@ -165,7 +165,7 @@ def analyze_momentum_entry(
 
     reason = (
         f"momentum entry {watch.label} trigger={trigger:.3f} "
-        f"limit@{fill_price:.3f} — {watch.event_slug}"
+        f"taker@{fill_price:.3f} — {watch.event_slug}"
     )
     _log_momentum(
         engine,
@@ -186,8 +186,9 @@ def analyze_momentum_entry(
         amount_usd=stake,
         city=watch.city,
         event_slug=watch.event_slug,
-        order_type="limit",
-        limit_price=fill_price,
+        # Cross the ask via FAK so entries actually fill (GTC at mid often rests).
+        order_type="fak",
+        limit_price=None,
         market_condition_id=watch.bucket.market.condition_id,
         reason=reason,
     )

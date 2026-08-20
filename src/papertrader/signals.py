@@ -26,7 +26,8 @@ class Signal:
     shares: float | None = None
     event_slug: str | None = None
     quant: QuantMeta | None = None
-    order_type: Literal["fak", "limit"] = "limit"
+    # Default taker: GTC maker limits often rest unfilled unless priced through the ask/bid.
+    order_type: Literal["fak", "limit"] = "fak"
     limit_price: float | None = None
     partial_exit: bool = False
     ladder_multiple: float | None = None

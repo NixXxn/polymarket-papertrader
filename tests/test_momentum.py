@@ -76,7 +76,10 @@ def test_momentum_entry_triggers_at_threshold(tmp_path):
     sig = analyze_momentum_entry(engine, watch, tick, settings, [])
     assert sig is not None
     assert sig.action == "buy"
-    assert sig.limit_price == 0.92
+    assert sig.order_type == "fak"
+    assert sig.limit_price is None
+    assert sig.amount_usd is not None
+    assert sig.amount_usd > 0
 
 
 def test_momentum_skips_when_below_threshold(tmp_path):
@@ -122,11 +125,11 @@ def test_momentum_stop_loss_exit(tmp_path):
         avg_entry_price=0.91,
         is_resolved=False,
     )
-    tick = MarketTick(token_id="token-yes", best_bid=0.74, best_ask=0.76, last_price=0.74)
+    tick = MarketTick(token_id="token-yes", best_bid=0.60, best_ask=0.62, last_price=0.60)
     signals = momentum_exits(engine, watch, tick, settings, [pos])
     assert len(signals) == 1
     assert signals[0].action == "sell"
-    assert signals[0].limit_price == 0.73
+    assert signals[0].limit_price == 0.59
 
 
 def test_momentum_exit_store_roundtrip(tmp_path):

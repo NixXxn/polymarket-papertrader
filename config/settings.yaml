@@ -16,10 +16,10 @@ user_agent: "polymarket-papertrader/0.1 (paper trading; local use)"
 
 safe:
   cities: [miami, atlanta, nyc, chicago, dallas, houston, austin, phoenix, denver, los-angeles]
-  # Prefer stronger market agreement with consensus (higher WR than 28¢ tails).
-  min_ask: 0.40
-  max_ask: 0.82
-  max_open_positions: 6
+  # Consensus matches with market agreement; FAK taker fills.
+  min_ask: 0.32
+  max_ask: 0.85
+  max_open_positions: 8
   min_sell_bid: 0.02
   # Safe-only paper bankroll override for larger test sizing.
   starting_balance: 10000
@@ -38,13 +38,13 @@ safe:
     denver: 100
     los-angeles: 100
 
-# Strategy 1: asymmetric tail-risk arb — paused during high win-rate optimization (low WR by design).
+# Asymmetric: re-enabled with small book; entries use FAK at ask (taker).
 asymmetric:
   min_ask: 0.02
-  max_ask: 0.10
-  min_model_prob: 0.20
-  min_prob_ratio: 3.0
-  min_edge: 0.10
+  max_ask: 0.12
+  min_model_prob: 0.18
+  min_prob_ratio: 2.5
+  min_edge: 0.08
   take_profit_bid: 0.35
   # Staged trims: small sells at each multiple; ~55% max trimmed, rest rides for 10x+.
   exit_ladder:
@@ -62,9 +62,9 @@ asymmetric:
   min_sell_bid: 0.02
   min_event_volume: 200
   min_ensemble_members: 8
-  position_usd: 1
-  max_position_usd: 100
-  max_open_positions: 0
+  position_usd: 2
+  max_position_usd: 25
+  max_open_positions: 15
   max_hourly_rise_f: 4.0
   high_hour_local: 20
   cities:
@@ -278,19 +278,19 @@ volspike:
   stop_loss_pct: 0.20
   take_profit_pct: 0.15
 
-# Closing soon: high WR Yes/No favorites near resolution (hold toward $1).
+# Closing soon: Yes/No favorites near resolution — FAK taker at live CLOB ask.
 closingsoon:
   min_liquidity: 1500
   min_hours: 2
   max_hours: 72
-  price_min: 0.82
-  price_max: 0.95
-  min_direction: 0.32
+  price_min: 0.75
+  price_max: 0.96
+  min_direction: 0.25
   min_edge: 0.01
   min_confidence: 0.55
   kelly_fraction: 0.20
   max_position_usd: 40
-  max_open_positions: 6
+  max_open_positions: 10
   position_usd: 20
   stop_loss_pct: 0.40
 

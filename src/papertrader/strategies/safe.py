@@ -104,8 +104,8 @@ def analyze_safe_event(
             confidence=getattr(consensus, "confidence", None),
         )
         return None
-    # Profitability filter: only trade when model confidence is very high.
-    if consensus.confidence != "very_high":
+    # Profitability filter: high or very_high consensus only.
+    if consensus.confidence not in ("high", "very_high"):
         _log_safe(
             engine,
             decision="skip",
@@ -231,6 +231,9 @@ def analyze_safe_event(
         city=city,
         event_slug=bucket.event_slug,
         reason=reason,
+        # Taker: fill now at the book. Maker limits often rest unfilled in paper/live.
+        order_type="fak",
+        limit_price=None,
     )
 
 
