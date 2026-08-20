@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import re
+import time
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
@@ -193,92 +194,227 @@ def fractional_kelly_usd(
     return usd
 
 
+_MAX_TOURNAMENT_IDS_PER_REQUEST = 5
+_REQUEST_COOLDOWN_S = 1.05
+
+# Sport-specific moneyline (match winner) market / outcome IDs from OddsPapi /markets.
+_MONEYLINE_MARKET: dict[int, tuple[str, str, str]] = {
+    17: ("171", "171", "172"),  # CS2 Winner: 1 / 2
+    18: ("181", "181", "182"),  # LoL Winner: 1 / 2
+    16: ("161", "161", "162"),  # Dota 2
+    61: ("611", "611", "612"),  # Valorant
+}
+
+
+def _outcome_price(outcomes: dict[str, Any], outcome_id: str) -> tuple[float, bool] | None:
+    row = outcomes.get(outcome_id) or outcomes.get(int(outcome_id))  # type: ignore[arg-type]
+    if not isinstance(row, dict):
+        return None
+    players = row.get("players") or {}
+    player = players.get("0") or players.get(0)
+    if not isinstance(player, dict):
+        return None
+    try:
+        price = float(player["price"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    active = bool(player.get("active", True))
+    return price, active
+
+
+def _extract_moneyline_prices(
+    markets: dict[str, Any], sport_id: int
+) -> tuple[float, float] | None:
+    """Return (p1_decimal_odds, p2_decimal_odds) for the sport moneyline, if usable."""
+    spec = _MONEYLINE_MARKET.get(sport_id)
+    if spec is None:
+        return None
+    market_id, o1, o2 = spec
+    market = markets.get(market_id)
+    if market is None:
+        for key, value in markets.items():
+            if str(key) == market_id:
+                market = value
+                break
+    if not isinstance(market, dict):
+        return None
+    outcomes = market.get("outcomes") or {}
+    if not isinstance(outcomes, dict):
+        return None
+    p1 = _outcome_price(outcomes, o1)
+    p2 = _outcome_price(outcomes, o2)
+    if p1 is None or p2 is None:
+        return None
+    price1, active1 = p1
+    price2, active2 = p2
+    if not (active1 and active2):
+        return None
+    if not (1.05 <= price1 <= 25.0 and 1.05 <= price2 <= 25.0):
+        return None
+    return price1, price2
+
+
+def _fair_match_from_fixture(fixture: dict[str, Any], bookmaker_names: tuple[str, ...]) -> FairMatch | None:
+    team1 = str(fixture.get("participant1Name") or "").strip().lower()
+    team2 = str(fixture.get("participant2Name") or "").strip().lower()
+    if not team1 or not team2:
+        return None
+    try:
+        sport_id = int(fixture.get("sportId"))
+    except (TypeError, ValueError):
+        return None
+    book_odds = fixture.get("bookmakerOdds") or {}
+    if not isinstance(book_odds, dict):
+        return None
+    bookmaker_data = None
+    for name in bookmaker_names:
+        row = book_odds.get(name)
+        if isinstance(row, dict) and row.get("markets"):
+            bookmaker_data = row
+            break
+    if bookmaker_data is None:
+        return None
+    markets = bookmaker_data.get("markets") or {}
+    if not isinstance(markets, dict):
+        return None
+    prices = _extract_moneyline_prices(markets, sport_id)
+    if prices is None:
+        return None
+    p1_price, p2_price = prices
+    try:
+        fair_p1, fair_p2 = shin_probabilities(p1_price, p2_price)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+    return FairMatch(
+        fixture_id=str(fixture.get("fixtureId") or ""),
+        team1=team1,
+        team2=team2,
+        fair_p1=fair_p1,
+        fair_p2=fair_p2,
+        start_time=fixture.get("startTime"),
+    )
+
+
 class OddsPapiClient:
     def __init__(self, cfg: OddsPapiSettings, *, api_key: str) -> None:
         self.cfg = cfg
         self.api_key = api_key
         self._client = httpx.Client(timeout=30.0)
+        self._last_request_at = 0.0
 
     def close(self) -> None:
         self._client.close()
+
+    def _throttle(self) -> None:
+        elapsed = time.monotonic() - self._last_request_at
+        if elapsed < _REQUEST_COOLDOWN_S:
+            time.sleep(_REQUEST_COOLDOWN_S - elapsed)
 
     def _get_json(self, path: str, params: dict[str, Any] | None = None) -> Any:
         query = dict(params or {})
         query["apiKey"] = self.api_key
         url = f"{self.cfg.base_url.rstrip('/')}/{path.lstrip('/')}"
+        self._throttle()
         resp = self._client.get(url, params=query, headers={"Accept": "application/json"})
+        self._last_request_at = time.monotonic()
         resp.raise_for_status()
         return resp.json()
 
+    def _bookmaker_chain(self) -> tuple[str, ...]:
+        seen: list[str] = []
+        for name in (self.cfg.primary_bookmaker, *self.cfg.fallback_bookmakers):
+            slug = str(name).strip().lower()
+            if slug and slug not in seen:
+                seen.append(slug)
+        return tuple(seen)
+
+    def _odds_by_tournaments(self, tournament_ids: list[str]) -> list[dict[str, Any]]:
+        """Fetch odds for up to 5 tournament IDs, trying bookmakers one at a time."""
+        if not tournament_ids:
+            return []
+        ids = tournament_ids[:_MAX_TOURNAMENT_IDS_PER_REQUEST]
+        last_exc: Exception | None = None
+        for bookmaker in self._bookmaker_chain():
+            try:
+                odds_resp = self._get_json(
+                    "/odds-by-tournaments",
+                    params={
+                        "tournamentIds": ",".join(ids),
+                        "bookmakers": bookmaker,
+                        "verbosity": 2,
+                    },
+                )
+            except httpx.HTTPStatusError as exc:
+                last_exc = exc
+                status = exc.response.status_code
+                if status in (400, 404):
+                    log.debug(
+                        "OddsPapi odds chunk skipped bookmaker=%s status=%s",
+                        bookmaker,
+                        status,
+                    )
+                    continue
+                raise
+            if isinstance(odds_resp, list):
+                return [row for row in odds_resp if isinstance(row, dict)]
+        if last_exc is not None:
+            log.warning(
+                "OddsPapi odds chunk empty for tournaments=%s (%s)",
+                ",".join(ids),
+                last_exc,
+            )
+        return []
+
     def fetch_fair_matches(self) -> list[FairMatch]:
         matches: list[FairMatch] = []
-        bookmakers = ",".join(
-            [self.cfg.primary_bookmaker, *self.cfg.fallback_bookmakers]
-        )
+        bookmakers = self._bookmaker_chain()
+        seen_fixtures: set[str] = set()
         for sport_id in self.cfg.sport_ids:
-            tournaments = self._get_json(
-                "/tournaments", params={"sportId": sport_id}
-            )
+            try:
+                tournaments = self._get_json("/tournaments", params={"sportId": sport_id})
+            except httpx.HTTPStatusError as exc:
+                log.warning("OddsPapi tournaments failed sportId=%s: %s", sport_id, exc)
+                continue
             if not isinstance(tournaments, list):
                 continue
-            active = [
-                str(t["tournamentId"])
-                for t in tournaments
-                if isinstance(t, dict)
-                and (t.get("upcomingFixtures", 0) or t.get("futureFixtures", 0))
-            ]
+            # Prefer soon-starting tournaments, then future.
+            ranked = sorted(
+                (
+                    t
+                    for t in tournaments
+                    if isinstance(t, dict)
+                    and (t.get("upcomingFixtures", 0) or t.get("futureFixtures", 0))
+                ),
+                key=lambda t: (
+                    -(int(t.get("upcomingFixtures") or 0)),
+                    -(int(t.get("futureFixtures") or 0)),
+                ),
+            )
+            active = [str(t["tournamentId"]) for t in ranked if t.get("tournamentId") is not None]
             if not active:
                 continue
-            odds_resp = self._get_json(
-                "/odds-by-tournaments",
-                params={
-                    "tournamentIds": ",".join(active[: self.cfg.max_tournaments_per_sport]),
-                    "bookmakers": bookmakers,
-                },
-            )
-            if not isinstance(odds_resp, list):
-                continue
-            for fixture in odds_resp:
-                if not isinstance(fixture, dict):
-                    continue
-                book_odds = fixture.get("bookmakerOdds") or {}
-                if not isinstance(book_odds, dict):
-                    continue
-                bookmaker_data = None
-                for name in (self.cfg.primary_bookmaker, *self.cfg.fallback_bookmakers):
-                    row = book_odds.get(name)
-                    if isinstance(row, dict) and row.get("markets"):
-                        bookmaker_data = row
-                        break
-                if bookmaker_data is None:
-                    continue
-                markets = bookmaker_data.get("markets") or {}
-                if not isinstance(markets, dict):
-                    continue
-                for market in markets.values():
-                    if not isinstance(market, dict):
-                        continue
-                    outcomes = market.get("outcomes") or {}
-                    if not isinstance(outcomes, dict) or len(outcomes) < 2:
-                        continue
-                    keys = list(outcomes.keys())
-                    try:
-                        p1_price = outcomes[keys[0]]["players"]["0"]["price"]
-                        p2_price = outcomes[keys[1]]["players"]["0"]["price"]
-                        fair_p1, fair_p2 = shin_probabilities(float(p1_price), float(p2_price))
-                    except (KeyError, TypeError, ValueError, ZeroDivisionError):
-                        continue
-                    matches.append(
-                        FairMatch(
-                            fixture_id=str(fixture.get("fixtureId") or ""),
-                            team1=str(fixture.get("participant1Name") or "").lower(),
-                            team2=str(fixture.get("participant2Name") or "").lower(),
-                            fair_p1=fair_p1,
-                            fair_p2=fair_p2,
-                            start_time=fixture.get("startTime"),
-                        )
+            limit = max(1, min(self.cfg.max_tournaments_per_sport, len(active)))
+            active = active[:limit]
+            for i in range(0, len(active), _MAX_TOURNAMENT_IDS_PER_REQUEST):
+                chunk = active[i : i + _MAX_TOURNAMENT_IDS_PER_REQUEST]
+                try:
+                    fixtures = self._odds_by_tournaments(chunk)
+                except Exception as exc:
+                    log.warning(
+                        "OddsPapi odds failed sportId=%s chunk=%s: %s",
+                        sport_id,
+                        ",".join(chunk),
+                        exc,
                     )
-                    break
+                    continue
+                for fixture in fixtures:
+                    fair = _fair_match_from_fixture(fixture, bookmakers)
+                    if fair is None or not fair.fixture_id:
+                        continue
+                    if fair.fixture_id in seen_fixtures:
+                        continue
+                    seen_fixtures.add(fair.fixture_id)
+                    matches.append(fair)
         return matches
 
 
@@ -325,7 +461,10 @@ class OddsPapiService:
         return cache
 
     def _requests_per_refresh(self) -> int:
-        return 2 * len(self.cfg.sport_ids)
+        # tournaments call per sport + up to ceil(max_tournaments/5) odds chunks (primary book).
+        chunks = max(1, (self.cfg.max_tournaments_per_sport + _MAX_TOURNAMENT_IDS_PER_REQUEST - 1)
+                     // _MAX_TOURNAMENT_IDS_PER_REQUEST)
+        return len(self.cfg.sport_ids) * (1 + chunks)
 
     def _needs_refresh(self, cache: OddsPapiCache | None) -> bool:
         if cache is None:
@@ -357,94 +496,9 @@ class OddsPapiService:
 
         client = OddsPapiClient(self.cfg, api_key=api_key)
         try:
-            matches: list[FairMatch] = []
-            for sport_id in self.cfg.sport_ids:
-                if not self._quota.can_spend(
-                    2,
-                    max_daily=self.cfg.max_daily_requests,
-                    max_monthly=self.cfg.max_monthly_requests,
-                ):
-                    break
-                tournaments = client._get_json(
-                    "/tournaments", params={"sportId": sport_id}
-                )
-                self._quota.spend(1)
-                if not isinstance(tournaments, list):
-                    continue
-                active = [
-                    str(t["tournamentId"])
-                    for t in tournaments
-                    if isinstance(t, dict)
-                    and (t.get("upcomingFixtures", 0) or t.get("futureFixtures", 0))
-                ]
-                if not active:
-                    continue
-                if not self._quota.can_spend(
-                    1,
-                    max_daily=self.cfg.max_daily_requests,
-                    max_monthly=self.cfg.max_monthly_requests,
-                ):
-                    break
-                odds_resp = client._get_json(
-                    "/odds-by-tournaments",
-                    params={
-                        "tournamentIds": ",".join(
-                            active[: self.cfg.max_tournaments_per_sport]
-                        ),
-                        "bookmakers": ",".join(
-                            [self.cfg.primary_bookmaker, *self.cfg.fallback_bookmakers]
-                        ),
-                    },
-                )
-                self._quota.spend(1)
-                if not isinstance(odds_resp, list):
-                    continue
-                for fixture in odds_resp:
-                    if not isinstance(fixture, dict):
-                        continue
-                    book_odds = fixture.get("bookmakerOdds") or {}
-                    if not isinstance(book_odds, dict):
-                        continue
-                    bookmaker_data = None
-                    for name in (
-                        self.cfg.primary_bookmaker,
-                        *self.cfg.fallback_bookmakers,
-                    ):
-                        row = book_odds.get(name)
-                        if isinstance(row, dict) and row.get("markets"):
-                            bookmaker_data = row
-                            break
-                    if bookmaker_data is None:
-                        continue
-                    markets = bookmaker_data.get("markets") or {}
-                    if not isinstance(markets, dict):
-                        continue
-                    for market in markets.values():
-                        if not isinstance(market, dict):
-                            continue
-                        outcomes = market.get("outcomes") or {}
-                        if not isinstance(outcomes, dict) or len(outcomes) < 2:
-                            continue
-                        keys = list(outcomes.keys())
-                        try:
-                            p1_price = outcomes[keys[0]]["players"]["0"]["price"]
-                            p2_price = outcomes[keys[1]]["players"]["0"]["price"]
-                            fair_p1, fair_p2 = shin_probabilities(
-                                float(p1_price), float(p2_price)
-                            )
-                        except (KeyError, TypeError, ValueError, ZeroDivisionError):
-                            continue
-                        matches.append(
-                            FairMatch(
-                                fixture_id=str(fixture.get("fixtureId") or ""),
-                                team1=str(fixture.get("participant1Name") or "").lower(),
-                                team2=str(fixture.get("participant2Name") or "").lower(),
-                                fair_p1=fair_p1,
-                                fair_p2=fair_p2,
-                                start_time=fixture.get("startTime"),
-                            )
-                        )
-                        break
+            matches = client.fetch_fair_matches()
+            # Charge the planned refresh budget (actual calls are throttled/chunked).
+            self._quota.spend(cost)
         except Exception as exc:
             log.warning("OddsPapi refresh failed: %s", exc)
             self._cache = cache

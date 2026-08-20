@@ -14,7 +14,6 @@ from papertrader.oddspapi import (
     FairMatch,
     find_fair_probability,
     fractional_kelly_usd,
-    maker_buy_price,
     oddspapi_api_key,
 )
 from papertrader.signals import Signal
@@ -167,14 +166,11 @@ def analyze_esports_candidate(
     if fair_p is not None:
         edge = fair_p - candidate.ask
         if edge >= oddsp.min_edge:
-            limit_price = maker_buy_price(
-                ask=candidate.ask,
-                fair_p=fair_p,
-                maker_edge_cents=oddsp.maker_edge_cents,
-            )
+            # Size at the taker ask we actually pay (FAK), not a resting maker quote.
+            fill_price = round(candidate.ask, 4)
             stake = fractional_kelly_usd(
                 fair_p=fair_p,
-                price=limit_price,
+                price=fill_price,
                 cash=cash,
                 kelly_fraction=oddsp.kelly_fraction,
                 max_usd=cfg.max_position_usd,
@@ -185,8 +181,8 @@ def analyze_esports_candidate(
                     candidate.end_at - datetime.now(timezone.utc)
                 ).total_seconds() / 3600
                 reason = (
-                    f"value {candidate.outcome} fair={fair_p:.3f} ask={candidate.ask:.3f} "
-                    f"edge={edge:.3f} limit@{limit_price:.3f} "
+                    f"oddspapi {candidate.outcome} fair={fair_p:.3f} ask={candidate.ask:.3f} "
+                    f"edge={edge:.3f} taker@{fill_price:.3f} "
                     f"ends in {hours_left:.1f}h — {candidate.event_title[:60]}"
                 )
                 _log_esports(
@@ -198,7 +194,7 @@ def analyze_esports_candidate(
                     ask=candidate.ask,
                     fair_p=fair_p,
                     edge=edge,
-                    limit_price=limit_price,
+                    limit_price=fill_price,
                     fixture_id=fair_match.fixture_id if fair_match else None,
                     event_slug=candidate.event_slug,
                     ends_at=candidate.end_at.isoformat(),
@@ -209,43 +205,24 @@ def analyze_esports_candidate(
                     outcome=candidate.outcome,
                     amount_usd=stake,
                     reason=reason,
-                    order_type="limit",
-                    limit_price=limit_price,
+                    # Taker at ask so OddsPapi edge actually fills (maker under-ask often rests).
+                    order_type="fak",
+                    limit_price=None,
                     market_condition_id=candidate.market.condition_id,
                     event_slug=candidate.event_slug,
                 )
-            if oddsp.require_match:
-                _log_esports(
-                    engine,
-                    decision="skip",
-                    reason="oddspapi_kelly_too_small",
-                    slug=candidate.market.slug,
-                    fair_p=round(fair_p, 4),
-                    limit_price=limit_price,
-                )
-                return None
             _log_esports(
                 engine,
                 decision="skip",
                 reason="oddspapi_kelly_too_small",
                 slug=candidate.market.slug,
                 fair_p=round(fair_p, 4),
-                limit_price=limit_price,
-                fallback="swing",
+                limit_price=fill_price,
+                **({"fallback": "swing"} if not oddsp.require_match else {}),
             )
-        elif oddsp.require_match:
-            _log_esports(
-                engine,
-                decision="skip",
-                reason="low_oddspapi_edge",
-                slug=candidate.market.slug,
-                outcome=candidate.outcome,
-                ask=candidate.ask,
-                fair_p=round(fair_p, 4),
-                edge=round(edge, 4),
-                min_edge=oddsp.min_edge,
-            )
-            return None
+            if oddsp.require_match:
+                return None
+            # Kelly too small with require_match=false: fall through to cheap swing.
         else:
             _log_esports(
                 engine,
@@ -257,8 +234,23 @@ def analyze_esports_candidate(
                 fair_p=round(fair_p, 4),
                 edge=round(edge, 4),
                 min_edge=oddsp.min_edge,
-                fallback="swing",
+                **({"fallback": "swing"} if not oddsp.require_match else {}),
             )
+            if oddsp.require_match:
+                return None
+            # Low edge with require_match=false: fall through to cheap swing.
+
+    # require_match / OddsPapi-only mode: never fall back to cheap live swings.
+    if oddsp.require_match:
+        _log_esports(
+            engine,
+            decision="skip",
+            reason="oddspapi_unavailable" if not use_oddsp else "no_oddspapi_match",
+            slug=candidate.market.slug,
+            outcome=candidate.outcome,
+            ask=candidate.ask,
+        )
+        return None
 
     return _swing_buy_signal(
         engine,

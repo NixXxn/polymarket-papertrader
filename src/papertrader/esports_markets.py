@@ -80,11 +80,21 @@ _PROP_SLUG_MARKERS = (
 _GAME_WINNER_SLUG = re.compile(r"-game\d+$")
 _SERIES_SLUG = re.compile(r"^[a-z0-9]+-[a-z0-9]+-\d{4}-\d{2}-\d{2}$")
 _DATE_IN_SLUG = re.compile(r"-(\d{4}-\d{2}-\d{2})(?:-|$)")
-_SPORTS_LEAGUE_PREFIX = re.compile(
-    r"^(?:ucl|epl|mls|lal|bund|serie|lig|ered|nba|nfl|mlb|nhl|cbb|ncaa|"
-    r"atp|wta|ufc|mma|cs2|lol|lck|lpl|lec|vct|valorant|dota2|cblol|lcs)"
+_CS2_LOL_TITLE = re.compile(r"^(?:LoL|CS2|Counter-Strike(?:\s*2)?)\b", re.I)
+_CS2_LOL_SLUG = re.compile(
+    r"(?:^|-)(?:cs2|counter-strike|lol|lck|lpl|lec|lcs|cblol|tcl|prime-?league)(?:-|$)",
+    re.I,
 )
 _WIN_ON_DATE = re.compile(r"will .+ win on \d{4}-\d{2}-\d{2}", re.I)
+
+
+def _is_cs2_or_lol_text(*parts: str) -> bool:
+    blob = " ".join(p for p in parts if p).lower()
+    if _CS2_LOL_TITLE.search(blob.strip()):
+        return True
+    if _CS2_LOL_SLUG.search(blob.replace(" ", "-")):
+        return True
+    return False
 
 
 def _parse_iso(value: str | None) -> datetime | None:
@@ -156,17 +166,15 @@ def _slug_event_date(slug: str) -> datetime | None:
 def _looks_like_match_market(question: str, slug: str) -> bool:
     q = question.strip()
     slug_l = slug.lower()
-    if re.match(r"^(LoL|CS2|Valorant|Dota 2|DOTA 2):", q, re.I):
+    if not _is_cs2_or_lol_text(q, slug_l):
+        return False
+    if re.match(r"^(LoL|CS2|Counter-Strike):", q, re.I):
         return True
     if re.search(r"\bvs\.?\b", q, re.I) and _GAME_WINNER_SLUG.search(slug):
         return True
     if _SERIES_SLUG.match(slug):
         return True
     if _WIN_ON_DATE.search(q):
-        return True
-    if "end in a draw" in q.lower() and _DATE_IN_SLUG.search(slug_l):
-        return True
-    if _SPORTS_LEAGUE_PREFIX.match(slug_l) and _DATE_IN_SLUG.search(slug_l):
         return True
     if re.search(r"\bvs\.?\b", q, re.I) and _DATE_IN_SLUG.search(slug_l):
         return True
@@ -192,17 +200,6 @@ def _fetch_events(engine: Engine, cfg, *, now: datetime, horizon: datetime) -> l
             data = engine.api._gamma_get(
                 "/public-search",
                 params={"q": query, "limit_per_type": cfg.search_limit},
-            )
-            _add(data.get("events"))
-        except Exception:
-            continue
-
-    today = now.strftime("%Y-%m-%d")
-    for query in (today, f"nba {today}", f"ucl {today}", f"epl {today}", f"nhl {today}"):
-        try:
-            data = engine.api._gamma_get(
-                "/public-search",
-                params={"q": query, "limit_per_type": min(cfg.search_limit, 25)},
             )
             _add(data.get("events"))
         except Exception:
@@ -290,6 +287,9 @@ def discover_esports_markets(
             return
         event_slug = str(event.get("slug") or "")
         event_title = str(event.get("title") or event_slug)
+        if not _is_cs2_or_lol_text(event_title, event_slug):
+            stats.bump("not_cs2_lol")
+            return
         volume = float(event.get("volume") or event.get("volume24hr") or 0 or 0)
         event_end = _parse_iso(event.get("endDate"))
         slug_event_end = _slug_event_date(event_slug)
@@ -340,8 +340,8 @@ def discover_esports_markets(
                 continue
             seen_market_slugs.add(slug)
 
+            valid_outcomes: list[tuple[str, float, float]] = []
             cheapest_any: tuple[str, float, float] | None = None
-            best_valid: tuple[str, float, float] | None = None
             for outcome in market.outcomes:
                 try:
                     token = market.get_token_id(outcome)
@@ -370,11 +370,39 @@ def discover_esports_markets(
                 )
                 if reject:
                     continue
-                if best_valid is None or ask < best_valid[1]:
-                    best_valid = (outcome, ask, ask_size)
+                valid_outcomes.append((outcome, ask, ask_size))
 
-            if best_valid is not None:
-                outcome, ask, ask_size = best_valid
+            # OddsPapi mode: evaluate every side in the ask band (edge can be on either team).
+            # Swing mode: keep the cheapest underdog only.
+            chosen = (
+                valid_outcomes
+                if cfg.oddspapi.require_match and valid_outcomes
+                else ([min(valid_outcomes, key=lambda x: x[1])] if valid_outcomes else [])
+            )
+            if not chosen:
+                if cheapest_any is not None:
+                    outcome, ask, ask_size = cheapest_any
+                    fail = classify_ask_reject(
+                        ask,
+                        ask_size,
+                        min_ask=cfg.min_ask,
+                        max_ask=cfg.max_ask,
+                        min_size=settings.min_best_ask_size,
+                    ) or "ask_band"
+                    _note_near_miss(
+                        slug=slug,
+                        outcome=outcome,
+                        ask=ask,
+                        ask_size=ask_size,
+                        fail=fail,
+                        end_at=end_at,
+                    )
+                    stats.bump(fail)
+                else:
+                    stats.bump("no_valid_ask")
+                continue
+
+            for outcome, ask, ask_size in chosen:
                 stats.candidates += 1
                 candidates.append(
                     EsportsCandidate(
@@ -388,28 +416,6 @@ def discover_esports_markets(
                         ask_size=ask_size,
                     )
                 )
-                continue
-
-            if cheapest_any is None:
-                stats.bump("no_ask")
-                continue
-            outcome, ask, ask_size = cheapest_any
-            fail = classify_ask_reject(
-                ask,
-                ask_size,
-                min_ask=cfg.min_ask,
-                max_ask=cfg.max_ask,
-                min_size=settings.min_best_ask_size,
-            ) or "no_valid_ask"
-            stats.bump(fail)
-            _note_near_miss(
-                slug=slug,
-                outcome=outcome,
-                ask=ask,
-                ask_size=ask_size,
-                fail=fail,
-                end_at=end_at,
-            )
 
     for event in _fetch_events(engine, cfg, now=now, horizon=horizon):
         _consider_event(event)

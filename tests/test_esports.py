@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -48,18 +49,16 @@ def _candidate(*, ask=0.08, end_hours=1.5):
 
 def test_match_and_prop_filters():
     assert _looks_like_match_market("LoL: Alpha vs Beta", "lol-alpha-beta-2026-08-18-game1")
+    assert _looks_like_match_market("CS2: Mongolz vs Falcons", "cs2-mon-fal-2026-08-18")
     assert not _looks_like_match_market("Total maps", "lol-alpha-beta-both-teams-win")
     assert _is_prop_market("lol-alpha-beta-both-teams-win", ())
     assert not _is_prop_market("lol-alpha-beta-2026-08-18-game1", ())
-    assert _looks_like_match_market(
+    # Traditional sports are out of scope (CS2 + LoL only).
+    assert not _looks_like_match_market(
         "Will Fenerbahçe SK win on 2026-08-18?",
         "ucl-fen-lyo-2026-08-18-fen",
     )
-    assert _looks_like_match_market(
-        "Will Fenerbahçe SK vs. Olympique Lyonnais end in a draw?",
-        "ucl-fen-lyo-2026-08-18-draw",
-    )
-    assert _looks_like_match_market(
+    assert not _looks_like_match_market(
         "Lakers vs Celtics",
         "nba-lal-bos-2026-08-18",
     )
@@ -76,6 +75,13 @@ def test_resolve_end_at_uses_series_end_when_game_end_stale():
 
 def test_analyze_esports_buy_cheap(tmp_path):
     settings = load_settings()
+    settings = replace(
+        settings,
+        esports=replace(
+            settings.esports,
+            oddspapi=replace(settings.esports.oddspapi, require_match=False),
+        ),
+    )
     engine = MagicMock()
     engine.db.data_dir = tmp_path
     sig = analyze_esports_candidate(engine, _candidate(), settings, [])
@@ -121,7 +127,8 @@ def test_esports_exits_place_tp_limit(tmp_path):
     signals = esports_exits(engine, settings, [pos])
     assert len(signals) == 1
     assert signals[0].action == "sell"
-    assert signals[0].limit_price == 0.06
+    expected_tp = round(0.05 * (1.0 + settings.esports.take_profit_pct), 3)
+    assert signals[0].limit_price == expected_tp
     assert signals[0].esports_take_profit is True
 
 
@@ -194,12 +201,14 @@ def test_discover_esports_finds_near_horizon_market(monkeypatch):
         bids=[FakeLevel(0.06, 50)],
     )
     result = discover_esports_markets(engine, settings, now=now)
-    assert len(result.candidates) == 1
-    assert result.stats.candidates == 1
+    # require_match evaluates both sides in the ask band.
+    assert len(result.candidates) == 2
+    assert result.stats.candidates == 2
+    assert {c.outcome for c in result.candidates} == {"Alpha", "Beta"}
     assert result.candidates[0].market.condition_id == "0xnear"
 
 
-def test_discover_esports_finds_soccer_moneyline(monkeypatch):
+def test_discover_esports_skips_soccer_moneyline(monkeypatch):
     settings = load_settings()
     engine = MagicMock()
     now = datetime(2026, 8, 18, 12, 0, tzinfo=timezone.utc)
@@ -235,9 +244,8 @@ def test_discover_esports_finds_soccer_moneyline(monkeypatch):
         bids=[FakeLevel(0.20, 50)],
     )
     result = discover_esports_markets(engine, settings, now=now)
-    assert len(result.candidates) == 1
-    assert result.candidates[0].outcome == "Yes"
-    assert result.candidates[0].ask == 0.22
+    assert result.candidates == []
+    assert result.stats.rejects.get("not_cs2_lol", 0) >= 1
 
 
 def test_scan_stats_summary():

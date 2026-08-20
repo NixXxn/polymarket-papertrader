@@ -156,6 +156,7 @@ REJECT_LABELS: dict[str, str] = {
     "already_in_event": "bereits im Event investiert",
     "insufficient_cash": "zu wenig Cash",
     "no_oddspapi_match": "kein OddsPapi-Match",
+    "oddspapi_unavailable": "OddsPapi nicht verfügbar",
     "low_oddspapi_edge": "OddsPapi-Edge zu klein",
     "oddspapi_kelly_too_small": "Kelly-Size zu klein",
 }

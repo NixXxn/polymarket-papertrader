@@ -150,55 +150,38 @@ copy:
   poll_interval_ms: 250
   recent_limit: 50
 
-# Esports + live sports: temporarily disabled during profitability monitoring (consistent realized losses).
+# Esports: CS2 + LoL only, OddsPapi fair-value required (no cheap-swing fallback).
 esports:
-  horizon_hours: 6
+  horizon_hours: 8
   poll_interval_seconds: 45
   min_ask: 0.05
-  max_ask: 0.35
-  take_profit_pct: 0.20
-  stop_loss_entry_pct: 0.80
-  position_usd: 5
-  max_position_usd: 20
-  max_open_positions: 0
-  min_event_volume: 150
+  max_ask: 0.72
+  take_profit_pct: 0.18
+  stop_loss_entry_pct: 0.75
+  position_usd: 8
+  max_position_usd: 25
+  max_open_positions: 12
+  min_event_volume: 80
   search_queries:
     [
+      cs2,
+      counter-strike,
+      lol,
+      league-of-legends,
       lck,
       lpl,
       lec,
-      vct,
-      cs2,
-      dota2,
-      lol,
-      ucl,
-      epl,
-      mls,
-      nba,
-      nfl,
-      nhl,
-      mlb,
-      atp,
-      wta,
-      ufc,
-      soccer,
+      lcs,
     ]
   event_tags:
     [
       league-of-legends,
-      valorant,
-      dota-2,
+      counter-strike,
+      cs2,
       esports,
-      sports,
-      soccer,
-      nba,
-      nfl,
-      nhl,
-      mlb,
-      tennis,
     ]
   search_limit: 60
-  tag_slug: sports
+  tag_slug: esports
   exclude_slug_patterns:
     [
       "-spread-",
@@ -209,21 +192,27 @@ esports:
       "-handicap-",
       "-first-half-",
       "-1h-",
+      "-map-",
+      "-kill-",
+      "-first-blood-",
+      "dota",
+      "valorant",
+      "vct-",
     ]
-  # OddsPapi fair-value overlay (ODDSP_API_KEY in .env). 4 sports × 2 calls = 8 req/refresh.
+  # OddsPapi fair-value only (ODDSP_API_KEY in .env). CS2 + LoL.
   oddspapi:
     enabled: true
     min_edge: 0.06
-    primary_bookmaker: pinnacle
-    fallback_bookmakers: [ggbet, bet365]
-    sport_ids: [17, 18, 16, 61] # CS2, LoL, Dota 2, Valorant
-    max_daily_requests: 8
+    primary_bookmaker: bet365
+    fallback_bookmakers: [unibet, stake, pinnacle]
+    sport_ids: [17, 18] # CS2, LoL
+    max_daily_requests: 20
     max_monthly_requests: 245
     refresh_interval_hours: 3
-    kelly_fraction: 0.25
-    maker_edge_cents: 0.02
-    require_match: false
-    max_tournaments_per_sport: 8
+    kelly_fraction: 0.20
+    maker_edge_cents: 0.01
+    require_match: true
+    max_tournaments_per_sport: 10
     base_url: "https://api.oddspapi.io/v4"
 
 # Weather momentum: high WR favorites — buy >= 80¢, TP 98¢, wider SL to avoid noise stops.
@@ -296,13 +285,13 @@ closingsoon:
 
 # BTC 5m Up/Down scalper: late-window spot-vs-open confirmation (high WR), FAK taker.
 btc5m:
-  min_confirm_bps: 8.0
-  min_entry_seconds_left: 12
-  max_entry_seconds_left: 120
-  min_ask: 0.58
-  max_ask: 0.92
-  min_edge: 0.04
-  min_liquidity: 500
+  min_confirm_bps: 6.0
+  min_entry_seconds_left: 10
+  max_entry_seconds_left: 150
+  min_ask: 0.55
+  max_ask: 0.93
+  min_edge: 0.03
+  min_liquidity: 300
   look_ahead_windows: 2
   position_usd: 25
   max_position_usd: 50
