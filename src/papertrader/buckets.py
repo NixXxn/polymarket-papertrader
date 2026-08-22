@@ -38,7 +38,37 @@ def parse_temperature_range(text: str | None) -> TempRange | None:
     if not text:
         return None
 
-    m = re.search(r"(-?\d+)\s*-\s*(-?\d+)\s*°?\s*([FC])", text, re.I)
+    # Polymarket slugs first — before loose "N-N[FC]" which falsely matches "...-2026-36c".
+    m = re.search(r"-(\d+)-(\d+)f(?:$|-)", text, re.I)
+    if m and float(m.group(1)) <= 150 and float(m.group(2)) <= 150:
+        return TempRange(type="range", min=float(m.group(1)), max=float(m.group(2)), unit="F")
+    m = re.search(r"-(\d+)-(\d+)c(?:$|-)", text, re.I)
+    if m and float(m.group(1)) <= 80 and float(m.group(2)) <= 80:
+        return TempRange(type="range", min=float(m.group(1)), max=float(m.group(2)), unit="C")
+    m = re.search(r"-(\d+)forhigher(?:$|-)", text, re.I)
+    if m:
+        return TempRange(type="above", threshold=float(m.group(1)), unit="F")
+    m = re.search(r"-(\d+)forbelow(?:$|-)", text, re.I)
+    if m:
+        return TempRange(type="below", threshold=float(m.group(1)), unit="F")
+    m = re.search(r"-(\d+)corhigher(?:$|-)", text, re.I)
+    if m:
+        return TempRange(type="above", threshold=float(m.group(1)), unit="C")
+    m = re.search(r"-(\d+)c(?:$|-)", text, re.I)
+    if m and float(m.group(1)) <= 80:
+        return TempRange(type="exact", value=float(m.group(1)), unit="C")
+
+    # Question text: "be 36°C" / exact mode buckets.
+    m = re.search(r"\bbe\s+(-?\d+)\s*°?\s*([FC])\b", text, re.I)
+    if m:
+        return TempRange(
+            type="exact",
+            value=float(m.group(1)),
+            unit=m.group(2).upper(),  # type: ignore[arg-type]
+        )
+
+    # Require ° or whitespace before unit so years in slugs never look like ranges.
+    m = re.search(r"(-?\d+)\s*-\s*(-?\d+)\s*(?:°\s*|\s+)([FC])\b", text, re.I)
     if m:
         return TempRange(
             type="range",

@@ -121,6 +121,7 @@ class ContrarianSettings:
     min_ensemble_members: int
     max_position_usd: float
     max_open_positions: int
+    max_open_per_city: int
     take_profit_no_bid: float
     stop_loss_no_bid: float
     min_no_entry: float
@@ -433,6 +434,7 @@ def load_settings(
             min_ensemble_members=int(contrarian_raw.get("min_ensemble_members", 8)),
             max_position_usd=float(contrarian_raw.get("max_position_usd", 25)),
             max_open_positions=int(contrarian_raw.get("max_open_positions", 30)),
+            max_open_per_city=int(contrarian_raw.get("max_open_per_city", 2)),
             take_profit_no_bid=float(contrarian_raw.get("take_profit_no_bid", 0.85)),
             stop_loss_no_bid=float(contrarian_raw.get("stop_loss_no_bid", 0.35)),
             min_no_entry=float(contrarian_raw.get("min_no_entry", 0.50)),

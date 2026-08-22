@@ -205,6 +205,16 @@ def analyze_closingsoon(
                 "dota-",
                 "qat",
                 "afc-",
+                "spl-",
+                "sud-",
+                "bra-",
+                "arg-",
+                "mex-",
+                "jpn-",
+                "kor-",
+                "aus-",
+                "sea-",
+                "lig-",
             )
             if any(x in slug_l for x in sport_markers) or slug_l.startswith(sport_prefixes):
                 rejects["not_favorite"] += 1

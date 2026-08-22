@@ -166,63 +166,79 @@ def analyze_esports_candidate(
     if fair_p is not None:
         edge = fair_p - candidate.ask
         if edge >= oddsp.min_edge:
-            # Size at the taker ask we actually pay (FAK), not a resting maker quote.
-            fill_price = round(candidate.ask, 4)
-            stake = fractional_kelly_usd(
-                fair_p=fair_p,
-                price=fill_price,
-                cash=cash,
-                kelly_fraction=oddsp.kelly_fraction,
-                max_usd=cfg.max_position_usd,
-                min_usd=settings.min_position_usd,
-            )
-            if stake is not None:
-                hours_left = (
-                    candidate.end_at - datetime.now(timezone.utc)
-                ).total_seconds() / 3600
-                reason = (
-                    f"oddspapi {candidate.outcome} fair={fair_p:.3f} ask={candidate.ask:.3f} "
-                    f"edge={edge:.3f} taker@{fill_price:.3f} "
-                    f"ends in {hours_left:.1f}h — {candidate.event_title[:60]}"
-                )
+            # Lottery-ticket underdogs need fat OddsPapi edge; otherwise skip.
+            cheap_thin = candidate.ask < 0.20 and edge < 0.12
+            if cheap_thin:
                 _log_esports(
                     engine,
-                    decision="buy",
-                    reason=reason,
+                    decision="skip",
+                    reason="cheap_ask_thin_edge",
                     slug=candidate.market.slug,
                     outcome=candidate.outcome,
                     ask=candidate.ask,
+                    fair_p=round(fair_p, 4),
+                    edge=round(edge, 4),
+                )
+                if oddsp.require_match:
+                    return None
+            else:
+                # Size at the taker ask we actually pay (FAK), not a resting maker quote.
+                fill_price = round(candidate.ask, 4)
+                stake = fractional_kelly_usd(
                     fair_p=fair_p,
-                    edge=edge,
-                    limit_price=fill_price,
-                    fixture_id=fair_match.fixture_id if fair_match else None,
-                    event_slug=candidate.event_slug,
-                    ends_at=candidate.end_at.isoformat(),
+                    price=fill_price,
+                    cash=cash,
+                    kelly_fraction=oddsp.kelly_fraction,
+                    max_usd=cfg.max_position_usd,
+                    min_usd=settings.min_position_usd,
                 )
-                return Signal(
-                    action="buy",
+                if stake is not None:
+                    hours_left = (
+                        candidate.end_at - datetime.now(timezone.utc)
+                    ).total_seconds() / 3600
+                    reason = (
+                        f"oddspapi {candidate.outcome} fair={fair_p:.3f} ask={candidate.ask:.3f} "
+                        f"edge={edge:.3f} taker@{fill_price:.3f} "
+                        f"ends in {hours_left:.1f}h — {candidate.event_title[:60]}"
+                    )
+                    _log_esports(
+                        engine,
+                        decision="buy",
+                        reason=reason,
+                        slug=candidate.market.slug,
+                        outcome=candidate.outcome,
+                        ask=candidate.ask,
+                        fair_p=fair_p,
+                        edge=edge,
+                        limit_price=fill_price,
+                        fixture_id=fair_match.fixture_id if fair_match else None,
+                        event_slug=candidate.event_slug,
+                        ends_at=candidate.end_at.isoformat(),
+                    )
+                    return Signal(
+                        action="buy",
+                        slug=candidate.market.slug,
+                        outcome=candidate.outcome,
+                        amount_usd=stake,
+                        reason=reason,
+                        # Taker at ask so OddsPapi edge actually fills (maker under-ask often rests).
+                        order_type="fak",
+                        limit_price=None,
+                        market_condition_id=candidate.market.condition_id,
+                        event_slug=candidate.event_slug,
+                    )
+                _log_esports(
+                    engine,
+                    decision="skip",
+                    reason="oddspapi_kelly_too_small",
                     slug=candidate.market.slug,
-                    outcome=candidate.outcome,
-                    amount_usd=stake,
-                    reason=reason,
-                    # Taker at ask so OddsPapi edge actually fills (maker under-ask often rests).
-                    order_type="fak",
-                    limit_price=None,
-                    market_condition_id=candidate.market.condition_id,
-                    event_slug=candidate.event_slug,
+                    fair_p=round(fair_p, 4),
+                    limit_price=fill_price,
+                    **({"fallback": "swing"} if not oddsp.require_match else {}),
                 )
-            _log_esports(
-                engine,
-                decision="skip",
-                reason="oddspapi_kelly_too_small",
-                slug=candidate.market.slug,
-                fair_p=round(fair_p, 4),
-                limit_price=fill_price,
-                **({"fallback": "swing"} if not oddsp.require_match else {}),
-            )
-            if oddsp.require_match:
-                return None
-            # Kelly too small with require_match=false: fall through to cheap swing.
+                if oddsp.require_match:
+                    return None
+                # Kelly too small with require_match=false: fall through to cheap swing.
         else:
             _log_esports(
                 engine,

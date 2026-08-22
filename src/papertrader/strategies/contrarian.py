@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
+import math
 from collections import defaultdict
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 
 from pm_trader.engine import Engine
 from pm_trader.models import Position
@@ -16,6 +19,7 @@ from papertrader.markets import (
     city_from_market_slug,
     city_local_today,
     date_from_temp_slug,
+    event_slug_from_market_slug,
 )
 from papertrader.quant.event_kelly import CorrelatedBet, allocate_correlated_kelly
 from papertrader.quant.shadow_ledger import ShadowLedger
@@ -29,6 +33,93 @@ from papertrader.weather.impossibility import is_mathematically_impossible
 from papertrader.weather.probability import ensemble_p95
 
 _VARIANCE = VarianceCalculator()
+_COOLDOWN_FILE = "contrarian_fade_cooldown.json"
+_COOLDOWN_HOURS = 6.0
+_TIGHT_NO_ASK = 0.85
+_TIGHT_MIN_EDGE = 0.07
+_DPLUS1_EXTRA_EDGE = 0.025
+_HIGH_CONF_MIN_P = 0.95
+_HIGH_CONF_MIN_EDGE = 0.06
+_HIGH_CONF_SIZE_MULT = 1.5
+_THIN_ASK_SIZE = 12.0
+_THIN_SIZE_MULT = 0.55
+_CAPACITY_TIGHT_SLOTS = 3
+_CAPACITY_MIN_EDGE = 0.055
+
+
+def _event_key(slug: str) -> str:
+    """Strip the trailing bucket token so one NO per city/date event."""
+    return event_slug_from_market_slug(slug)
+
+
+def _already_in_event(positions: list[Position], slug: str) -> bool:
+    key = _event_key(slug)
+    return any(
+        p.shares > 0 and not p.is_resolved and _event_key(p.market_slug) == key
+        for p in positions
+    )
+
+
+def _cooldown_path(engine: Engine) -> Path:
+    root = Path(engine.db.data_dir)
+    if root.name == "contrarian":
+        root = root.parent
+    return root / _COOLDOWN_FILE
+
+
+def _load_cooldown(engine: Engine) -> dict[str, str]:
+    path = _cooldown_path(engine)
+    if not path.is_file():
+        return {}
+    try:
+        raw = json.loads(path.read_text())
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return raw if isinstance(raw, dict) else {}
+
+
+def _slug_cooling_down(engine: Engine, slug: str, *, now: datetime) -> bool:
+    key = _event_key(slug)
+    until = _load_cooldown(engine).get(key)
+    if not until:
+        return False
+    try:
+        end = datetime.fromisoformat(until.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    return end > now
+
+
+def _mark_cooldown(engine: Engine, slug: str, *, now: datetime) -> None:
+    key = _event_key(slug)
+    data = _load_cooldown(engine)
+    data[key] = (now + timedelta(hours=_COOLDOWN_HOURS)).isoformat()
+    path = _cooldown_path(engine)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(data, indent=2))
+
+
+def _model_yes_for_fade(
+    ensemble,
+    rng,
+    *,
+    http: WeatherHttp,
+    city: City,
+    event_date: date,
+    local_today: date,
+) -> tuple[float, str]:
+    """Conservative P(YES) for fading: take the *higher* of ensemble vs OpenWeather.
+
+    min() previously made mode buckets look like tails and caused buy/sell churn
+    when exits used raw ensemble P(YES)≈1.
+    """
+    p_ens, src = tail_bucket_probability(ensemble, rng)
+    ow_est = _VARIANCE.from_openweather(http, city, event_date, rng, today=local_today)
+    if ow_est is None:
+        return p_ens, src
+    if ow_est.p > p_ens:
+        return ow_est.p, f"{src}+ow"
+    return p_ens, src
 
 
 class _BucketQuote:
@@ -83,6 +174,32 @@ def _already_in(positions: list[Position], condition_id: str) -> bool:
         p.market_condition_id == condition_id and p.shares > 0 and not p.is_resolved
         for p in positions
     )
+
+
+def _city_open_count(positions: list[Position], city_slug: str) -> int:
+    needle = f"in-{city_slug}-on-"
+    return sum(
+        1
+        for p in positions
+        if p.shares > 0
+        and not p.is_resolved
+        and needle in (p.market_slug or "")
+    )
+
+
+def _rank_score(*, p_win: float, edge: float, fill_no: float, ask_size: float) -> float:
+    """Prioritize P(win)×edge×upside×liquidity — not raw fill volume."""
+    upside = max(0.02, 1.0 - fill_no)
+    liq = min(1.5, math.log1p(max(0.0, ask_size)) / math.log1p(25.0))
+    return max(0.0, p_win) * max(0.0, edge) * upside * max(0.15, liq)
+
+
+def _stake_liquidity_mult(ask_size: float) -> float:
+    if ask_size < _THIN_ASK_SIZE:
+        return _THIN_SIZE_MULT
+    if ask_size >= 40.0:
+        return 1.15
+    return 1.0
 
 
 def _maker_buy_price(*, ask: float, fair: float, tick: float) -> float:
@@ -161,6 +278,20 @@ def analyze_contrarian_event(
         )
         return []
 
+    city_open = _city_open_count(open_positions, city.slug)
+    if city_open >= cfg.max_open_per_city:
+        _log_contrarian(
+            engine,
+            decision="skip",
+            reason="city_crowded",
+            city=city,
+            event_date=event_date,
+            open_positions=len(open_positions),
+            city_open=city_open,
+            max_open_per_city=cfg.max_open_per_city,
+        )
+        return []
+
     event_volume = buckets[0].event_volume if buckets else 0.0
     if event_volume < cfg.min_event_volume:
         return []
@@ -186,6 +317,12 @@ def analyze_contrarian_event(
         if _already_in(open_positions, bucket.market.condition_id):
             rejects["already_in_position"] += 1
             continue
+        if _already_in_event(open_positions, bucket.market.slug):
+            rejects["already_in_event"] += 1
+            continue
+        if _slug_cooling_down(engine, bucket.market.slug, now=datetime.now(timezone.utc)):
+            rejects["cooldown"] += 1
+            continue
         if not (cfg.min_yes_ask <= quote.yes_ask <= cfg.max_yes_ask):
             rejects["yes_ask_out_of_range"] += 1
             continue
@@ -194,10 +331,14 @@ def analyze_contrarian_event(
             rejects["no_ask_out_of_range"] += 1
             continue
 
-        p_model_yes, src = tail_bucket_probability(ensemble, bucket.rng)
-        ow_est = _VARIANCE.from_openweather(http, city, event_date, bucket.rng, today=local_today)
-        if ow_est is not None:
-            p_model_yes = min(p_model_yes, ow_est.p)
+        p_model_yes, src = _model_yes_for_fade(
+            ensemble,
+            bucket.rng,
+            http=http,
+            city=city,
+            event_date=event_date,
+            local_today=local_today,
+        )
 
         if p_model_yes > cfg.max_model_yes:
             rejects["model_yes_not_tail"] += 1
@@ -221,10 +362,29 @@ def analyze_contrarian_event(
         # Size / edge vs the FAK fill we actually pay (no_ask), not a resting maker quote.
         fill_no = round(quote.no_ask, 4)
         edge = p_model_no - fill_no
-        if edge < cfg.min_edge:
+        required_edge = cfg.min_edge
+        if days_ahead >= 1:
+            required_edge += _DPLUS1_EXTRA_EDGE
+        # Near capacity: only take cleaner edges (free slots for best names).
+        slots_left = cfg.max_open_positions - len(open_positions)
+        if slots_left <= _CAPACITY_TIGHT_SLOTS:
+            required_edge = max(required_edge, _CAPACITY_MIN_EDGE)
+            if days_ahead >= 1:
+                rejects["capacity_prefer_d0"] += 1
+                continue
+        # Tight NO asks leave little to $1 — only take them with fat model edge.
+        if fill_no >= _TIGHT_NO_ASK:
+            required_edge = max(required_edge, _TIGHT_MIN_EDGE)
+        if edge < required_edge:
             rejects["low_edge"] += 1
             continue
 
+        score = _rank_score(
+            p_win=p_model_no,
+            edge=edge,
+            fill_no=fill_no,
+            ask_size=quote.ask_size,
+        )
         candidates.append(
             (
                 quote,
@@ -236,6 +396,7 @@ def analyze_contrarian_event(
                 ),
                 p_model_yes,
                 src,
+                score,
             )
         )
 
@@ -254,8 +415,8 @@ def analyze_contrarian_event(
         )
         return []
 
-    # Prefer highest win-prob NO first, then edge (more wins > max theoretical edge).
-    candidates.sort(key=lambda row: (row[1].p, row[1].edge), reverse=True)
+    # Prefer P(win)×edge×upside×liquidity (safer + larger expected wins).
+    candidates.sort(key=lambda row: row[4], reverse=True)
     candidates = candidates[: cfg.max_no_bets_per_event]
     kelly_divisor = 1.0 / cfg.kelly_fraction if cfg.kelly_fraction > 0 else 4.0
     allocated = allocate_correlated_kelly(
@@ -273,9 +434,18 @@ def analyze_contrarian_event(
     by_label = {row[1].label: row for row in candidates}
     signals: list[Signal] = []
     for bet, stake in allocated:
-        quote, _, p_model_yes, src = by_label[bet.label]
+        quote, _, p_model_yes, src, _score = by_label[bet.label]
         bucket = quote.bucket
         fair_p_yes = fair_yes_by_slug[bucket.market.slug]
+        stake = round(stake * _stake_liquidity_mult(quote.ask_size), 2)
+        if (
+            days_ahead == 0
+            and bet.p >= _HIGH_CONF_MIN_P
+            and bet.edge >= _HIGH_CONF_MIN_EDGE
+            and quote.ask_size >= _THIN_ASK_SIZE
+        ):
+            stake = min(cfg.max_position_usd, round(stake * _HIGH_CONF_SIZE_MULT, 2))
+        stake = min(cfg.max_position_usd, max(settings.min_position_usd, stake))
         reason = (
             f"fade {bucket.bucket_text} NO fak@{bet.price:.3f} "
             f"P_no={bet.p:.2f} fair_yes={fair_p_yes:.3f} yes_ask={quote.yes_ask:.3f} "
@@ -334,6 +504,24 @@ def analyze_contrarian_event(
     return signals
 
 
+def _duplicate_event_trim_slugs(open_positions: list[Position]) -> set[str]:
+    """If legacy dual-NO on same city/date, keep cheapest entry (best R:R to $1)."""
+    by_event: dict[str, list[Position]] = defaultdict(list)
+    for pos in open_positions:
+        if pos.shares <= 0 or pos.is_resolved or pos.outcome.lower() != "no":
+            continue
+        by_event[_event_key(pos.market_slug)].append(pos)
+    trim: set[str] = set()
+    for group in by_event.values():
+        if len(group) < 2:
+            continue
+        keep = min(group, key=lambda p: (p.avg_entry_price, -p.shares))
+        for pos in group:
+            if pos.market_slug != keep.market_slug:
+                trim.add(pos.market_slug)
+    return trim
+
+
 def contrarian_exits(
     engine: Engine,
     http: WeatherHttp,
@@ -346,6 +534,7 @@ def contrarian_exits(
     now = now or datetime.now(timezone.utc)
     cfg = settings.contrarian
     signals: list[Signal] = []
+    dup_trim = _duplicate_event_trim_slugs(open_positions)
 
     for pos in open_positions:
         if pos.shares <= 0 or pos.outcome.lower() != "no":
@@ -365,8 +554,14 @@ def contrarian_exits(
             continue
 
         reason: str | None = None
+        if pos.market_slug in dup_trim:
+            reason = (
+                f"duplicate_event_trim keep cheaper NO; "
+                f"bid={bid:.3f} entry={pos.avg_entry_price:.3f}"
+            )
+            _mark_cooldown(engine, pos.market_slug, now=now)
         # Prefer holding to resolution; only take profit when essentially done.
-        if bid >= cfg.take_profit_no_bid:
+        elif bid >= cfg.take_profit_no_bid:
             reason = f"NO TP bid={bid:.3f} >= {cfg.take_profit_no_bid:.3f}"
         else:
             observed = fetch_metar_observed_high(http, city, event_date, now)
@@ -384,20 +579,35 @@ def contrarian_exits(
             if dead:
                 reason = f"contrarian brake: {why}"
             else:
-                p_model_yes, _ = tail_bucket_probability(ensemble, rng)
                 local_today = city_local_today(city, now)
+                p_model_yes, _ = _model_yes_for_fade(
+                    ensemble,
+                    rng,
+                    http=http,
+                    city=city,
+                    event_date=event_date,
+                    local_today=local_today,
+                )
                 days_ahead = (event_date - local_today).days
-                if days_ahead <= cfg.exit_model_prob_min_days_ahead:
-                    if p_model_yes >= cfg.exit_model_yes:
-                        reason = (
-                            f"YES rallied P={p_model_yes:.2f} >= {cfg.exit_model_yes:.2f} "
-                            f"bid={bid:.3f}"
-                        )
+                # Only dump on model fade when YES is clearly live AND NO mark is down.
+                bid_drop = pos.avg_entry_price - bid
+                if (
+                    days_ahead <= cfg.exit_model_prob_min_days_ahead
+                    and p_model_yes >= cfg.exit_model_yes
+                    and bid_drop >= 0.08
+                ):
+                    reason = (
+                        f"YES rallied P={p_model_yes:.2f} >= {cfg.exit_model_yes:.2f} "
+                        f"bid={bid:.3f} drop={bid_drop:.3f}"
+                    )
+                    _mark_cooldown(engine, pos.market_slug, now=now)
                 # Catastrophic only: NO lost most of a high-confidence entry.
                 if bid <= cfg.stop_loss_no_bid and pos.avg_entry_price >= cfg.min_no_entry:
-                    reason = reason or (
-                        f"NO stop bid={bid:.3f} entry={pos.avg_entry_price:.3f}"
-                    )
+                    if reason is None:
+                        reason = (
+                            f"NO stop bid={bid:.3f} entry={pos.avg_entry_price:.3f}"
+                        )
+                        _mark_cooldown(engine, pos.market_slug, now=now)
 
         if reason is None:
             continue

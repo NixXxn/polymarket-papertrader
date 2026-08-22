@@ -17,8 +17,9 @@ user_agent: "polymarket-papertrader/0.1 (paper trading; local use)"
 safe:
   cities: [miami, atlanta, nyc, chicago, dallas, houston, austin, phoenix, denver, los-angeles]
   # Consensus matches with market agreement; FAK taker fills.
-  min_ask: 0.32
-  max_ask: 0.85
+  # Paper is losing on mid asks (~0.55–0.65); require a clearer favorite.
+  min_ask: 0.62
+  max_ask: 0.82
   max_open_positions: 8
   min_sell_bid: 0.02
   # Safe-only paper bankroll override for larger test sizing.
@@ -97,25 +98,29 @@ asymmetric:
 # hold toward $1, skip ultra-tight NO asks with bad risk/reward.
 contrarian:
   min_yes_ask: 0.02
-  max_yes_ask: 0.22
-  max_model_yes: 0.08
-  min_edge: 0.03
+  max_yes_ask: 0.20
+  max_model_yes: 0.07
+  min_edge: 0.035
   min_vig_edge: 0.005
   maker_tick: 0.01
-  max_no_bets_per_event: 2
-  kelly_fraction: 0.18
+  max_no_bets_per_event: 1
+  kelly_fraction: 0.20
   max_event_fraction: 0.08
   min_event_volume: 150
   min_ensemble_members: 8
-  max_position_usd: 25
+  max_position_usd: 28
   max_open_positions: 14
+  max_open_per_city: 2
   # Hold-to-resolution bias: only trim when NO is essentially done.
   take_profit_no_bid: 0.985
-  stop_loss_no_bid: 0.55
-  min_no_entry: 0.70
-  max_no_ask: 0.92
-  max_days_ahead: 2
-  exit_model_yes: 0.18
+  # Catastrophic only; model-rally + mark drop is the early exit.
+  stop_loss_no_bid: 0.40
+  min_no_entry: 0.74
+  # Paper losses clustered on 90¢+ NO entries (tiny upside / fat downside).
+  max_no_ask: 0.87
+  max_days_ahead: 1
+  # Model-fade only on event day AND when P(yes) is clearly elevated (see code: needs bid drop).
+  exit_model_yes: 0.35
   exit_model_prob_min_days_ahead: 0
   min_sell_bid: 0.02
   max_hourly_rise_f: 4.0
@@ -270,13 +275,14 @@ volspike:
   stop_loss_pct: 0.25
   take_profit_pct: 0.12
 
-# Closing soon: stricter favorites only (FAK taker at live CLOB ask).
+# Closing soon: stricter favorites only (FAK taker at live CLOB ask). Hold to $1.
 closingsoon:
   min_liquidity: 2000
-  min_hours: 2
-  max_hours: 48
-  price_min: 0.88
-  price_max: 0.97
+  # Prefer enough time OR very high ask (see code hours/ask discipline).
+  min_hours: 4
+  max_hours: 36
+  price_min: 0.92
+  price_max: 0.96
   min_direction: 0.35
   min_edge: 0.01
   min_confidence: 0.55
@@ -284,7 +290,7 @@ closingsoon:
   max_position_usd: 30
   max_open_positions: 8
   position_usd: 20
-  stop_loss_pct: 0.40
+  stop_loss_pct: 0.55
 
 # BTC 5m Up/Down scalper: spot-vs-open confirmation, FAK taker (wider window for paper flow).
 btc5m:
