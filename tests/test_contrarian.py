@@ -157,9 +157,9 @@ def test_contrarian_buys_no_on_overpriced_tail(monkeypatch, tmp_path):
     )
     assert len(sigs) >= 1
     assert sigs[0].outcome == "no"
-    assert sigs[0].order_type == "limit"
-    assert sigs[0].limit_price is not None
-    assert sigs[0].limit_price < no_ask
+    assert sigs[0].order_type == "fak"
+    assert sigs[0].limit_price is None
+    assert "fak@" in sigs[0].reason
 
 
 def test_contrarian_skips_when_yes_not_overpriced(monkeypatch, tmp_path):

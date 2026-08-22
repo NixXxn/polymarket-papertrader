@@ -91,28 +91,31 @@ asymmetric:
       busan,
       chongqing,
       manila,
-      vienna,
     ]
 
-# Contrarian: fade overpriced YES longshots — buy NO (FAK for paper fills).
+# Contrarian: fade overpriced YES longshots — buy NO (FAK). High WR: near-term tails only,
+# hold toward $1, skip ultra-tight NO asks with bad risk/reward.
 contrarian:
   min_yes_ask: 0.02
-  max_yes_ask: 0.25
-  max_model_yes: 0.12
-  min_edge: 0.04
+  max_yes_ask: 0.22
+  max_model_yes: 0.08
+  min_edge: 0.03
   min_vig_edge: 0.005
   maker_tick: 0.01
-  max_no_bets_per_event: 1
-  kelly_fraction: 0.12
-  max_event_fraction: 0.04
-  min_event_volume: 200
+  max_no_bets_per_event: 2
+  kelly_fraction: 0.18
+  max_event_fraction: 0.08
+  min_event_volume: 150
   min_ensemble_members: 8
-  max_position_usd: 15
-  max_open_positions: 6
-  take_profit_no_bid: 0.90
-  stop_loss_no_bid: 0.40
-  min_no_entry: 0.55
-  exit_model_yes: 0.15
+  max_position_usd: 25
+  max_open_positions: 14
+  # Hold-to-resolution bias: only trim when NO is essentially done.
+  take_profit_no_bid: 0.985
+  stop_loss_no_bid: 0.55
+  min_no_entry: 0.70
+  max_no_ask: 0.92
+  max_days_ahead: 2
+  exit_model_yes: 0.18
   exit_model_prob_min_days_ahead: 0
   min_sell_bid: 0.02
   max_hourly_rise_f: 4.0

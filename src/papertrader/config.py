@@ -124,6 +124,8 @@ class ContrarianSettings:
     take_profit_no_bid: float
     stop_loss_no_bid: float
     min_no_entry: float
+    max_no_ask: float
+    max_days_ahead: int
     exit_model_yes: float
     exit_model_prob_min_days_ahead: int
     min_sell_bid: float
@@ -434,6 +436,8 @@ def load_settings(
             take_profit_no_bid=float(contrarian_raw.get("take_profit_no_bid", 0.85)),
             stop_loss_no_bid=float(contrarian_raw.get("stop_loss_no_bid", 0.35)),
             min_no_entry=float(contrarian_raw.get("min_no_entry", 0.50)),
+            max_no_ask=float(contrarian_raw.get("max_no_ask", 0.92)),
+            max_days_ahead=int(contrarian_raw.get("max_days_ahead", 2)),
             exit_model_yes=float(contrarian_raw.get("exit_model_yes", 0.15)),
             exit_model_prob_min_days_ahead=int(
                 contrarian_raw.get("exit_model_prob_min_days_ahead", 0)

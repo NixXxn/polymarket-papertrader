@@ -141,13 +141,13 @@ def analyze_contrarian_event(
     open_positions: list[Position],
     today: date | None = None,
 ) -> list[Signal]:
-    """Fade overpriced YES longshots via maker NO buys; Shin devig + event Kelly."""
+    """Fade overpriced YES longshots via FAK NO buys; Shin + model edge, high-WR near-term."""
     if not _city_allowed(city, settings):
         return []
     cfg = settings.contrarian
     local_today = today or city_local_today(city)
     days_ahead = (event_date - local_today).days
-    if days_ahead < 0:
+    if days_ahead < 0 or days_ahead > cfg.max_days_ahead:
         return []
 
     if len(open_positions) >= cfg.max_open_positions:
@@ -189,6 +189,10 @@ def analyze_contrarian_event(
         if not (cfg.min_yes_ask <= quote.yes_ask <= cfg.max_yes_ask):
             rejects["yes_ask_out_of_range"] += 1
             continue
+        # High WR band: NO must be a strong favorite, but not so tight that R:R dies.
+        if quote.no_ask < cfg.min_no_entry or quote.no_ask > cfg.max_no_ask:
+            rejects["no_ask_out_of_range"] += 1
+            continue
 
         p_model_yes, src = tail_bucket_probability(ensemble, bucket.rng)
         ow_est = _VARIANCE.from_openweather(http, city, event_date, bucket.rng, today=local_today)
@@ -214,13 +218,10 @@ def analyze_contrarian_event(
             )
             continue
 
-        limit_no = _maker_buy_price(
-            ask=quote.no_ask,
-            fair=fair_p_no,
-            tick=cfg.maker_tick,
-        )
-        edge = p_model_no - fair_p_no
-        if edge < cfg.min_edge or p_model_no - limit_no < cfg.min_edge:
+        # Size / edge vs the FAK fill we actually pay (no_ask), not a resting maker quote.
+        fill_no = round(quote.no_ask, 4)
+        edge = p_model_no - fill_no
+        if edge < cfg.min_edge:
             rejects["low_edge"] += 1
             continue
 
@@ -229,7 +230,7 @@ def analyze_contrarian_event(
                 quote,
                 CorrelatedBet(
                     p=p_model_no,
-                    price=limit_no,
+                    price=fill_no,
                     edge=edge,
                     label=bucket.bucket_text,
                 ),
@@ -253,7 +254,8 @@ def analyze_contrarian_event(
         )
         return []
 
-    candidates.sort(key=lambda row: row[1].edge, reverse=True)
+    # Prefer highest win-prob NO first, then edge (more wins > max theoretical edge).
+    candidates.sort(key=lambda row: (row[1].p, row[1].edge), reverse=True)
     candidates = candidates[: cfg.max_no_bets_per_event]
     kelly_divisor = 1.0 / cfg.kelly_fraction if cfg.kelly_fraction > 0 else 4.0
     allocated = allocate_correlated_kelly(
@@ -275,7 +277,7 @@ def analyze_contrarian_event(
         bucket = quote.bucket
         fair_p_yes = fair_yes_by_slug[bucket.market.slug]
         reason = (
-            f"fade {bucket.bucket_text} NO limit@{bet.price:.3f} "
+            f"fade {bucket.bucket_text} NO fak@{bet.price:.3f} "
             f"P_no={bet.p:.2f} fair_yes={fair_p_yes:.3f} yes_ask={quote.yes_ask:.3f} "
             f"edge={bet.edge:.3f} qk=${stake:.2f} ({src}) d+{days_ahead}"
         )
@@ -316,7 +318,6 @@ def analyze_contrarian_event(
                 amount_usd=stake,
                 city=city,
                 event_slug=bucket.event_slug,
-                # FAK at ask so paper/dashboard actually fills (maker undercuts often rest).
                 order_type="fak",
                 limit_price=None,
                 quant=QuantMeta(
@@ -341,7 +342,7 @@ def contrarian_exits(
     cities: dict[str, City],
     now: datetime | None = None,
 ) -> list[Signal]:
-    """Maker exits on NO positions: take profit, model fade, time stop."""
+    """Exit NO positions: near-$1 trim, model fade, impossibility, hard stop (FAK)."""
     now = now or datetime.now(timezone.utc)
     cfg = settings.contrarian
     signals: list[Signal] = []
@@ -364,6 +365,7 @@ def contrarian_exits(
             continue
 
         reason: str | None = None
+        # Prefer holding to resolution; only take profit when essentially done.
         if bid >= cfg.take_profit_no_bid:
             reason = f"NO TP bid={bid:.3f} >= {cfg.take_profit_no_bid:.3f}"
         else:
@@ -391,6 +393,7 @@ def contrarian_exits(
                             f"YES rallied P={p_model_yes:.2f} >= {cfg.exit_model_yes:.2f} "
                             f"bid={bid:.3f}"
                         )
+                # Catastrophic only: NO lost most of a high-confidence entry.
                 if bid <= cfg.stop_loss_no_bid and pos.avg_entry_price >= cfg.min_no_entry:
                     reason = reason or (
                         f"NO stop bid={bid:.3f} entry={pos.avg_entry_price:.3f}"
@@ -398,7 +401,6 @@ def contrarian_exits(
 
         if reason is None:
             continue
-        limit_price = _maker_sell_price(bid=bid, tick=cfg.maker_tick)
         _log_contrarian(
             engine,
             decision="sell",
@@ -410,7 +412,6 @@ def contrarian_exits(
             action="sell",
             shares=pos.shares,
             bid=bid,
-            limit_price=limit_price,
         )
         signals.append(
             Signal(
@@ -420,8 +421,8 @@ def contrarian_exits(
                 shares=pos.shares,
                 city=city,
                 reason=reason,
-                order_type="limit",
-                limit_price=limit_price,
+                order_type="fak",
+                limit_price=None,
                 market_condition_id=pos.market_condition_id,
             )
         )
