@@ -235,6 +235,13 @@ def analyze_meanrev(
         if ev < cfg.min_edge:
             continue
 
+        # Edge case: near-certain prices need fatter reversion signal (spread noise).
+        tail_price = max(m.yes_price, m.no_price)
+        if tail_price >= 0.88 and abs(z) < cfg.min_z_score + 0.35:
+            continue
+        if tail_price >= 0.88 and ev < cfg.min_edge * 1.5:
+            continue
+
         # Fade the deviation: spike up → buy NO; dump → buy YES.
         if z > 0:
             side = m.no_outcome

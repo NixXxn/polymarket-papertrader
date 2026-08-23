@@ -33,8 +33,8 @@ def test_safe_entry_on_matching_value_bucket(monkeypatch):
     )
     engine = MagicMock()
     engine.api.get_order_book.return_value = SimpleNamespace(
-        asks=[FakeLevel(0.70, 100)],
-        bids=[FakeLevel(0.68, 50)],
+        asks=[FakeLevel(0.72, 200), FakeLevel(0.74, 500)],
+        bids=[FakeLevel(0.70, 50)],
     )
 
     from papertrader.weather.consensus import Consensus
@@ -50,6 +50,8 @@ def test_safe_entry_on_matching_value_bucket(monkeypatch):
     sig = analyze_safe_event(engine, MagicMock(), city, event_date, [bucket], settings, [])
     assert sig is not None
     assert sig.action == "buy"
+    assert sig.order_type == "limit"
+    assert sig.limit_price is not None
     assert sig.amount_usd == 100.0
 
 
@@ -76,8 +78,8 @@ def test_safe_autoscales_with_cash(monkeypatch):
     engine = MagicMock()
     engine.get_account.return_value = SimpleNamespace(cash=100.0)
     engine.api.get_order_book.return_value = SimpleNamespace(
-        asks=[FakeLevel(0.70, 100)],
-        bids=[FakeLevel(0.68, 50)],
+        asks=[FakeLevel(0.72, 100)],
+        bids=[FakeLevel(0.70, 50)],
     )
     from papertrader.weather.consensus import Consensus
     import papertrader.strategies.safe as safe_mod

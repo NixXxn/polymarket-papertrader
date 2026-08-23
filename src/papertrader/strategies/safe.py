@@ -21,6 +21,7 @@ from papertrader.markets import (
     city_from_market_slug,
     date_from_temp_slug,
 )
+from papertrader.quant.book_walk import walk_asks_for_buy
 from papertrader.signals import Signal
 from papertrader.sizing import account_cash, scaled_size
 from papertrader.weather import WeatherHttp
@@ -165,6 +166,7 @@ def analyze_safe_event(
                 "edge_percent": edge,
                 "width_score": bucket_width_score(bucket.rng),
                 "ask": ask,
+                "book": book,
             }
         )
     best = select_best_bucket(candidates)
@@ -204,10 +206,39 @@ def analyze_safe_event(
             bucket=bucket.bucket_text,
         )
         return None
+
+    # L2 walk: clip size to EV-positive depth; strict LIMIT avoids FAK slippage past edge.
+    p_win = settings.forecast_confidence
+    walk = walk_asks_for_buy(
+        best["book"],
+        p_win=p_win,
+        budget_usd=size,
+        min_ev=max(threshold, 0.01),
+        hard_max_price=settings.safe.max_ask,
+        min_usd=settings.min_position_usd,
+    )
+    if walk.skipped:
+        _log_safe(
+            engine,
+            decision="skip",
+            reason="book_walk_no_depth",
+            city=city,
+            event_date=event_date,
+            slug=bucket.market.slug,
+            bucket=bucket.bucket_text,
+            walk_reason=walk.reason,
+            max_ev_price=walk.max_ev_price,
+            ask=best["ask"],
+        )
+        return None
+    size = round(min(size, walk.fillable_usd), 2)
+    if size < settings.min_position_usd:
+        return None
+
     reason = (
         f"safe consensus {consensus.temp_f:.1f}F ({consensus.confidence}) "
-        f"matches {bucket.bucket_text} ask={best['ask']:.3f} "
-        f"edge={best['edge_percent']*100:.1f}%"
+        f"matches {bucket.bucket_text} limit@{walk.limit_price:.3f} "
+        f"vwap={walk.vwap:.3f} edge={best['edge_percent']*100:.1f}%"
     )
     _log_safe(
         engine,
@@ -220,6 +251,8 @@ def analyze_safe_event(
         action="buy",
         amount_usd=size,
         ask=best["ask"],
+        limit_price=walk.limit_price,
+        vwap=walk.vwap,
         consensus_temp=consensus.temp_f,
         confidence=consensus.confidence,
     )
@@ -231,9 +264,8 @@ def analyze_safe_event(
         city=city,
         event_slug=bucket.event_slug,
         reason=reason,
-        # Taker: fill now at the book. Maker limits often rest unfilled in paper/live.
-        order_type="fak",
-        limit_price=None,
+        order_type="limit",
+        limit_price=walk.limit_price,
     )
 
 

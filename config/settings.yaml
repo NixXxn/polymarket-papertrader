@@ -18,8 +18,8 @@ safe:
   cities: [miami, atlanta, nyc, chicago, dallas, houston, austin, phoenix, denver, los-angeles]
   # Consensus matches with market agreement; FAK taker fills.
   # Paper -$786 @ 10% WR on 0.62–0.67 asks; require clearer favorites only.
-  min_ask: 0.68
-  max_ask: 0.78
+  min_ask: 0.70
+  max_ask: 0.76
   max_open_positions: 8
   min_sell_bid: 0.02
   # Safe-only paper bankroll override for larger test sizing.
@@ -166,7 +166,7 @@ esports:
   horizon_hours: 8
   poll_interval_seconds: 45
   min_ask: 0.05
-  max_ask: 0.72
+  max_ask: 0.62
   take_profit_pct: 0.14
   stop_loss_entry_pct: 0.65
   position_usd: 8
@@ -252,8 +252,8 @@ meanrev:
   price_min: 0.08
   price_max: 0.92
   rolling_window: 36
-  min_z_score: 1.20
-  min_edge: 0.022
+  min_z_score: 1.25
+  min_edge: 0.025
   min_confidence: 0.50
   kelly_fraction: 0.20
   max_position_usd: 40
@@ -268,8 +268,8 @@ volspike:
   price_min: 0.08
   price_max: 0.92
   volume_history_len: 24
-  spike_threshold: 1.35
-  min_edge: 0.015
+  spike_threshold: 1.40
+  min_edge: 0.018
   min_confidence: 0.45
   kelly_fraction: 0.20
   max_position_usd: 40

@@ -166,9 +166,23 @@ def analyze_esports_candidate(
     if fair_p is not None:
         edge = fair_p - candidate.ask
         if edge >= oddsp.min_edge:
-            # Lottery-ticket underdogs need fat OddsPapi edge; otherwise skip.
+            # Favorites (high ask) need extra edge — paper lost on ~70¢ entries with thin margin.
+            favorite_thin = candidate.ask >= 0.55 and edge < max(oddsp.min_edge, 0.12)
             cheap_thin = candidate.ask < 0.20 and edge < 0.12
-            if cheap_thin:
+            if favorite_thin:
+                _log_esports(
+                    engine,
+                    decision="skip",
+                    reason="favorite_thin_edge",
+                    slug=candidate.market.slug,
+                    outcome=candidate.outcome,
+                    ask=candidate.ask,
+                    fair_p=round(fair_p, 4),
+                    edge=round(edge, 4),
+                )
+                if oddsp.require_match:
+                    return None
+            elif cheap_thin:
                 _log_esports(
                     engine,
                     decision="skip",
