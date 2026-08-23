@@ -8,6 +8,7 @@ from papertrader.config import load_settings
 from papertrader.decision_log import load_decisions
 from papertrader.esports_markets import EsportsCandidate, EsportsDiscoveryResult, EsportsScanStats
 from papertrader.loop import scan_esports_once, scan_once
+from papertrader.oddspapi import FairMatch
 from papertrader.report import ScanCounts
 
 
@@ -72,6 +73,25 @@ def test_scan_esports_once_logs_scan_and_buys(monkeypatch, tmp_path):
     monkeypatch.setattr("papertrader.loop.discover_esports_markets", lambda *a, **k: discovery)
     monkeypatch.setattr("papertrader.loop.execute_signal", lambda *a, **k: True)
     monkeypatch.setattr("papertrader.loop.esports_exits", lambda *a, **k: [])
+    monkeypatch.setattr("papertrader.loop.oddspapi_api_key", lambda: "test-key")
+    fake_cache = SimpleNamespace(
+        matches=[
+            FairMatch(
+                fixture_id="fx1",
+                team1="Alpha",
+                team2="Beta",
+                fair_p1=0.80,
+                fair_p2=0.20,
+            )
+        ]
+    )
+    monkeypatch.setattr(
+        "papertrader.loop.OddsPapiService",
+        lambda *a, **k: SimpleNamespace(
+            refresh_if_needed=lambda: fake_cache,
+            quota_snapshot=lambda: {"daily": 0, "monthly": 0},
+        ),
+    )
 
     sigs, counts = scan_esports_once(
         settings=settings,

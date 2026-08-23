@@ -645,10 +645,11 @@ def contrarian_exits(
                 days_ahead = (event_date - local_today).days
                 # Only dump on model fade when YES is clearly live AND NO mark is down.
                 bid_drop = pos.avg_entry_price - bid
+                min_drop = 0.05 if pos.avg_entry_price >= _TIGHT_NO_ASK else 0.08
                 if (
                     days_ahead <= cfg.exit_model_prob_min_days_ahead
                     and p_model_yes >= cfg.exit_model_yes
-                    and bid_drop >= 0.08
+                    and bid_drop >= min_drop
                 ):
                     reason = (
                         f"YES rallied P={p_model_yes:.2f} >= {cfg.exit_model_yes:.2f} "

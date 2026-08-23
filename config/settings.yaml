@@ -17,16 +17,16 @@ user_agent: "polymarket-papertrader/0.1 (paper trading; local use)"
 safe:
   cities: [miami, atlanta, nyc, chicago, dallas, houston, austin, phoenix, denver, los-angeles]
   # Consensus matches with market agreement; FAK taker fills.
-  # Paper is losing on mid asks (~0.55–0.65); require a clearer favorite.
-  min_ask: 0.62
-  max_ask: 0.82
+  # Paper -$786 @ 10% WR on 0.62–0.67 asks; require clearer favorites only.
+  min_ask: 0.68
+  max_ask: 0.78
   max_open_positions: 8
   min_sell_bid: 0.02
   # Safe-only paper bankroll override for larger test sizing.
   starting_balance: 10000
-  min_edge: 0.00
-  min_edge_high: 0.00
-  min_edge_low: 0.00
+  min_edge: 0.02
+  min_edge_high: 0.04
+  min_edge_low: 0.01
   position_usd:
     miami: 100
     atlanta: 100
@@ -109,18 +109,18 @@ contrarian:
   min_event_volume: 150
   min_ensemble_members: 8
   max_position_usd: 28
-  max_open_positions: 14
+  max_open_positions: 12
   max_open_per_city: 2
   # HEART: walk asks under EV (p - price), clip to Kelly, place BUY LIMIT at max level.
   strict_limit: true
-  book_walk_min_ev: 0.0
+  book_walk_min_ev: 0.012
   # Hold-to-resolution bias: only trim when NO is essentially done.
   take_profit_no_bid: 0.985
   # Catastrophic only; model-rally + mark drop is the early exit.
   stop_loss_no_bid: 0.40
-  min_no_entry: 0.74
-  # Paper losses clustered on 90¢+ NO entries (tiny upside / fat downside).
-  max_no_ask: 0.87
+  min_no_entry: 0.76
+  # Paper losses clustered on 87¢+ NO entries (tiny upside / fat downside).
+  max_no_ask: 0.85
   max_days_ahead: 1
   # Model-fade only on event day AND when P(yes) is clearly elevated (see code: needs bid drop).
   exit_model_yes: 0.35
@@ -167,11 +167,11 @@ esports:
   poll_interval_seconds: 45
   min_ask: 0.05
   max_ask: 0.72
-  take_profit_pct: 0.18
-  stop_loss_entry_pct: 0.75
+  take_profit_pct: 0.14
+  stop_loss_entry_pct: 0.65
   position_usd: 8
   max_position_usd: 25
-  max_open_positions: 12
+  max_open_positions: 10
   min_event_volume: 80
   search_queries:
     [
@@ -213,7 +213,7 @@ esports:
   # OddsPapi fair-value only (ODDSP_API_KEY in .env). CS2 + LoL.
   oddspapi:
     enabled: true
-    min_edge: 0.06
+    min_edge: 0.08
     primary_bookmaker: bet365
     fallback_bookmakers: [unibet, stake, pinnacle]
     sport_ids: [17, 18] # CS2, LoL
@@ -233,9 +233,9 @@ momentum:
   poll_interval_seconds: 5
   mode: ANY_BUCKET
   specific_token_id: ""
-  entry_trigger_price: 0.80
+  entry_trigger_price: 0.84
   take_profit_price: 0.98
-  stop_loss_price: 0.65
+  stop_loss_price: 0.70
   order_size_shares: 25.0
   use_share_sizing: true
   position_usd: 40
@@ -252,14 +252,14 @@ meanrev:
   price_min: 0.08
   price_max: 0.92
   rolling_window: 36
-  min_z_score: 1.05
-  min_edge: 0.015
-  min_confidence: 0.45
+  min_z_score: 1.20
+  min_edge: 0.022
+  min_confidence: 0.50
   kelly_fraction: 0.20
   max_position_usd: 40
   max_open_positions: 5
   position_usd: 20
-  stop_loss_pct: 0.25
+  stop_loss_pct: 0.22
   take_profit_pct: 0.12
 
 # Volume/activity spike: follow inter-poll price bursts on liquid Yes/No markets.
@@ -283,23 +283,23 @@ closingsoon:
   min_liquidity: 2000
   # Prefer enough time OR very high ask (see code hours/ask discipline).
   min_hours: 4
-  max_hours: 36
-  price_min: 0.92
+  max_hours: 30
+  price_min: 0.93
   price_max: 0.96
   min_direction: 0.35
-  min_edge: 0.01
-  min_confidence: 0.55
+  min_edge: 0.012
+  min_confidence: 0.60
   kelly_fraction: 0.20
   max_position_usd: 30
   max_open_positions: 8
   position_usd: 20
-  stop_loss_pct: 0.55
+  stop_loss_pct: 0.45
 
 # BTC 5m Up/Down scalper: spot-vs-open confirmation, FAK taker (wider window for paper flow).
 btc5m:
-  min_confirm_bps: 3.5
+  min_confirm_bps: 4.0
   min_entry_seconds_left: 8
-  max_entry_seconds_left: 240
+  max_entry_seconds_left: 180
   min_ask: 0.48
   max_ask: 0.94
   min_edge: 0.02
@@ -307,7 +307,7 @@ btc5m:
   look_ahead_windows: 2
   position_usd: 25
   max_position_usd: 50
-  max_open_positions: 3
+  max_open_positions: 2
   stop_loss_pct: 0.45
 
 live:
