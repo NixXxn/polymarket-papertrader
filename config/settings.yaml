@@ -94,8 +94,8 @@ asymmetric:
       manila,
     ]
 
-# Contrarian: fade overpriced YES longshots — buy NO (FAK). High WR: near-term tails only,
-# hold toward $1, skip ultra-tight NO asks with bad risk/reward.
+# Contrarian: fade overpriced YES longshots — buy NO via L2 walk + strict LIMIT.
+# Hold toward $1; skip ultra-tight NO asks with bad risk/reward.
 contrarian:
   min_yes_ask: 0.02
   max_yes_ask: 0.20
@@ -111,6 +111,9 @@ contrarian:
   max_position_usd: 28
   max_open_positions: 14
   max_open_per_city: 2
+  # HEART: walk asks under EV (p - price), clip to Kelly, place BUY LIMIT at max level.
+  strict_limit: true
+  book_walk_min_ev: 0.0
   # Hold-to-resolution bias: only trim when NO is essentially done.
   take_profit_no_bid: 0.985
   # Catastrophic only; model-rally + mark drop is the early exit.

@@ -166,7 +166,11 @@ def test_contrarian_buys_no_on_overpriced_tail(monkeypatch, tmp_path):
             bids=[FakeLevel(0.10, 20)],
         ),
         "token-no-100f-or-higher": SimpleNamespace(
-            asks=[FakeLevel(no_ask, 50)],
+            asks=[
+                FakeLevel(0.78, 20),
+                FakeLevel(no_ask, 50),
+                FakeLevel(0.95, 200),  # past EV for typical P(no)≈0.95 — must not take
+            ],
             bids=[FakeLevel(0.84, 20)],
         ),
         "token-yes-mid": SimpleNamespace(
@@ -211,9 +215,11 @@ def test_contrarian_buys_no_on_overpriced_tail(monkeypatch, tmp_path):
     )
     assert len(sigs) >= 1
     assert sigs[0].outcome == "no"
-    assert sigs[0].order_type == "fak"
-    assert sigs[0].limit_price is None
-    assert "fak@" in sigs[0].reason
+    assert sigs[0].order_type == "limit"
+    assert sigs[0].limit_price is not None
+    assert sigs[0].limit_price <= no_ask + 1e-9
+    assert "limit@" in sigs[0].reason
+    assert sigs[0].amount_usd is not None and sigs[0].amount_usd > 0
 
 
 def test_contrarian_skips_mode_when_ensemble_says_likely(monkeypatch, tmp_path):

@@ -21,6 +21,7 @@ from papertrader.markets import (
     date_from_temp_slug,
     event_slug_from_market_slug,
 )
+from papertrader.quant.book_walk import walk_asks_for_buy
 from papertrader.quant.event_kelly import CorrelatedBet, allocate_correlated_kelly
 from papertrader.quant.shadow_ledger import ShadowLedger
 from papertrader.quant.shin import shin_fair_probs_from_asks
@@ -123,7 +124,7 @@ def _model_yes_for_fade(
 
 
 class _BucketQuote:
-    __slots__ = ("bucket", "yes_ask", "yes_bid", "no_ask", "no_bid", "ask_size")
+    __slots__ = ("bucket", "yes_ask", "yes_bid", "no_ask", "no_bid", "ask_size", "no_book")
 
     def __init__(
         self,
@@ -133,6 +134,7 @@ class _BucketQuote:
         no_ask: float,
         no_bid: float,
         ask_size: float,
+        no_book: object | None = None,
     ) -> None:
         self.bucket = bucket
         self.yes_ask = yes_ask
@@ -140,6 +142,7 @@ class _BucketQuote:
         self.no_ask = no_ask
         self.no_bid = no_bid
         self.ask_size = ask_size
+        self.no_book = no_book
 
 
 def _log_contrarian(
@@ -243,6 +246,7 @@ def _collect_bucket_quotes(
                 no_ask=no_ask,
                 no_bid=no_bid or 0.0,
                 ask_size=ask_size,
+                no_book=no_book,
             )
         )
     return quotes, rejects
@@ -258,7 +262,7 @@ def analyze_contrarian_event(
     open_positions: list[Position],
     today: date | None = None,
 ) -> list[Signal]:
-    """Fade overpriced YES longshots via FAK NO buys; Shin + model edge, high-WR near-term."""
+    """Fade overpriced YES longshots via L2-capped LIMIT NO buys (Kelly ∩ EV depth)."""
     if not _city_allowed(city, settings):
         return []
     cfg = settings.contrarian
@@ -446,8 +450,51 @@ def analyze_contrarian_event(
         ):
             stake = min(cfg.max_position_usd, round(stake * _HIGH_CONF_SIZE_MULT, 2))
         stake = min(cfg.max_position_usd, max(settings.min_position_usd, stake))
+
+        # HEART: walk NO asks under EV ceiling, clip Kelly to fillable depth, strict LIMIT.
+        walk_min_ev = max(0.0, float(getattr(cfg, "book_walk_min_ev", 0.0)))
+        if cfg.strict_limit and quote.no_book is not None:
+            walk = walk_asks_for_buy(
+                quote.no_book,
+                p_win=bet.p,
+                budget_usd=stake,
+                min_ev=walk_min_ev,
+                hard_max_price=cfg.max_no_ask,
+                min_usd=settings.min_position_usd,
+            )
+            if walk.skipped:
+                _log_contrarian(
+                    engine,
+                    decision="skip",
+                    reason="book_walk_no_depth",
+                    city=city,
+                    event_date=event_date,
+                    slug=bucket.market.slug,
+                    bucket=bucket.bucket_text,
+                    walk_reason=walk.reason,
+                    max_ev_price=walk.max_ev_price,
+                    kelly_usd=stake,
+                )
+                continue
+            stake = min(stake, walk.fillable_usd)
+            stake = round(stake, 2)
+            if stake < settings.min_position_usd:
+                continue
+            limit_price = walk.limit_price
+            fill_ref = walk.vwap
+            order_type = "limit"
+            exec_tag = (
+                f"limit@{limit_price:.3f} vwap={walk.vwap:.3f} "
+                f"depth=${walk.fillable_usd:.2f}/{walk.levels_taken}lvl"
+            )
+        else:
+            limit_price = None
+            fill_ref = bet.price
+            order_type = "fak"
+            exec_tag = f"fak@{bet.price:.3f}"
+
         reason = (
-            f"fade {bucket.bucket_text} NO fak@{bet.price:.3f} "
+            f"fade {bucket.bucket_text} NO {exec_tag} "
             f"P_no={bet.p:.2f} fair_yes={fair_p_yes:.3f} yes_ask={quote.yes_ask:.3f} "
             f"edge={bet.edge:.3f} qk=${stake:.2f} ({src}) d+{days_ahead}"
         )
@@ -464,21 +511,28 @@ def analyze_contrarian_event(
             yes_ask=quote.yes_ask,
             fair_yes=fair_p_yes,
             p_model_yes=p_model_yes,
-            limit_price=bet.price,
+            limit_price=limit_price if limit_price is not None else bet.price,
             stake_usd=stake,
             edge=bet.edge,
             days_ahead=days_ahead,
+            vwap=fill_ref,
+            order_type=order_type,
         )
         shadow.log_entry(
             strategy="contrarian",
             slug=bucket.market.slug,
             action="buy",
-            share_price=bet.price,
+            share_price=fill_ref,
             p=bet.p,
             sigma=0.0,
             f_star=bet.edge,
             stake_usd=stake,
-            extra={"outcome": "no", "fair_yes": fair_p_yes},
+            extra={
+                "outcome": "no",
+                "fair_yes": fair_p_yes,
+                "order_type": order_type,
+                "limit_price": limit_price,
+            },
         )
         signals.append(
             Signal(
@@ -488,8 +542,8 @@ def analyze_contrarian_event(
                 amount_usd=stake,
                 city=city,
                 event_slug=bucket.event_slug,
-                order_type="fak",
-                limit_price=None,
+                order_type=order_type,  # type: ignore[arg-type]
+                limit_price=limit_price,
                 quant=QuantMeta(
                     p=bet.p,
                     sigma=0.0,

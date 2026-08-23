@@ -132,6 +132,9 @@ class ContrarianSettings:
     min_sell_bid: float
     max_hourly_rise_f: float
     high_hour_local: int
+    # HEART: L2 ask walk + strict BUY LIMIT (never unbounded FAK past EV).
+    strict_limit: bool
+    book_walk_min_ev: float
     cities: tuple[str, ...]
 
 
@@ -447,6 +450,8 @@ def load_settings(
             min_sell_bid=float(contrarian_raw.get("min_sell_bid", 0.02)),
             max_hourly_rise_f=float(contrarian_raw.get("max_hourly_rise_f", 4.0)),
             high_hour_local=int(contrarian_raw.get("high_hour_local", 20)),
+            strict_limit=bool(contrarian_raw.get("strict_limit", True)),
+            book_walk_min_ev=float(contrarian_raw.get("book_walk_min_ev", 0.0)),
             cities=tuple(contrarian_raw.get("cities") or ()),
         ),
         esports=EsportsSettings(

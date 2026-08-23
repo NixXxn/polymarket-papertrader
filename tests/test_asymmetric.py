@@ -44,13 +44,20 @@ def _tail_bucket(city, event_date, ask=0.05):
 
 
 def test_asymmetric_entry_when_ensemble_beats_market(monkeypatch):
+    from dataclasses import replace
+
     settings = load_settings()
+    settings = replace(
+        settings,
+        asymmetric=replace(settings.asymmetric, max_open_positions=5),
+    )
     city = _asymmetric_city()
     event_date = date(2026, 8, 13)
     bucket, ask = _tail_bucket(city, event_date)
     engine = MagicMock()
+    engine.get_account.return_value = SimpleNamespace(cash=500.0)
     engine.api.get_order_book.return_value = SimpleNamespace(
-        asks=[FakeLevel(ask, 50)],
+        asks=[FakeLevel(ask, 30), FakeLevel(0.08, 100), FakeLevel(0.20, 500)],
         bids=[FakeLevel(0.04, 20)],
     )
 
@@ -68,7 +75,12 @@ def test_asymmetric_entry_when_ensemble_beats_market(monkeypatch):
     )
     assert sig is not None
     assert sig.action == "buy"
+    assert sig.order_type == "limit"
+    assert sig.limit_price is not None
+    # EV ceiling ≈ 0.75; must not walk into 0.20 asks
+    assert sig.limit_price <= 0.12
     assert "tail" in sig.reason
+    assert "limit@" in sig.reason
 
 
 def test_asymmetric_skips_when_ask_too_high(monkeypatch):

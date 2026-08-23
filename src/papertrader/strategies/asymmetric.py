@@ -17,6 +17,7 @@ from papertrader.markets import (
     city_local_today,
     date_from_temp_slug,
 )
+from papertrader.quant.book_walk import walk_asks_for_buy
 from papertrader.quant.kelly import KellySizingEngine
 from papertrader.quant.shadow_ledger import ShadowLedger
 from papertrader.quant.variance import VarianceCalculator
@@ -212,6 +213,7 @@ def analyze_asymmetric_event(
             {
                 "bucket": bucket,
                 "ask": ask,
+                "book": book,
                 "p_model": p_model,
                 "src": src,
                 "sigma": sigma,
@@ -259,24 +261,58 @@ def analyze_asymmetric_event(
         )
         return None
 
+    # HEART: walk YES asks under EV, clip Kelly to fillable depth, strict LIMIT.
+    walk = walk_asks_for_buy(
+        best["book"],
+        p_win=best["p_model"],
+        budget_usd=kelly.stake_usd,
+        min_ev=0.0,
+        hard_max_price=cfg.max_ask,
+        min_usd=settings.min_position_usd,
+    )
+    if walk.skipped:
+        _log_asym(
+            engine,
+            decision="skip",
+            reason="book_walk_no_depth",
+            city=city,
+            event_date=event_date,
+            bucket=bucket.bucket_text,
+            ask=best["ask"],
+            p_model=best["p_model"],
+            walk_reason=walk.reason,
+            max_ev_price=walk.max_ev_price,
+            kelly_usd=kelly.stake_usd,
+            days_ahead=days_ahead,
+        )
+        return None
+    stake = round(min(kelly.stake_usd, walk.fillable_usd), 2)
+    if stake < settings.min_position_usd:
+        return None
+
     shadow = ShadowLedger(engine.db.data_dir)
     f_star = kelly.f_star
     shadow.log_entry(
         strategy="asymmetric",
         slug=bucket.market.slug,
         action="buy",
-        share_price=best["ask"],
+        share_price=walk.vwap,
         p=best["p_model"],
         sigma=best["sigma"],
         f_star=f_star,
-        stake_usd=kelly.stake_usd,
-        extra={"source": best["src"], "quarter_f": kelly.quarter_f},
+        stake_usd=stake,
+        extra={
+            "source": best["src"],
+            "quarter_f": kelly.quarter_f,
+            "limit_price": walk.limit_price,
+            "vwap": walk.vwap,
+        },
     )
 
     reason = (
-        f"tail {bucket.bucket_text} limit@{best['ask']:.3f} "
-        f"P={best['p_model']:.2f} f*={f_star:.3f} qk=${kelly.stake_usd:.2f} "
-        f"({best['src']}) d+{days_ahead}"
+        f"tail {bucket.bucket_text} limit@{walk.limit_price:.3f} "
+        f"vwap={walk.vwap:.3f} P={best['p_model']:.2f} f*={f_star:.3f} "
+        f"qk=${stake:.2f} ({best['src']}) d+{days_ahead}"
     )
     _log_asym(
         engine,
@@ -289,23 +325,24 @@ def analyze_asymmetric_event(
         action="buy",
         ask=best["ask"],
         p_model=best["p_model"],
-        stake_usd=kelly.stake_usd,
+        stake_usd=stake,
         edge=best["edge"],
         ratio=best["ratio"],
         source=best["src"],
         days_ahead=days_ahead,
+        limit_price=walk.limit_price,
+        vwap=walk.vwap,
     )
 
     return Signal(
         action="buy",
         slug=bucket.market.slug,
         outcome="yes",
-        amount_usd=kelly.stake_usd,
+        amount_usd=stake,
         city=city,
         event_slug=bucket.event_slug,
-        # Taker at ask: maker-below-ask tails rarely fill in paper/sim.
-        order_type="fak",
-        limit_price=None,
+        order_type="limit",
+        limit_price=walk.limit_price,
         quant=QuantMeta(
             p=best["p_model"],
             sigma=best["sigma"],
@@ -313,9 +350,8 @@ def analyze_asymmetric_event(
             kelly_fraction=kelly.quarter_f,
             source=best["src"],
         ),
-        reason=(
-            reason
-        ),
+        reason=reason,
+        market_condition_id=bucket.market.condition_id,
     )
 
 
