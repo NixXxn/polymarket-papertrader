@@ -74,6 +74,7 @@ def test_scan_esports_once_logs_scan_and_buys(monkeypatch, tmp_path):
     monkeypatch.setattr("papertrader.loop.execute_signal", lambda *a, **k: True)
     monkeypatch.setattr("papertrader.loop.esports_exits", lambda *a, **k: [])
     monkeypatch.setattr("papertrader.loop.oddspapi_api_key", lambda: "test-key")
+    monkeypatch.setattr("papertrader.strategies.esports.oddspapi_api_key", lambda: "test-key")
     fake_cache = SimpleNamespace(
         matches=[
             FairMatch(

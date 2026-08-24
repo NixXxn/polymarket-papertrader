@@ -19,7 +19,7 @@ safe:
   # Consensus matches with market agreement; FAK taker fills.
   # Paper -$786 @ 10% WR on 0.62–0.67 asks; require clearer favorites only.
   min_ask: 0.70
-  max_ask: 0.76
+  max_ask: 0.75
   max_open_positions: 8
   min_sell_bid: 0.02
   # Safe-only paper bankroll override for larger test sizing.
@@ -166,10 +166,10 @@ esports:
   horizon_hours: 8
   poll_interval_seconds: 45
   min_ask: 0.05
-  max_ask: 0.62
+  max_ask: 0.55
   take_profit_pct: 0.14
-  stop_loss_entry_pct: 0.65
-  position_usd: 8
+  stop_loss_entry_pct: 0.55
+  position_usd: 6
   max_position_usd: 25
   max_open_positions: 10
   min_event_volume: 80
@@ -213,7 +213,7 @@ esports:
   # OddsPapi fair-value only (ODDSP_API_KEY in .env). CS2 + LoL.
   oddspapi:
     enabled: true
-    min_edge: 0.08
+    min_edge: 0.10
     primary_bookmaker: bet365
     fallback_bookmakers: [unibet, stake, pinnacle]
     sport_ids: [17, 18] # CS2, LoL
@@ -233,7 +233,7 @@ momentum:
   poll_interval_seconds: 5
   mode: ANY_BUCKET
   specific_token_id: ""
-  entry_trigger_price: 0.84
+  entry_trigger_price: 0.86
   take_profit_price: 0.98
   stop_loss_price: 0.70
   order_size_shares: 25.0
@@ -248,11 +248,11 @@ momentum:
 
 # Mean reversion: fade Yes/No price excursions (FAK).
 meanrev:
-  min_liquidity: 1500
+  min_liquidity: 2000
   price_min: 0.08
   price_max: 0.92
   rolling_window: 36
-  min_z_score: 1.25
+  min_z_score: 1.35
   min_edge: 0.025
   min_confidence: 0.50
   kelly_fraction: 0.20
@@ -280,11 +280,11 @@ volspike:
 
 # Closing soon: stricter favorites only (FAK taker at live CLOB ask). Hold to $1.
 closingsoon:
-  min_liquidity: 2000
+  min_liquidity: 2500
   # Prefer enough time OR very high ask (see code hours/ask discipline).
   min_hours: 4
   max_hours: 30
-  price_min: 0.93
+  price_min: 0.94
   price_max: 0.96
   min_direction: 0.35
   min_edge: 0.012
@@ -297,7 +297,7 @@ closingsoon:
 
 # BTC 5m Up/Down scalper: spot-vs-open confirmation, FAK taker (wider window for paper flow).
 btc5m:
-  min_confirm_bps: 4.0
+  min_confirm_bps: 5.0
   min_entry_seconds_left: 8
   max_entry_seconds_left: 180
   min_ask: 0.48

@@ -139,7 +139,7 @@ def test_esports_exits_stop_loss_at_80pct_entry(tmp_path):
     engine.api.get_market.return_value = _market()
     engine.api.get_order_book.return_value = SimpleNamespace(
         asks=[FakeLevel(0.05, 50)],
-        bids=[FakeLevel(0.03, 50)],
+        bids=[FakeLevel(0.02, 50)],
     )
     pos = SimpleNamespace(
         shares=25.0,

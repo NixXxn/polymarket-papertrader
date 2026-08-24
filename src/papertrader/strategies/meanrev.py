@@ -17,6 +17,42 @@ from papertrader.signals import Signal
 
 log = logging.getLogger("papertrader")
 
+# Paper losses clustered on crypto bursts and match props — skip for meanrev/volspike.
+_NOISY_SLUG_MARKERS = (
+    "bitcoin",
+    "btc-",
+    "ethereum",
+    "eth-",
+    "solana",
+    "doge",
+    "xrp-",
+    "epl-",
+    "mlb-",
+    "nba-",
+    "nfl-",
+    "nhl-",
+    "lol-",
+    "cs2-",
+    "mex-",
+    "spl-",
+    "qat",
+    "sud-",
+    "uel-",
+    "fed-increase",
+    "fed-decrease",
+    "interest-rates",
+)
+
+
+def _is_noisy_general_market(slug: str, question: str = "") -> bool:
+    slug_l = slug.lower()
+    q_l = question.lower()
+    if any(m in slug_l for m in _NOISY_SLUG_MARKERS):
+        return True
+    if " vs" in q_l or " vs." in q_l:
+        return True
+    return False
+
 
 @dataclass
 class _MarketSnapshot:
@@ -172,6 +208,9 @@ def discover_general_markets(
                 continue
             slug = m.get("slug") or m.get("conditionId") or ""
             if not slug:
+                continue
+            question = m.get("question") or ""
+            if _is_noisy_general_market(slug, question):
                 continue
             out.append(
                 _MarketSnapshot(

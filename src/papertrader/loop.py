@@ -438,6 +438,10 @@ def scan_once(
             copy_engine,
             esports_engine,
             momentum_engine,
+            meanrev_engine,
+            volspike_engine,
+            closingsoon_engine,
+            btc5m_engine,
         )
         if e is not None
     ]
@@ -651,6 +655,8 @@ def scan_once(
     if meanrev_engine:
         try:
             from papertrader.strategies.meanrev import analyze_meanrev, meanrev_exits
+            if live is None:
+                counts.resolved += _resolve(meanrev_engine)
             for sig in meanrev_exits(meanrev_engine, settings):
                 if execute_signal(meanrev_engine, sig, dry_run, live=live, ctx=ctx, strategy="meanrev"):
                     counts.risk_exits += 1
@@ -673,6 +679,8 @@ def scan_once(
     if volspike_engine:
         try:
             from papertrader.strategies.volspike import analyze_volspike, volspike_exits
+            if live is None:
+                counts.resolved += _resolve(volspike_engine)
             for sig in volspike_exits(volspike_engine, settings):
                 if execute_signal(volspike_engine, sig, dry_run, live=live, ctx=ctx, strategy="volspike"):
                     counts.risk_exits += 1
@@ -695,6 +703,8 @@ def scan_once(
     if closingsoon_engine:
         try:
             from papertrader.strategies.closingsoon import analyze_closingsoon, closingsoon_exits
+            if live is None:
+                counts.resolved += _resolve(closingsoon_engine)
             for sig in closingsoon_exits(closingsoon_engine, settings):
                 if execute_signal(closingsoon_engine, sig, dry_run, live=live, ctx=ctx, strategy="closingsoon"):
                     counts.risk_exits += 1
@@ -717,6 +727,8 @@ def scan_once(
     if btc5m_engine:
         try:
             from papertrader.strategies.btc5m import analyze_btc5m, btc5m_exits
+            if live is None:
+                counts.resolved += _resolve(btc5m_engine)
             for sig in btc5m_exits(btc5m_engine, settings):
                 if execute_signal(btc5m_engine, sig, dry_run, live=live, ctx=ctx, strategy="btc5m"):
                     counts.risk_exits += 1
