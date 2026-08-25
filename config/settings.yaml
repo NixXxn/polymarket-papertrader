@@ -282,28 +282,28 @@ volspike:
 closingsoon:
   min_liquidity: 2500
   # Prefer enough time OR very high ask (see code hours/ask discipline).
-  min_hours: 4
-  max_hours: 30
-  price_min: 0.94
-  price_max: 0.96
-  min_direction: 0.35
-  min_edge: 0.012
-  min_confidence: 0.60
+  min_hours: 6
+  max_hours: 28
+  price_min: 0.945
+  price_max: 0.965
+  min_direction: 0.40
+  min_edge: 0.014
+  min_confidence: 0.65
   kelly_fraction: 0.20
   max_position_usd: 30
-  max_open_positions: 8
+  max_open_positions: 6
   position_usd: 20
   stop_loss_pct: 0.45
 
 # BTC 5m Up/Down scalper: spot-vs-open confirmation, FAK taker (wider window for paper flow).
 btc5m:
-  min_confirm_bps: 5.0
-  min_entry_seconds_left: 8
-  max_entry_seconds_left: 180
-  min_ask: 0.48
-  max_ask: 0.94
-  min_edge: 0.02
-  min_liquidity: 200
+  min_confirm_bps: 6.0
+  min_entry_seconds_left: 10
+  max_entry_seconds_left: 150
+  min_ask: 0.52
+  max_ask: 0.90
+  min_edge: 0.025
+  min_liquidity: 250
   look_ahead_windows: 2
   position_usd: 25
   max_position_usd: 50

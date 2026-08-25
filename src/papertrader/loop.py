@@ -8,7 +8,7 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 from pm_trader.engine import Engine
-from pm_trader.models import NoPositionError, OrderRejectedError, SimError
+from pm_trader.models import MarketNotFoundError, NoPositionError, OrderRejectedError, SimError
 
 from papertrader.config import Settings
 from papertrader.execution import ExecutionContext, log_fill_latency
@@ -374,15 +374,53 @@ def execute_signal(
         return False
 
 
+def _resolve_one_market(engine: Engine, slug: str) -> int:
+    """Resolve a single closed market; 0 if still open or unavailable."""
+    try:
+        market = engine.api.get_market(slug)
+    except MarketNotFoundError:
+        log.warning("resolve skip (market gone): %s", slug)
+        return 0
+    except Exception as e:
+        log.debug("resolve lookup %s: %s", slug, e)
+        return 0
+    if not getattr(market, "closed", False):
+        return 0
+    try:
+        results = engine.resolve_market(slug)
+    except Exception as e:
+        log.debug("resolve_market %s: %s", slug, e)
+        return 0
+    for r in results:
+        log.info("Resolved %s payout=%.2f", r.position.market_slug, r.payout)
+    return len(results)
+
+
+def _resolve_per_position(engine: Engine) -> int:
+    """Continue past missing markets so one stale slug cannot block the book."""
+    resolved = 0
+    seen: set[str] = set()
+    for pos in engine.db.get_open_positions():
+        key = pos.market_condition_id or pos.market_slug
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        resolved += _resolve_one_market(engine, pos.market_slug)
+    return resolved
+
+
 def _resolve(engine: Engine) -> int:
     try:
         results = engine.resolve_all()
         for r in results:
             log.info("Resolved %s payout=%.2f", r.position.market_slug, r.payout)
         return len(results)
+    except MarketNotFoundError as e:
+        log.warning("resolve_all hit missing market (%s); falling back per-position", e)
+        return _resolve_per_position(engine)
     except Exception as e:
         log.debug("resolve_all: %s", e)
-        return 0
+        return _resolve_per_position(engine)
 
 
 def scan_once(

@@ -33,6 +33,9 @@ def make_engine(
     starting_balance: float = 10_000.0,
     reset: bool = False,
 ) -> Engine:
+    from papertrader.api_patch import patch_polymarket_client
+
+    patch_polymarket_client()
     engine = Engine(account_dir(account, data_dir_from_env(data_dir)))
     if reset:
         engine.reset()

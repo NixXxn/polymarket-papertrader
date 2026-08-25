@@ -29,6 +29,9 @@ def main() -> None:
     """Polymarket weather trader (paper by default; live is opt-in)."""
     load_dotenv_file(ROOT / ".env")
     _setup_logging()
+    from papertrader.api_patch import patch_polymarket_client
+
+    patch_polymarket_client()
 
 
 def _mode_options(fn):

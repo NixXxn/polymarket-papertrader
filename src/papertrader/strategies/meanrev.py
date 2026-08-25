@@ -41,6 +41,10 @@ _NOISY_SLUG_MARKERS = (
     "fed-increase",
     "fed-decrease",
     "interest-rates",
+    "nato-",
+    "clarity-act",
+    "signed-into-law",
+    "military-clash",
 )
 
 
