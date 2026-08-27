@@ -264,6 +264,20 @@ class LiveSettings:
 
 
 @dataclass(frozen=True)
+class IntelSettings:
+    """World-intel style overlays (macro + event risk + BTC regime)."""
+
+    enabled: bool
+    shadow_only: bool
+    ttl_seconds: float
+    fail_open_on_error: bool
+    block_event_score: int
+    caution_size_mult: float
+    btc_min_fear_greed: int
+    strategies: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class Settings:
     poll_interval_seconds: int
     horizon_days: int
@@ -276,6 +290,7 @@ class Settings:
     user_agent: str
     mode: str
     live: LiveSettings
+    intel: IntelSettings
     safe: SafeSettings
     asymmetric: AsymmetricSettings
     contrarian: ContrarianSettings
@@ -359,6 +374,7 @@ def load_settings(
     closingsoon_raw = raw.get("closingsoon") or {}
     btc5m_raw = raw.get("btc5m") or {}
     live_raw = raw.get("live") or {}
+    intel_raw = raw.get("intel") or {}
     mode = normalize_mode(str(raw.get("mode") or PAPER))
     return Settings(
         poll_interval_seconds=int(raw["poll_interval_seconds"]),
@@ -376,6 +392,20 @@ def load_settings(
             chain_id=int(live_raw.get("chain_id") or 137),
             signature_type=int(live_raw.get("signature_type") or 1),
             funder=str(live_raw.get("funder") or ""),
+        ),
+        intel=IntelSettings(
+            enabled=bool(intel_raw.get("enabled", True)),
+            # Start in shadow: log vetoes without blocking, then flip false after review.
+            shadow_only=bool(intel_raw.get("shadow_only", False)),
+            ttl_seconds=float(intel_raw.get("ttl_seconds", 900)),
+            fail_open_on_error=bool(intel_raw.get("fail_open_on_error", True)),
+            block_event_score=int(intel_raw.get("block_event_score", 65)),
+            caution_size_mult=float(intel_raw.get("caution_size_mult", 0.40)),
+            btc_min_fear_greed=int(intel_raw.get("btc_min_fear_greed", 45)),
+            strategies=tuple(
+                intel_raw.get("strategies")
+                or ("meanrev", "volspike", "closingsoon", "btc5m")
+            ),
         ),
         safe=SafeSettings(
             cities=tuple(safe_raw["cities"]),

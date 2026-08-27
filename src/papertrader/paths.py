@@ -19,6 +19,18 @@ def data_dir_from_env(explicit: Path | None = None) -> Path:
 def root_data_dir(path: Path | str) -> Path:
     """Strategy engines live in {root}/{strategy}/; logs go under {root}/."""
     root = Path(path)
-    if root.name in ("safe", "asymmetric", "contrarian", "copy", "edge", "esports", "momentum"):
+    if root.name in (
+        "safe",
+        "asymmetric",
+        "contrarian",
+        "copy",
+        "edge",
+        "esports",
+        "momentum",
+        "meanrev",
+        "volspike",
+        "closingsoon",
+        "btc5m",
+    ):
         return root.parent
     return root

@@ -10,6 +10,7 @@ from pm_trader.engine import Engine
 
 from papertrader.config import Settings
 from papertrader.decision_log import log_decision
+from papertrader.intel import evaluate_entry_gate
 from papertrader.signals import Signal
 
 log = logging.getLogger("papertrader")
@@ -279,12 +280,40 @@ def analyze_closingsoon(
                 rejects["not_favorite"] += 1
                 continue
 
+            gate = evaluate_entry_gate(
+                strategy="closingsoon",
+                slug=slug,
+                question=question,
+                data_dir=engine.db.data_dir,
+                cfg=settings.intel,
+            )
+            if not gate.allow:
+                rejects["intel_block"] = rejects.get("intel_block", 0) + 1
+                log_decision(
+                    engine.db.data_dir,
+                    strategy="closingsoon",
+                    decision="skip",
+                    reason=gate.reason,
+                    slug=slug,
+                    intel_score=gate.event.score,
+                    intel_category=gate.event.category,
+                    macro=gate.macro_verdict,
+                )
+                continue
+            size = round(size * gate.size_mult, 2)
+            if size < settings.min_position_usd:
+                rejects["tiny_size"] += 1
+                continue
+
             signals.append(
                 Signal(
                     action="buy",
                     slug=slug,
                     outcome=side,
-                    reason=f"closingsoon {hours_left:.0f}h favorite ask={ask:.2f} (taker)",
+                    reason=(
+                        f"closingsoon {hours_left:.0f}h favorite ask={ask:.2f} (taker) "
+                        f"intel={gate.event.category}:{gate.event.score}"
+                    ),
                     amount_usd=round(size, 2),
                     order_type="fak",
                     limit_price=None,
@@ -300,6 +329,11 @@ def analyze_closingsoon(
                 action="buy",
                 amount_usd=round(size, 2),
                 ask=ask,
+                intel_score=gate.event.score,
+                intel_category=gate.event.category,
+                macro=gate.macro_verdict,
+                fear_greed=gate.fear_greed,
+                intel_gate=gate.reason,
             )
             open_slugs.add(slug)
             seen_events.add(event_key)

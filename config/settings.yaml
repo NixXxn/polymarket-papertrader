@@ -310,6 +310,19 @@ btc5m:
   max_open_positions: 2
   stop_loss_pct: 0.45
 
+# World-intel style overlays (macro Fear&Greed + BTC SMAs + event taxonomy).
+# Free APIs only — inspired by marc-shade/world-intel-mcp domains, no MCP on hot path.
+intel:
+  enabled: true
+  shadow_only: false
+  ttl_seconds: 900
+  fail_open_on_error: true
+  # Steady-profit bias: block sports/elections/longshots; size-down in CAUTION.
+  block_event_score: 65
+  caution_size_mult: 0.40
+  btc_min_fear_greed: 45
+  strategies: [meanrev, volspike, closingsoon, btc5m]
+
 live:
   clob_host: "https://clob.polymarket.com"
   chain_id: 137

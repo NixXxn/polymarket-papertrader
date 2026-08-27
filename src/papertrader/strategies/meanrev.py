@@ -12,6 +12,7 @@ from pm_trader.engine import Engine
 
 from papertrader.config import Settings
 from papertrader.decision_log import log_decision
+from papertrader.intel import evaluate_entry_gate
 from papertrader.markets import best_bid
 from papertrader.signals import Signal
 
@@ -27,10 +28,12 @@ _NOISY_SLUG_MARKERS = (
     "doge",
     "xrp-",
     "epl-",
+    "lal-",
     "mlb-",
     "nba-",
     "nfl-",
     "nhl-",
+    "ucl-",
     "lol-",
     "cs2-",
     "mex-",
@@ -285,6 +288,27 @@ def analyze_meanrev(
         if tail_price >= 0.88 and ev < cfg.min_edge * 1.5:
             continue
 
+        gate = evaluate_entry_gate(
+            strategy="meanrev",
+            slug=m.slug,
+            question=m.question,
+            data_dir=engine.db.data_dir,
+            cfg=settings.intel,
+        )
+        if not gate.allow:
+            log_decision(
+                engine.db.data_dir,
+                strategy="meanrev",
+                decision="skip",
+                reason=gate.reason,
+                slug=m.slug,
+                intel_score=gate.event.score,
+                intel_category=gate.event.category,
+                macro=gate.macro_verdict,
+                fear_greed=gate.fear_greed,
+            )
+            continue
+
         # Fade the deviation: spike up → buy NO; dump → buy YES.
         if z > 0:
             side = m.no_outcome
@@ -302,10 +326,14 @@ def analyze_meanrev(
             cfg.max_position_usd,
             cfg.position_usd,
         )
+        size = round(size * gate.size_mult, 2)
         if size < settings.min_position_usd:
             continue
 
-        reason = f"meanrev z={z:+.2f} ev={ev:.3f} @ {price:.3f}"
+        reason = (
+            f"meanrev z={z:+.2f} ev={ev:.3f} @ {price:.3f} "
+            f"intel={gate.event.category}:{gate.event.score} macro={gate.macro_verdict}"
+        )
         signals.append(
             Signal(
                 action="buy",
@@ -327,6 +355,11 @@ def analyze_meanrev(
             action="buy",
             amount_usd=round(size, 2),
             z=round(z, 3),
+            intel_score=gate.event.score,
+            intel_category=gate.event.category,
+            macro=gate.macro_verdict,
+            fear_greed=gate.fear_greed,
+            intel_gate=gate.reason,
         )
         open_slugs.add(m.slug)
         if len(signals) + len(open_positions) >= cfg.max_open_positions:

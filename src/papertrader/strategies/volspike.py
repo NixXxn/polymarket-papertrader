@@ -8,6 +8,7 @@ from pm_trader.engine import Engine
 
 from papertrader.config import Settings
 from papertrader.decision_log import log_decision
+from papertrader.intel import evaluate_entry_gate
 from papertrader.markets import best_bid
 from papertrader.signals import Signal
 
@@ -128,6 +129,27 @@ def analyze_volspike(
         else:
             continue
 
+        gate = evaluate_entry_gate(
+            strategy="volspike",
+            slug=m.slug,
+            question=m.question,
+            data_dir=engine.db.data_dir,
+            cfg=settings.intel,
+        )
+        if not gate.allow:
+            log_decision(
+                engine.db.data_dir,
+                strategy="volspike",
+                decision="skip",
+                reason=gate.reason,
+                slug=m.slug,
+                intel_score=gate.event.score,
+                intel_category=gate.event.category,
+                macro=gate.macro_verdict,
+                fear_greed=gate.fear_greed,
+            )
+            continue
+
         edge = min(0.12, (spike - cfg.spike_threshold) * 0.02 + cfg.min_edge)
         p = min(max(0.58, price + edge * 0.35), 0.92)
         b = max(0.01, (1 / max(price, 0.01)) - 1)
@@ -140,10 +162,14 @@ def analyze_volspike(
             cfg.position_usd,
             cash,
         )
+        size = round(size * gate.size_mult, 2)
         if size < settings.min_position_usd:
             continue
 
-        reason = f"volspike {spike:.1f}x edge={edge:.3f} @ {price:.3f}"
+        reason = (
+            f"volspike {spike:.1f}x edge={edge:.3f} @ {price:.3f} "
+            f"intel={gate.event.category}:{gate.event.score} macro={gate.macro_verdict}"
+        )
         signals.append(
             Signal(
                 action="buy",
@@ -165,6 +191,11 @@ def analyze_volspike(
             action="buy",
             amount_usd=round(size, 2),
             spike=round(spike, 2),
+            intel_score=gate.event.score,
+            intel_category=gate.event.category,
+            macro=gate.macro_verdict,
+            fear_greed=gate.fear_greed,
+            intel_gate=gate.reason,
         )
         open_slugs.add(m.slug)
         if len(signals) + len(open_positions) >= cfg.max_open_positions:

@@ -14,6 +14,7 @@ from pm_trader.engine import Engine
 
 from papertrader.config import Settings
 from papertrader.decision_log import log_decision
+from papertrader.intel import evaluate_entry_gate
 from papertrader.markets import best_ask, best_bid
 from papertrader.signals import Signal
 
@@ -219,7 +220,27 @@ def analyze_btc5m(
         "already_open": 0,
         "low_liq": 0,
         "tiny_size": 0,
+        "intel_block": 0,
     }
+
+    # One intel snapshot per scan (TTL-cached inside the service).
+    btc_gate = evaluate_entry_gate(
+        strategy="btc5m",
+        slug="btc-updown-5m",
+        question="bitcoin 5m",
+        data_dir=engine.db.data_dir,
+        cfg=settings.intel,
+    )
+    if not btc_gate.allow:
+        log_decision(
+            engine.db.data_dir,
+            strategy="btc5m",
+            decision="scan",
+            reason=btc_gate.reason,
+            macro=btc_gate.macro_verdict,
+            fear_greed=btc_gate.fear_greed,
+        )
+        return []
 
     for w in windows:
         start = int(w["window_start"])
@@ -281,6 +302,7 @@ def analyze_btc5m(
 
         cash = float(engine.get_account().cash)
         size = min(cfg.position_usd, cfg.max_position_usd, cash)
+        size = round(size * btc_gate.size_mult, 2)
         if size < settings.min_position_usd:
             rejects["tiny_size"] += 1
             continue
@@ -289,7 +311,8 @@ def analyze_btc5m(
             f"btc5m {pred.side} conf={pred.confidence} "
             f"move={pred.move_bps:+.1f}bps left={pred.seconds_left:.0f}s "
             f"model={pred.model_p:.2f} ask={ask:.3f} edge={edge:.3f} "
-            f"spot={pred.spot:.1f}/open={pred.open_px:.1f}"
+            f"spot={pred.spot:.1f}/open={pred.open_px:.1f} "
+            f"macro={btc_gate.macro_verdict} fg={btc_gate.fear_greed}"
         )
         signals.append(
             Signal(
