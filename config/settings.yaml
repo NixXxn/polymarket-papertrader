@@ -100,28 +100,28 @@ contrarian:
   min_yes_ask: 0.02
   max_yes_ask: 0.20
   max_model_yes: 0.07
-  min_edge: 0.035
+  min_edge: 0.030
   min_vig_edge: 0.005
   maker_tick: 0.01
   max_no_bets_per_event: 1
-  kelly_fraction: 0.20
-  max_event_fraction: 0.08
-  min_event_volume: 150
+  kelly_fraction: 0.22
+  max_event_fraction: 0.09
+  min_event_volume: 120
   min_ensemble_members: 8
-  max_position_usd: 28
-  max_open_positions: 12
+  max_position_usd: 32
+  max_open_positions: 14
   max_open_per_city: 2
   # HEART: walk asks under EV (p - price), clip to Kelly, place BUY LIMIT at max level.
   strict_limit: true
-  book_walk_min_ev: 0.012
+  book_walk_min_ev: 0.010
   # Hold-to-resolution bias: only trim when NO is essentially done.
   take_profit_no_bid: 0.985
   # Catastrophic only; model-rally + mark drop is the early exit.
   stop_loss_no_bid: 0.40
-  min_no_entry: 0.76
+  min_no_entry: 0.74
   # Paper losses clustered on 87¢+ NO entries (tiny upside / fat downside).
-  max_no_ask: 0.85
-  max_days_ahead: 1
+  max_no_ask: 0.86
+  max_days_ahead: 2
   # Model-fade only on event day AND when P(yes) is clearly elevated (see code: needs bid drop).
   exit_model_yes: 0.35
   exit_model_prob_min_days_ahead: 0
@@ -248,67 +248,67 @@ momentum:
 
 # Mean reversion: fade Yes/No price excursions (FAK).
 meanrev:
-  min_liquidity: 2000
-  price_min: 0.08
-  price_max: 0.92
+  min_liquidity: 2500
+  price_min: 0.10
+  price_max: 0.88
   rolling_window: 36
-  min_z_score: 1.35
-  min_edge: 0.025
-  min_confidence: 0.50
-  kelly_fraction: 0.20
-  max_position_usd: 40
-  max_open_positions: 5
-  position_usd: 20
-  stop_loss_pct: 0.22
-  take_profit_pct: 0.12
+  min_z_score: 1.60
+  min_edge: 0.030
+  min_confidence: 0.55
+  kelly_fraction: 0.15
+  max_position_usd: 30
+  max_open_positions: 4
+  position_usd: 15
+  stop_loss_pct: 0.18
+  take_profit_pct: 0.10
 
 # Volume/activity spike: follow inter-poll price bursts on liquid Yes/No markets.
 volspike:
-  min_liquidity: 1500
-  price_min: 0.08
-  price_max: 0.92
+  min_liquidity: 2000
+  price_min: 0.10
+  price_max: 0.88
   volume_history_len: 24
-  spike_threshold: 1.40
-  min_edge: 0.018
-  min_confidence: 0.45
-  kelly_fraction: 0.20
-  max_position_usd: 40
-  max_open_positions: 5
-  position_usd: 20
-  stop_loss_pct: 0.25
-  take_profit_pct: 0.12
+  spike_threshold: 1.55
+  min_edge: 0.022
+  min_confidence: 0.50
+  kelly_fraction: 0.15
+  max_position_usd: 30
+  max_open_positions: 4
+  position_usd: 12
+  stop_loss_pct: 0.20
+  take_profit_pct: 0.10
 
 # Closing soon: stricter favorites only (FAK taker at live CLOB ask). Hold to $1.
 closingsoon:
-  min_liquidity: 2500
+  min_liquidity: 2000
   # Prefer enough time OR very high ask (see code hours/ask discipline).
-  min_hours: 6
-  max_hours: 28
-  price_min: 0.945
-  price_max: 0.965
+  min_hours: 3
+  max_hours: 30
+  price_min: 0.940
+  price_max: 0.975
   min_direction: 0.40
-  min_edge: 0.014
-  min_confidence: 0.65
-  kelly_fraction: 0.20
-  max_position_usd: 30
-  max_open_positions: 6
-  position_usd: 20
-  stop_loss_pct: 0.45
+  min_edge: 0.012
+  min_confidence: 0.60
+  kelly_fraction: 0.22
+  max_position_usd: 35
+  max_open_positions: 8
+  position_usd: 18
+  stop_loss_pct: 0.40
 
 # BTC 5m Up/Down scalper: spot-vs-open confirmation, FAK taker (wider window for paper flow).
 btc5m:
-  min_confirm_bps: 6.0
+  min_confirm_bps: 8.0
   min_entry_seconds_left: 10
-  max_entry_seconds_left: 150
-  min_ask: 0.52
-  max_ask: 0.90
-  min_edge: 0.025
-  min_liquidity: 250
+  max_entry_seconds_left: 140
+  min_ask: 0.55
+  max_ask: 0.85
+  min_edge: 0.030
+  min_liquidity: 300
   look_ahead_windows: 2
-  position_usd: 25
-  max_position_usd: 50
+  position_usd: 20
+  max_position_usd: 40
   max_open_positions: 2
-  stop_loss_pct: 0.45
+  stop_loss_pct: 0.40
 
 # World-intel style overlays (macro Fear&Greed + BTC SMAs + event taxonomy).
 # Free APIs only — inspired by marc-shade/world-intel-mcp domains, no MCP on hot path.

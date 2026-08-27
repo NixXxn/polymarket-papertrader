@@ -10,7 +10,7 @@ from pm_trader.engine import Engine
 
 from papertrader.config import Settings
 from papertrader.decision_log import log_decision
-from papertrader.intel import evaluate_entry_gate
+from papertrader.intel import evaluate_entry_gate, should_force_exit
 from papertrader.signals import Signal
 
 log = logging.getLogger("papertrader")
@@ -383,7 +383,12 @@ def closingsoon_exits(
             continue
         # Use best bid (max), not bids[0] which is often the worst/lowest level.
         catastrophic = max(0.12, entry * (1.0 - cfg.stop_loss_pct))
-        if bid > catastrophic:
+        force = should_force_exit(slug=pos.market_slug, cfg=settings.intel)
+        if force and float(bid) >= 0.02:
+            reason = f"{force} bid={float(bid):.3f}"
+        elif float(bid) <= catastrophic:
+            reason = f"closingsoon stop bid={float(bid):.3f}"
+        else:
             continue
         signals.append(
             Signal(
@@ -391,17 +396,17 @@ def closingsoon_exits(
                 slug=pos.market_slug,
                 outcome=pos.outcome,
                 shares=pos.shares,
-                reason=f"closingsoon stop bid={bid:.3f}",
+                reason=reason,
             )
         )
         log_decision(
             engine.db.data_dir,
             strategy="closingsoon",
             decision="sell",
-            reason=f"stop bid={bid:.3f} entry={entry:.3f}",
+            reason=reason,
             slug=pos.market_slug,
             action="sell",
             shares=pos.shares,
-            bid=bid,
+            bid=float(bid),
         )
     return signals

@@ -82,6 +82,7 @@ def evaluate_entry_gate(
                 "crypto_narrative",
                 "election",
                 "sports",
+                "celebrity",
             } or risk.is_elevated:
                 allow = False
                 reason = f"intel_risk_off+{risk.category}"
@@ -97,16 +98,16 @@ def evaluate_entry_gate(
                 size_mult = size_down
                 reason = "intel_caution_size_down"
 
-        # BTC 5m: death-cross is choppy for short scalps — skip until SMAs heal.
+        # BTC 5m: death-cross → trade smaller; hard-block only on extreme fear.
         if strategy == "btc5m" and allow:
             death = snap.btc_death_cross if snap is not None else None
             min_fg = int(getattr(cfg, "btc_min_fear_greed", 45))
-            if death is True:
-                allow = False
-                reason = f"intel_btc_death_cross fg={fear}"
-            elif fear is not None and fear <= min_fg:
+            if fear is not None and fear <= min_fg:
                 allow = False
                 reason = f"intel_btc_extreme_fear fg={fear}"
+            elif death is True:
+                size_mult = min(size_mult, size_down)
+                reason = f"intel_btc_death_cross_size_down fg={fear}"
 
     # Shadow mode: never block, only annotate.
     if shadow and not allow:
@@ -129,3 +130,32 @@ def evaluate_entry_gate(
         fear_greed=fear,
         shadow_only=shadow,
     )
+
+
+def should_force_exit(
+    *,
+    slug: str,
+    question: str = "",
+    cfg: Any,
+) -> str | None:
+    """Return exit reason if an open position is in a taxonomy we no longer want.
+
+    Used to recycle capital stuck in geopolitics/macro/sports/celebrity books
+    that entry gates already refuse.
+    """
+    if not bool(getattr(cfg, "enabled", False)):
+        return None
+    if bool(getattr(cfg, "shadow_only", False)):
+        return None
+    risk = event_risk(slug, question)
+    block_score = int(getattr(cfg, "block_event_score", 65))
+    toxic = {
+        "geopolitics",
+        "macro_longshot",
+        "election",
+        "sports",
+        "celebrity",
+    }
+    if risk.category in toxic or risk.score >= block_score:
+        return f"intel_force_exit cat={risk.category} score={risk.score}"
+    return None

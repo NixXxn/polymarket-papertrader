@@ -5,7 +5,7 @@ Inspired by https://github.com/marc-shade/world-intel-mcp free-API domains
 so the trading process stays HTTP-simple (no MCP stdio on the hot path).
 """
 
-from papertrader.intel.gates import GateDecision, evaluate_entry_gate
+from papertrader.intel.gates import GateDecision, evaluate_entry_gate, should_force_exit
 from papertrader.intel.service import EventRisk, IntelService, IntelSnapshot, get_intel_service
 
 __all__ = [
@@ -15,4 +15,5 @@ __all__ = [
     "IntelSnapshot",
     "evaluate_entry_gate",
     "get_intel_service",
+    "should_force_exit",
 ]

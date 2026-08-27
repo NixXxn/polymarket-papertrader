@@ -187,9 +187,15 @@ def test_gate_shadow_does_not_block(tmp_path: Path, monkeypatch):
     assert gate.reason.startswith("shadow:")
 
 
-def test_btc_gate_blocks_death_cross(tmp_path: Path, monkeypatch):
+def test_btc_gate_sizes_down_on_death_cross(tmp_path: Path, monkeypatch):
     settings = load_settings()
-    cfg = replace(settings.intel, enabled=True, shadow_only=False, btc_min_fear_greed=45)
+    cfg = replace(
+        settings.intel,
+        enabled=True,
+        shadow_only=False,
+        btc_min_fear_greed=45,
+        caution_size_mult=0.40,
+    )
     _patch_intel_snapshot(
         monkeypatch,
         IntelSnapshot(
@@ -208,8 +214,20 @@ def test_btc_gate_blocks_death_cross(tmp_path: Path, monkeypatch):
         data_dir=tmp_path,
         cfg=cfg,
     )
-    assert gate.allow is False
-    assert "intel_btc_death_cross" in gate.reason
+    assert gate.allow is True
+    assert gate.size_mult == 0.40
+    assert "death_cross_size_down" in gate.reason
+
+
+def test_should_force_exit_toxic():
+    from papertrader.intel.gates import should_force_exit
+
+    settings = load_settings()
+    cfg = replace(settings.intel, enabled=True, shadow_only=False, block_event_score=65)
+    reason = should_force_exit(slug="will-carlos-alcaraz-win-the-2026-mens-us-open", cfg=cfg)
+    assert reason is not None
+    assert "sports" in reason
+    assert should_force_exit(slug="some-clean-weather-market", cfg=cfg) is None
 
 
 def test_event_risk_helper():

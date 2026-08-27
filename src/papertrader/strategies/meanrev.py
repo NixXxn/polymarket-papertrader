@@ -12,7 +12,7 @@ from pm_trader.engine import Engine
 
 from papertrader.config import Settings
 from papertrader.decision_log import log_decision
-from papertrader.intel import evaluate_entry_gate
+from papertrader.intel import evaluate_entry_gate, should_force_exit
 from papertrader.markets import best_bid
 from papertrader.signals import Signal
 
@@ -48,6 +48,11 @@ _NOISY_SLUG_MARKERS = (
     "clarity-act",
     "signed-into-law",
     "military-clash",
+    "elon-musk",
+    "of-tweets",
+    "us-open",
+    "alcaraz",
+    "hormuz",
 )
 
 
@@ -430,6 +435,32 @@ def meanrev_exits(
                     limit_price=None,
                     market_condition_id=pos.market_condition_id,
                 )
+            )
+            continue
+
+        # Recycle capital stuck in taxonomy we no longer enter.
+        force = should_force_exit(slug=pos.market_slug, cfg=settings.intel)
+        if force and current_bid >= 0.02:
+            signals.append(
+                Signal(
+                    action="sell",
+                    slug=pos.market_slug,
+                    outcome=pos.outcome,
+                    reason=f"{force} bid={current_bid:.3f}",
+                    shares=pos.shares,
+                    order_type="fak",
+                    limit_price=None,
+                    market_condition_id=pos.market_condition_id,
+                )
+            )
+            log_decision(
+                engine.db.data_dir,
+                strategy="meanrev",
+                decision="sell",
+                reason=f"{force} bid={current_bid:.3f}",
+                slug=pos.market_slug,
+                action="sell",
+                shares=pos.shares,
             )
 
     return signals

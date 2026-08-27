@@ -18,6 +18,8 @@ _GEOPOLITICS = (
     "military-clash",
     "invasion",
     "missile",
+    "hormuz",
+    "strait-of-",
 )
 _MACRO_LONGSHOT = (
     "fed-",
@@ -46,6 +48,7 @@ _ELECTION = (
 _SPORTS = (
     "lal-",
     "epl-",
+    "efl-",
     "mlb-",
     "nba-",
     "nfl-",
@@ -57,10 +60,23 @@ _SPORTS = (
     "ligue-1",
     "mls-",
     "afc-",
+    "us-open",
+    "wimbledon",
+    "french-open",
+    "australian-open",
+    "alcaraz",
+    "djokovic",
+    "sinner",
     "moneyline",
     "spread-",
     " vs ",
     " vs. ",
+)
+_CELEBRITY_NOISE = (
+    "elon-musk",
+    "of-tweets",
+    "tweet-count",
+    "how-many-tweets",
 )
 
 
@@ -84,6 +100,7 @@ def classify_event_text(slug: str, question: str = "") -> tuple[str, int, tuple[
     _hit("macro_longshot", _MACRO_LONGSHOT, 75)
     _hit("election", _ELECTION, 70)
     _hit("sports", _SPORTS, 65)
+    _hit("celebrity", _CELEBRITY_NOISE, 65)
     _hit("crypto_narrative", _CRYPTO_NARRATIVE, 55)
 
     # Cap and uniquify tags (order-preserving).
