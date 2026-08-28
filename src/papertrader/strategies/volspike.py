@@ -11,6 +11,7 @@ from papertrader.decision_log import log_decision
 from papertrader.intel import evaluate_entry_gate, should_force_exit
 from papertrader.markets import best_bid
 from papertrader.signals import Signal
+from papertrader.strategies.meanrev import _is_noisy_general_market
 
 log = logging.getLogger("papertrader")
 
@@ -107,6 +108,8 @@ def analyze_volspike(
 
     for m in markets:
         if m.slug in open_slugs:
+            continue
+        if _is_noisy_general_market(m.slug, m.question):
             continue
         _tracker.update(m.condition_id, price=m.yes_price, volume=m.volume_24h)
         spike = _tracker.spike_score(m.condition_id, spike_threshold=cfg.spike_threshold)

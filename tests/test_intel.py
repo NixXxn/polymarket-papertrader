@@ -38,7 +38,17 @@ def test_taxonomy_flags_fed_longshot():
     assert score >= 70
 
 
-def test_taxonomy_flags_sports_and_election():
+def test_taxonomy_flags_bundesliga_and_gta():
+    cat, score, _ = classify_event_text("bun-bay-stu-2026-08-28-bay", "")
+    assert cat == "sports"
+    assert score >= 65
+    cat2, score2, _ = classify_event_text("another-gta-vi-trailer-released-by-august-31", "")
+    assert cat2 == "celebrity"
+    assert score2 >= 65
+    cat3, score3, _ = classify_event_text("ere-gro-sit-2026-08-28-gro", "")
+    assert cat3 == "sports"
+    assert score3 >= 65
+
     cat, score, _ = classify_event_text("lal-bar-bil-2026-08-27-bar", "Barcelona vs Bilbao")
     assert cat == "sports"
     assert score >= 65

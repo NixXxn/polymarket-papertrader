@@ -4,6 +4,8 @@ from datetime import date
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+from dataclasses import replace
+
 from papertrader.buckets import parse_temperature_range
 from papertrader.config import load_settings
 from papertrader.markets import BucketMarket
@@ -67,7 +69,8 @@ def test_parse_market_message_handles_list_payload():
 
 
 def test_momentum_entry_triggers_at_threshold(tmp_path):
-    settings = load_settings()
+    base = load_settings()
+    settings = replace(base, momentum=replace(base.momentum, max_open_positions=5))
     engine = MagicMock()
     engine.db.data_dir = tmp_path
     engine.get_account.return_value = SimpleNamespace(cash=500.0)

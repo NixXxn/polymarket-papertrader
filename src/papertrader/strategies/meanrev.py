@@ -29,6 +29,10 @@ _NOISY_SLUG_MARKERS = (
     "xrp-",
     "epl-",
     "lal-",
+    "efl-",
+    "bun-",
+    "sea-",
+    "ere-",
     "mlb-",
     "nba-",
     "nfl-",
@@ -53,6 +57,8 @@ _NOISY_SLUG_MARKERS = (
     "us-open",
     "alcaraz",
     "hormuz",
+    "gta-vi",
+    "gta-6",
 )
 
 

@@ -268,7 +268,8 @@ def analyze_contrarian_event(
     cfg = settings.contrarian
     local_today = today or city_local_today(city)
     days_ahead = (event_date - local_today).days
-    if days_ahead < 0 or days_ahead > cfg.max_days_ahead:
+    min_days = int(getattr(cfg, "min_days_ahead", 0))
+    if days_ahead < min_days or days_ahead > cfg.max_days_ahead:
         return []
 
     if len(open_positions) >= cfg.max_open_positions:

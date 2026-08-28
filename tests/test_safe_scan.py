@@ -4,6 +4,8 @@ from datetime import date
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+from dataclasses import replace
+
 from papertrader.buckets import parse_temperature_range
 from papertrader.config import load_settings
 from papertrader.markets import BucketMarket
@@ -12,7 +14,8 @@ from helpers import FakeLevel, sample_city
 
 
 def test_safe_entry_on_matching_value_bucket(monkeypatch):
-    settings = load_settings()
+    base = load_settings()
+    settings = replace(base, safe=replace(base.safe, max_open_positions=8))
     city = sample_city()
     event_date = date(2026, 8, 13)
     market = SimpleNamespace(
@@ -56,7 +59,8 @@ def test_safe_entry_on_matching_value_bucket(monkeypatch):
 
 
 def test_safe_autoscales_with_cash(monkeypatch):
-    settings = load_settings()
+    base = load_settings()
+    settings = replace(base, safe=replace(base.safe, max_open_positions=8))
     city = sample_city()
     event_date = date(2026, 8, 13)
     market = SimpleNamespace(

@@ -126,7 +126,9 @@ class ContrarianSettings:
     stop_loss_no_bid: float
     min_no_entry: float
     max_no_ask: float
+    min_days_ahead: int
     max_days_ahead: int
+    starting_balance: float | None
     exit_model_yes: float
     exit_model_prob_min_days_ahead: int
     min_sell_bid: float
@@ -228,6 +230,7 @@ class ClosingSoonSettings:
     max_open_positions: int
     position_usd: float
     stop_loss_pct: float
+    weather_only: bool
 
 
 @dataclass(frozen=True)
@@ -294,6 +297,7 @@ class Settings:
     safe: SafeSettings
     asymmetric: AsymmetricSettings
     contrarian: ContrarianSettings
+    conviction: ContrarianSettings
     esports: EsportsSettings
     momentum: MomentumSettings
     meanrev: MeanReversionSettings
@@ -340,6 +344,44 @@ def _parse_exit_ladder(raw: Any) -> tuple[ExitLadderStep, ...]:
     return tuple(steps) if steps else default
 
 
+def _parse_contrarian_block(raw_cfg: dict[str, Any], *, defaults: dict[str, Any]) -> ContrarianSettings:
+    merged = {**defaults, **raw_cfg}
+    sb = merged.get("starting_balance")
+    return ContrarianSettings(
+        min_yes_ask=float(merged.get("min_yes_ask", 0.02)),
+        max_yes_ask=float(merged.get("max_yes_ask", 0.20)),
+        max_model_yes=float(merged.get("max_model_yes", 0.08)),
+        min_edge=float(merged.get("min_edge", 0.06)),
+        min_vig_edge=float(merged.get("min_vig_edge", 0.01)),
+        maker_tick=float(merged.get("maker_tick", 0.01)),
+        max_no_bets_per_event=int(merged.get("max_no_bets_per_event", 3)),
+        kelly_fraction=float(merged.get("kelly_fraction", 0.25)),
+        max_event_fraction=float(merged.get("max_event_fraction", 0.10)),
+        min_event_volume=float(merged.get("min_event_volume", 200)),
+        min_ensemble_members=int(merged.get("min_ensemble_members", 8)),
+        max_position_usd=float(merged.get("max_position_usd", 25)),
+        max_open_positions=int(merged.get("max_open_positions", 30)),
+        max_open_per_city=int(merged.get("max_open_per_city", 2)),
+        take_profit_no_bid=float(merged.get("take_profit_no_bid", 0.85)),
+        stop_loss_no_bid=float(merged.get("stop_loss_no_bid", 0.35)),
+        min_no_entry=float(merged.get("min_no_entry", 0.50)),
+        max_no_ask=float(merged.get("max_no_ask", 0.92)),
+        min_days_ahead=int(merged.get("min_days_ahead", 0)),
+        max_days_ahead=int(merged.get("max_days_ahead", 2)),
+        starting_balance=float(sb) if sb is not None else None,
+        exit_model_yes=float(merged.get("exit_model_yes", 0.15)),
+        exit_model_prob_min_days_ahead=int(
+            merged.get("exit_model_prob_min_days_ahead", 0)
+        ),
+        min_sell_bid=float(merged.get("min_sell_bid", 0.02)),
+        max_hourly_rise_f=float(merged.get("max_hourly_rise_f", 4.0)),
+        high_hour_local=int(merged.get("high_hour_local", 20)),
+        strict_limit=bool(merged.get("strict_limit", True)),
+        book_walk_min_ev=float(merged.get("book_walk_min_ev", 0.0)),
+        cities=tuple(merged.get("cities") or ()),
+    )
+
+
 def load_settings(
     settings_path: Path | None = None,
     cities_path: Path | None = None,
@@ -365,6 +407,7 @@ def load_settings(
     asymmetric_raw = raw["asymmetric"]
     edge_raw = raw.get("edge") or {}
     contrarian_raw = raw.get("contrarian") or {}
+    conviction_raw = raw.get("conviction") or {}
     esports_raw = raw.get("esports") or {}
     oddspapi_raw = esports_raw.get("oddspapi") or {}
     momentum_raw = raw.get("momentum") or {}
@@ -451,38 +494,26 @@ def load_settings(
                 asymmetric_raw.get("exit_model_prob_min_days_ahead", 0)
             ),
         ),
-        contrarian=ContrarianSettings(
-            min_yes_ask=float(contrarian_raw.get("min_yes_ask", 0.02)),
-            max_yes_ask=float(contrarian_raw.get("max_yes_ask", 0.20)),
-            max_model_yes=float(contrarian_raw.get("max_model_yes", 0.08)),
-            min_edge=float(contrarian_raw.get("min_edge", 0.06)),
-            min_vig_edge=float(contrarian_raw.get("min_vig_edge", 0.01)),
-            maker_tick=float(contrarian_raw.get("maker_tick", 0.01)),
-            max_no_bets_per_event=int(contrarian_raw.get("max_no_bets_per_event", 3)),
-            kelly_fraction=float(contrarian_raw.get("kelly_fraction", 0.25)),
-            max_event_fraction=float(contrarian_raw.get("max_event_fraction", 0.10)),
-            min_event_volume=float(
-                contrarian_raw.get("min_event_volume", raw.get("min_event_volume", 200))
-            ),
-            min_ensemble_members=int(contrarian_raw.get("min_ensemble_members", 8)),
-            max_position_usd=float(contrarian_raw.get("max_position_usd", 25)),
-            max_open_positions=int(contrarian_raw.get("max_open_positions", 30)),
-            max_open_per_city=int(contrarian_raw.get("max_open_per_city", 2)),
-            take_profit_no_bid=float(contrarian_raw.get("take_profit_no_bid", 0.85)),
-            stop_loss_no_bid=float(contrarian_raw.get("stop_loss_no_bid", 0.35)),
-            min_no_entry=float(contrarian_raw.get("min_no_entry", 0.50)),
-            max_no_ask=float(contrarian_raw.get("max_no_ask", 0.92)),
-            max_days_ahead=int(contrarian_raw.get("max_days_ahead", 2)),
-            exit_model_yes=float(contrarian_raw.get("exit_model_yes", 0.15)),
-            exit_model_prob_min_days_ahead=int(
-                contrarian_raw.get("exit_model_prob_min_days_ahead", 0)
-            ),
-            min_sell_bid=float(contrarian_raw.get("min_sell_bid", 0.02)),
-            max_hourly_rise_f=float(contrarian_raw.get("max_hourly_rise_f", 4.0)),
-            high_hour_local=int(contrarian_raw.get("high_hour_local", 20)),
-            strict_limit=bool(contrarian_raw.get("strict_limit", True)),
-            book_walk_min_ev=float(contrarian_raw.get("book_walk_min_ev", 0.0)),
-            cities=tuple(contrarian_raw.get("cities") or ()),
+        contrarian=_parse_contrarian_block(
+            contrarian_raw,
+            defaults={
+                "min_event_volume": raw.get("min_event_volume", 200),
+                "min_days_ahead": 0,
+                "max_days_ahead": 2,
+            },
+        ),
+        conviction=_parse_contrarian_block(
+            conviction_raw or contrarian_raw,
+            defaults={
+                "min_event_volume": raw.get("min_event_volume", 200),
+                "min_days_ahead": 0,
+                "max_days_ahead": 0,
+                "max_model_yes": 0.04,
+                "min_edge": 0.048,
+                "max_no_ask": 0.80,
+                "min_ensemble_members": 10,
+                "max_open_per_city": 1,
+            },
         ),
         esports=EsportsSettings(
             horizon_hours=float(esports_raw.get("horizon_hours", 6)),
@@ -606,6 +637,7 @@ def load_settings(
             max_open_positions=int(closingsoon_raw.get("max_open_positions", 10)),
             position_usd=float(closingsoon_raw.get("position_usd", 10)),
             stop_loss_pct=float(closingsoon_raw.get("stop_loss_pct", 0.20)),
+            weather_only=bool(closingsoon_raw.get("weather_only", False)),
         ),
         btc5m=Btc5mSettings(
             min_confirm_bps=float(btc5m_raw.get("min_confirm_bps", 8.0)),

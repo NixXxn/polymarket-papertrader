@@ -36,6 +36,7 @@ from papertrader.esports_markets import discover_esports_markets
 from papertrader.oddspapi import OddsPapiService, oddspapi_api_key
 from papertrader.strategies.asymmetric import analyze_asymmetric_event, asymmetric_exits
 from papertrader.strategies.contrarian import analyze_contrarian_event, contrarian_exits
+from papertrader.strategies.conviction import analyze_conviction_event, conviction_exits
 from papertrader.strategies.safe import analyze_safe_event, safe_exits
 from papertrader.weather import WeatherHttp
 from papertrader.weather.ensemble import prefetch_combined_ensembles
@@ -430,6 +431,7 @@ def scan_once(
     safe_engine: Engine | None,
     asymmetric_engine: Engine | None = None,
     contrarian_engine: Engine | None = None,
+    conviction_engine: Engine | None = None,
     copy_engine: Engine | None = None,
     esports_engine: Engine | None = None,
     momentum_engine: Engine | None = None,
@@ -458,6 +460,8 @@ def scan_once(
         live_engines.append(("asymmetric", asymmetric_engine))
     if contrarian_engine is not None:
         live_engines.append(("contrarian", contrarian_engine))
+    if conviction_engine is not None:
+        live_engines.append(("conviction", conviction_engine))
     if copy_engine is not None:
         live_engines.append(("copy", copy_engine))
     if esports_engine is not None:
@@ -473,6 +477,7 @@ def scan_once(
             safe_engine,
             asymmetric_engine,
             contrarian_engine,
+            conviction_engine,
             copy_engine,
             esports_engine,
             momentum_engine,
@@ -640,6 +645,63 @@ def scan_once(
                     counts.fills += 1
                     positions = contrarian_engine.db.get_open_positions()
 
+    if conviction_engine:
+        if live is None:
+            try:
+                conviction_engine.check_orders()
+            except Exception as e:
+                log.debug("check_orders: %s", e)
+        if live is None:
+            counts.resolved += _resolve(conviction_engine)
+        positions = conviction_engine.db.get_open_positions()
+        for sig in conviction_exits(
+            conviction_engine, http, settings, positions, settings.cities
+        ):
+            filled = execute_signal(
+                conviction_engine, sig, dry_run, live=live, ctx=ctx, strategy="conviction"
+            )
+            emitted.append(sig)
+            if filled:
+                counts.orders_placed += 1
+                counts.fills += 1
+                counts.risk_exits += 1
+        cities = settings.cities_for("conviction")
+        if settings.conviction.cities:
+            cities = [
+                settings.cities[s] for s in settings.conviction.cities if s in settings.cities
+            ]
+        events = discover_events(conviction_engine, cities, settings, now=now)
+        _log_missing_markets(
+            conviction_engine,
+            strategy="conviction",
+            cities=cities,
+            events=events,
+            settings=settings,
+            now=now,
+        )
+        prefetch_combined_ensembles(http, events)
+        positions = conviction_engine.db.get_open_positions()
+        for _slug, event_date, city, buckets, _vol in events:
+            counts.candidates += len(buckets)
+            sigs = analyze_conviction_event(
+                conviction_engine,
+                http,
+                city,
+                event_date,
+                buckets,
+                settings,
+                positions,
+            )
+            for sig in sigs:
+                filled = execute_signal(
+                    conviction_engine, sig, dry_run, live=live, ctx=ctx, strategy="conviction"
+                )
+                emitted.append(sig)
+                if filled:
+                    counts.orders_placed += 1
+                    counts.fills += 1
+                    positions = conviction_engine.db.get_open_positions()
+
     if copy_engine:
         is_live = live is not None
 
@@ -792,6 +854,7 @@ def scan_once(
             safe_engine,
             asymmetric_engine,
             contrarian_engine,
+            conviction_engine,
             copy_engine,
             esports_engine,
             momentum_engine,
@@ -826,6 +889,7 @@ def run_loop(
     safe_engine: Engine | None,
     asymmetric_engine: Engine | None = None,
     contrarian_engine: Engine | None = None,
+    conviction_engine: Engine | None = None,
     copy_engine: Engine | None = None,
     esports_engine: Engine | None = None,
     momentum_engine: Engine | None = None,
@@ -846,6 +910,8 @@ def run_loop(
         named_engines.append(("asymmetric", asymmetric_engine))
     if contrarian_engine is not None:
         named_engines.append(("contrarian", contrarian_engine))
+    if conviction_engine is not None:
+        named_engines.append(("conviction", conviction_engine))
     if copy_engine is not None:
         named_engines.append(("copy", copy_engine))
     if esports_engine is not None:
@@ -881,6 +947,7 @@ def run_loop(
             safe_engine=safe_engine,
             asymmetric_engine=asymmetric_engine,
             contrarian_engine=contrarian_engine,
+            conviction_engine=conviction_engine,
             copy_engine=copy_engine,
             esports_engine=esports_engine,
             momentum_engine=momentum_engine,
@@ -905,6 +972,7 @@ def run_loop(
                 safe_engine=safe_engine,
                 asymmetric_engine=asymmetric_engine,
                 contrarian_engine=contrarian_engine,
+                conviction_engine=conviction_engine,
                 copy_engine=copy_engine,
                 esports_engine=esports_engine,
                 momentum_engine=momentum_engine,

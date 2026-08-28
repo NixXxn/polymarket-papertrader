@@ -30,7 +30,7 @@ from papertrader.trade_log import (
 )
 
 
-STRATEGIES = ("safe", "asymmetric", "contrarian", "copy", "esports", "momentum", "meanrev", "volspike", "closingsoon", "btc5m")
+STRATEGIES = ("safe", "asymmetric", "contrarian", "conviction", "copy", "esports", "momentum", "meanrev", "volspike", "closingsoon", "btc5m")
 
 _RESET_STATS_FILES = (
     "activity.jsonl",
@@ -170,10 +170,14 @@ def _engine_exists(data_dir: Path, name: str) -> bool:
 
 def open_engines(data_dir: Path, settings: Any) -> list[tuple[str, Engine]]:
     """Open every configured strategy ledger (creates paper account on first view)."""
-    safe_balance = float(getattr(settings.safe, "starting_balance", 0) or settings.starting_balance)
     pairs: list[tuple[str, Engine]] = []
     for name in STRATEGIES:
-        balance = safe_balance if name == "safe" else settings.starting_balance
+        if name == "safe":
+            balance = float(getattr(settings.safe, "starting_balance", 0) or settings.starting_balance)
+        else:
+            block = getattr(settings, name, None)
+            sb = getattr(block, "starting_balance", None) if block is not None else None
+            balance = float(sb) if sb else settings.starting_balance
         pairs.append((name, make_engine(name, data_dir, balance)))
     return pairs
 

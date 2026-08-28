@@ -49,6 +49,9 @@ _SPORTS = (
     "lal-",
     "epl-",
     "efl-",
+    "bun-",
+    "sea-",
+    "ere-",
     "mlb-",
     "nba-",
     "nfl-",
@@ -77,6 +80,8 @@ _CELEBRITY_NOISE = (
     "of-tweets",
     "tweet-count",
     "how-many-tweets",
+    "gta-vi",
+    "gta-6",
 )
 
 

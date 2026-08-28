@@ -223,6 +223,13 @@ def analyze_closingsoon(
             if " vs" in question or " vs." in question:
                 rejects["not_favorite"] += 1
                 continue
+            if cfg.weather_only and "highest-temperature-in-" not in slug_l:
+                rejects["not_favorite"] += 1
+                continue
+            crypto_markers = ("bitcoin", "btc-", "price-of-bitcoin", "ethereum", "eth-")
+            if any(m in slug_l for m in crypto_markers):
+                rejects["not_favorite"] += 1
+                continue
 
             # Buy the favorite side only.
             if yes_p >= no_p and cfg.price_min <= yes_p <= cfg.price_max:
