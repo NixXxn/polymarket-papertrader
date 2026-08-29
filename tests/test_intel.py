@@ -48,6 +48,15 @@ def test_taxonomy_flags_bundesliga_and_gta():
     cat3, score3, _ = classify_event_text("ere-gro-sit-2026-08-28-gro", "")
     assert cat3 == "sports"
     assert score3 >= 65
+    cat4, score4, _ = classify_event_text("fl1-lil-psg-2026-08-28-psg", "")
+    assert cat4 == "sports"
+    assert score4 >= 65
+    cat5, score5, _ = classify_event_text(
+        "will-grand-theft-auto-vi-extended-look-get-less-than-10-million-views-on-day-1",
+        "",
+    )
+    assert cat5 == "celebrity"
+    assert score5 >= 65
 
     cat, score, _ = classify_event_text("lal-bar-bil-2026-08-27-bar", "Barcelona vs Bilbao")
     assert cat == "sports"

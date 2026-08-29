@@ -52,12 +52,16 @@ _SPORTS = (
     "bun-",
     "sea-",
     "ere-",
+    "fl1-",
+    "den-",
+    "tur-",
     "mlb-",
     "nba-",
     "nfl-",
     "nhl-",
     "ucl-",
     "uel-",
+    "champions-league",
     "serie-a",
     "bundesliga",
     "ligue-1",
@@ -82,6 +86,11 @@ _CELEBRITY_NOISE = (
     "how-many-tweets",
     "gta-vi",
     "gta-6",
+    "grand-theft-auto",
+    "gta ",
+    "mythos-class",
+    "lake-america",
+    "google-maps-renames",
 )
 
 

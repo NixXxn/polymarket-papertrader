@@ -33,11 +33,15 @@ _NOISY_SLUG_MARKERS = (
     "bun-",
     "sea-",
     "ere-",
+    "fl1-",
+    "den-",
+    "tur-",
     "mlb-",
     "nba-",
     "nfl-",
     "nhl-",
     "ucl-",
+    "champions-league",
     "lol-",
     "cs2-",
     "mex-",
@@ -59,6 +63,10 @@ _NOISY_SLUG_MARKERS = (
     "hormuz",
     "gta-vi",
     "gta-6",
+    "grand-theft-auto",
+    "mythos-class",
+    "lake-america",
+    "google-maps-renames",
 )
 
 
