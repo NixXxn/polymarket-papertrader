@@ -115,6 +115,11 @@ contrarian:
   # HEART: walk asks under EV (p - price), clip to Kelly, place BUY LIMIT at max level.
   strict_limit: true
   book_walk_min_ev: 0.010
+  # Bayes shadow (Parlex): prior=Shin fair YES, LR from model vs prior (shrunk); log only.
+  bayes_shadow: true
+  bayes_lr_shrink: 0.5
+  bayes_max_lr: 8.0
+  bayes_fee_buffer: 0.01
   # Hold-to-resolution bias: only trim when NO is essentially done.
   take_profit_no_bid: 0.985
   # Catastrophic only; model-rally + mark drop is the early exit.
@@ -287,7 +292,7 @@ meanrev:
   min_confidence: 0.55
   kelly_fraction: 0.15
   max_position_usd: 25
-  max_open_positions: 3
+  max_open_positions: 0
   position_usd: 12
   stop_loss_pct: 0.18
   take_profit_pct: 0.10
@@ -303,7 +308,7 @@ volspike:
   min_confidence: 0.50
   kelly_fraction: 0.15
   max_position_usd: 25
-  max_open_positions: 3
+  max_open_positions: 0
   position_usd: 12
   stop_loss_pct: 0.20
   take_profit_pct: 0.10

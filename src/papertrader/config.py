@@ -137,6 +137,11 @@ class ContrarianSettings:
     # HEART: L2 ask walk + strict BUY LIMIT (never unbounded FAK past EV).
     strict_limit: bool
     book_walk_min_ev: float
+    # Bayes shadow: market prior × shrunk model LR (log only; no size change).
+    bayes_shadow: bool
+    bayes_lr_shrink: float
+    bayes_max_lr: float
+    bayes_fee_buffer: float
     cities: tuple[str, ...]
 
 
@@ -378,6 +383,10 @@ def _parse_contrarian_block(raw_cfg: dict[str, Any], *, defaults: dict[str, Any]
         high_hour_local=int(merged.get("high_hour_local", 20)),
         strict_limit=bool(merged.get("strict_limit", True)),
         book_walk_min_ev=float(merged.get("book_walk_min_ev", 0.0)),
+        bayes_shadow=bool(merged.get("bayes_shadow", True)),
+        bayes_lr_shrink=float(merged.get("bayes_lr_shrink", 0.5)),
+        bayes_max_lr=float(merged.get("bayes_max_lr", 8.0)),
+        bayes_fee_buffer=float(merged.get("bayes_fee_buffer", 0.01)),
         cities=tuple(merged.get("cities") or ()),
     )
 

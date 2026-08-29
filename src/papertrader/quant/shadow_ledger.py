@@ -54,6 +54,46 @@ class ShadowLedger:
             row.update(extra)
         self._append(row)
 
+    def log_bayes_shadow(
+        self,
+        *,
+        strategy: str,
+        slug: str,
+        prior_yes: float,
+        evidence_yes: float,
+        lr_yes: float,
+        posterior_yes: float,
+        model_edge_no: float,
+        bayes_edge_no: float,
+        no_ask: float,
+        required_edge: float,
+        model_would_take: bool,
+        bayes_would_take: bool,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        """Counterfactual market-prior × LR path (does not affect sizing)."""
+        row: dict[str, Any] = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "event": "bayes_shadow",
+            "strategy": strategy,
+            "slug": slug,
+            "prior_yes": round(prior_yes, 6),
+            "evidence_yes": round(evidence_yes, 6),
+            "lr_yes": round(lr_yes, 6),
+            "posterior_yes": round(posterior_yes, 6),
+            "posterior_no": round(1.0 - posterior_yes, 6),
+            "no_ask": round(no_ask, 4),
+            "model_edge_no": round(model_edge_no, 6),
+            "bayes_edge_no": round(bayes_edge_no, 6),
+            "required_edge": round(required_edge, 6),
+            "model_would_take": model_would_take,
+            "bayes_would_take": bayes_would_take,
+            "agree": model_would_take == bayes_would_take,
+        }
+        if extra:
+            row.update(extra)
+        self._append(row)
+
     def log_exit_simulation(
         self,
         *,

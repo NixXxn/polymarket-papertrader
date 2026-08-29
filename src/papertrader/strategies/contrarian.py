@@ -21,6 +21,7 @@ from papertrader.markets import (
     date_from_temp_slug,
     event_slug_from_market_slug,
 )
+from papertrader.quant.bayes import shadow_no_fade
 from papertrader.quant.book_walk import walk_asks_for_buy
 from papertrader.quant.event_kelly import CorrelatedBet, allocate_correlated_kelly
 from papertrader.quant.shadow_ledger import ShadowLedger
@@ -316,6 +317,7 @@ def analyze_contrarian_event(
     bankroll = account_cash(engine, settings.starting_balance)
     notable: list[dict] = []
     candidates: list[tuple[_BucketQuote, CorrelatedBet, float, str]] = []
+    shadow = ShadowLedger(engine.db.data_dir)
 
     for quote, fair_p_yes in zip(quotes, fair_yes_list):
         bucket = quote.bucket
@@ -349,7 +351,6 @@ def analyze_contrarian_event(
             rejects["model_yes_not_tail"] += 1
             continue
 
-        fair_p_no = min(max(1e-6, 1.0 - fair_p_yes), 1.0 - 1e-6)
         p_model_no = min(max(1e-6, 1.0 - p_model_yes), 1.0 - 1e-6)
         if quote.yes_ask <= fair_p_yes + cfg.min_vig_edge:
             rejects["yes_not_overpriced"] += 1
@@ -380,6 +381,40 @@ def analyze_contrarian_event(
         # Tight NO asks leave little to $1 — only take them with fat model edge.
         if fill_no >= _TIGHT_NO_ASK:
             required_edge = max(required_edge, _TIGHT_MIN_EDGE)
+
+        if cfg.bayes_shadow:
+            bayes = shadow_no_fade(
+                prior_yes=fair_p_yes,
+                model_yes=p_model_yes,
+                no_ask=fill_no,
+                shrink=cfg.bayes_lr_shrink,
+                max_lr=cfg.bayes_max_lr,
+                fee_buffer=cfg.bayes_fee_buffer,
+            )
+            model_would = edge >= required_edge
+            bayes_would = bayes.bayes_edge_no >= required_edge
+            shadow.log_bayes_shadow(
+                strategy="contrarian",
+                slug=bucket.market.slug,
+                prior_yes=bayes.prior_yes,
+                evidence_yes=bayes.evidence_yes,
+                lr_yes=bayes.lr_yes,
+                posterior_yes=bayes.posterior_yes,
+                model_edge_no=bayes.model_edge_no,
+                bayes_edge_no=bayes.bayes_edge_no,
+                no_ask=fill_no,
+                required_edge=required_edge,
+                model_would_take=model_would,
+                bayes_would_take=bayes_would,
+                extra={
+                    "fair_yes": round(fair_p_yes, 6),
+                    "yes_ask": round(quote.yes_ask, 4),
+                    "source": src,
+                    "days_ahead": days_ahead,
+                    "bucket": bucket.bucket_text,
+                },
+            )
+
         if edge < required_edge:
             rejects["low_edge"] += 1
             continue
@@ -435,7 +470,6 @@ def analyze_contrarian_event(
     if not allocated:
         return []
 
-    shadow = ShadowLedger(engine.db.data_dir)
     by_label = {row[1].label: row for row in candidates}
     signals: list[Signal] = []
     for bet, stake in allocated:
@@ -494,11 +528,33 @@ def analyze_contrarian_event(
             order_type = "fak"
             exec_tag = f"fak@{bet.price:.3f}"
 
+        bayes_extra: dict = {}
+        if cfg.bayes_shadow:
+            bayes = shadow_no_fade(
+                prior_yes=fair_p_yes,
+                model_yes=p_model_yes,
+                no_ask=bet.price,
+                shrink=cfg.bayes_lr_shrink,
+                max_lr=cfg.bayes_max_lr,
+                fee_buffer=cfg.bayes_fee_buffer,
+            )
+            bayes_extra = {
+                "bayes_prior_yes": round(bayes.prior_yes, 4),
+                "bayes_lr_yes": round(bayes.lr_yes, 4),
+                "bayes_post_yes": round(bayes.posterior_yes, 4),
+                "bayes_edge_no": round(bayes.bayes_edge_no, 4),
+            }
+
         reason = (
             f"fade {bucket.bucket_text} NO {exec_tag} "
             f"P_no={bet.p:.2f} fair_yes={fair_p_yes:.3f} yes_ask={quote.yes_ask:.3f} "
             f"edge={bet.edge:.3f} qk=${stake:.2f} ({src}) d+{days_ahead}"
         )
+        if bayes_extra:
+            reason += (
+                f" bayes_post_yes={bayes_extra['bayes_post_yes']:.3f}"
+                f" bayes_edge={bayes_extra['bayes_edge_no']:.3f}"
+            )
         _log_contrarian(
             engine,
             decision="buy",
@@ -518,6 +574,7 @@ def analyze_contrarian_event(
             days_ahead=days_ahead,
             vwap=fill_ref,
             order_type=order_type,
+            **bayes_extra,
         )
         shadow.log_entry(
             strategy="contrarian",
@@ -533,6 +590,7 @@ def analyze_contrarian_event(
                 "fair_yes": fair_p_yes,
                 "order_type": order_type,
                 "limit_price": limit_price,
+                **bayes_extra,
             },
         )
         signals.append(
