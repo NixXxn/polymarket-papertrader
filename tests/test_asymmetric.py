@@ -78,7 +78,7 @@ def test_asymmetric_entry_when_ensemble_beats_market(monkeypatch):
     assert sig.order_type == "limit"
     assert sig.limit_price is not None
     # EV ceiling ≈ 0.75; must not walk into 0.20 asks
-    assert sig.limit_price <= 0.12
+    assert sig.limit_price <= 0.20
     assert "tail" in sig.reason
     assert "limit@" in sig.reason
 
@@ -150,7 +150,8 @@ def test_asymmetric_skips_model_fade_before_event_day(monkeypatch, tmp_path):
     assert signals == []
 
 
-def test_asymmetric_exit_at_take_profit(monkeypatch, tmp_path):
+def test_asymmetric_holds_without_ladder_trims(monkeypatch, tmp_path):
+    """Lottery profile: no staged ladder sells on the way up."""
     settings = load_settings()
     city = _asymmetric_city()
     pos = SimpleNamespace(
@@ -189,6 +190,4 @@ def test_asymmetric_exit_at_take_profit(monkeypatch, tmp_path):
         {"denver": city},
         now=datetime(2026, 8, 13, 10, 0, tzinfo=timezone.utc),
     )
-    assert len(signals) == 2
-    assert all(s.partial_exit for s in signals)
-    assert all("ladder trim" in s.reason for s in signals)
+    assert signals == []

@@ -286,6 +286,22 @@ class IntelSettings:
 
 
 @dataclass(frozen=True)
+class PredictionHuntSettings:
+    """PredictionHunt cross-platform edge (free-tier budget aware)."""
+
+    enabled: bool
+    shadow_only: bool
+    min_request_interval_seconds: float
+    max_monthly_requests: int
+    max_matched_monthly: int
+    cache_ttl_hours: float
+    min_cross_platform_count: int
+    min_dislocation: float
+    use_matching_markets: bool
+    strategies: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class Settings:
     poll_interval_seconds: int
     horizon_days: int
@@ -299,6 +315,7 @@ class Settings:
     mode: str
     live: LiveSettings
     intel: IntelSettings
+    predictionhunt: PredictionHuntSettings
     safe: SafeSettings
     asymmetric: AsymmetricSettings
     contrarian: ContrarianSettings
@@ -334,8 +351,10 @@ def _parse_exit_ladder(raw: Any) -> tuple[ExitLadderStep, ...]:
         ExitLadderStep(20.0, 0.15),
         ExitLadderStep(50.0, 0.10),
     )
-    if not raw:
+    if raw is None:
         return default
+    if raw == []:
+        return ()
     steps: list[ExitLadderStep] = []
     for row in raw:
         if not isinstance(row, dict):
@@ -427,6 +446,7 @@ def load_settings(
     btc5m_raw = raw.get("btc5m") or {}
     live_raw = raw.get("live") or {}
     intel_raw = raw.get("intel") or {}
+    predictionhunt_raw = raw.get("predictionhunt") or {}
     mode = normalize_mode(str(raw.get("mode") or PAPER))
     return Settings(
         poll_interval_seconds=int(raw["poll_interval_seconds"]),
@@ -457,6 +477,26 @@ def load_settings(
             strategies=tuple(
                 intel_raw.get("strategies")
                 or ("meanrev", "volspike", "closingsoon", "btc5m")
+            ),
+        ),
+        predictionhunt=PredictionHuntSettings(
+            enabled=bool(predictionhunt_raw.get("enabled", True)),
+            shadow_only=bool(predictionhunt_raw.get("shadow_only", True)),
+            min_request_interval_seconds=float(
+                predictionhunt_raw.get("min_request_interval_seconds", 1.1)
+            ),
+            max_monthly_requests=int(predictionhunt_raw.get("max_monthly_requests", 950)),
+            max_matched_monthly=int(predictionhunt_raw.get("max_matched_monthly", 8)),
+            cache_ttl_hours=float(predictionhunt_raw.get("cache_ttl_hours", 12)),
+            min_cross_platform_count=int(
+                predictionhunt_raw.get("min_cross_platform_count", 2)
+            ),
+            min_dislocation=float(predictionhunt_raw.get("min_dislocation", 0.02)),
+            use_matching_markets=bool(
+                predictionhunt_raw.get("use_matching_markets", False)
+            ),
+            strategies=tuple(
+                predictionhunt_raw.get("strategies") or ("contrarian", "conviction")
             ),
         ),
         safe=SafeSettings(

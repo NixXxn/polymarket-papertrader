@@ -94,6 +94,42 @@ class ShadowLedger:
             row.update(extra)
         self._append(row)
 
+    def log_ph_shadow(
+        self,
+        *,
+        strategy: str,
+        slug: str,
+        bucket: str,
+        consensus_yes: float | None,
+        polymarket_yes: float | None,
+        dislocation: float | None,
+        ph_edge_no: float | None,
+        no_ask: float,
+        platform_count: int,
+        source: str,
+        supports_no: bool,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        """Cross-platform PredictionHunt edge (shadow; no sizing impact)."""
+        row: dict[str, Any] = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "event": "ph_shadow",
+            "strategy": strategy,
+            "slug": slug,
+            "bucket": bucket,
+            "consensus_yes": round(consensus_yes, 6) if consensus_yes is not None else None,
+            "polymarket_yes": round(polymarket_yes, 6) if polymarket_yes is not None else None,
+            "dislocation": round(dislocation, 6) if dislocation is not None else None,
+            "ph_edge_no": round(ph_edge_no, 6) if ph_edge_no is not None else None,
+            "no_ask": round(no_ask, 4),
+            "platform_count": platform_count,
+            "source": source,
+            "supports_no": supports_no,
+        }
+        if extra:
+            row.update(extra)
+        self._append(row)
+
     def log_exit_simulation(
         self,
         *,

@@ -39,33 +39,27 @@ safe:
     denver: 100
     los-angeles: 100
 
-# Asymmetric: hold existing tails; no new entries (hurts win-rate / MTM).
+# Asymmetric: cheap YES lottery (1-in-~20); hold tails to resolution, no ladder trims.
 asymmetric:
-  min_ask: 0.02
-  max_ask: 0.12
-  min_model_prob: 0.18
-  min_prob_ratio: 2.5
-  min_edge: 0.08
-  take_profit_bid: 0.35
-  # Staged trims: small sells at each multiple; ~55% max trimmed, rest rides for 10x+.
-  exit_ladder:
-    - {multiple: 2, fraction: 0.10}
-    - {multiple: 5, fraction: 0.10}
-    - {multiple: 10, fraction: 0.15}
-    - {multiple: 20, fraction: 0.15}
-    - {multiple: 50, fraction: 0.10}
-  exit_model_prob: 0.03
-  # Only fade on model drop on event day (d+0); hold through forecast noise earlier.
+  min_ask: 0.01
+  max_ask: 0.20
+  min_model_prob: 0.03
+  min_prob_ratio: 1.5
+  min_edge: 0.02
+  take_profit_bid: 0.95
+  exit_ladder: []
+  exit_model_prob: 0.02
+  # Only fade on model collapse on event day; hold through forecast noise earlier.
   exit_model_prob_min_days_ahead: 0
-  # Hard exit 1h before local 23:00 resolution (was 6h — too early).
-  hours_before_resolution: 1
+  # Hold through resolution hour (no 1h-early time stop).
+  hours_before_resolution: 0
   stop_loss_bid: 0.01
   min_sell_bid: 0.02
   min_event_volume: 200
   min_ensemble_members: 8
   position_usd: 2
-  max_position_usd: 25
-  max_open_positions: 0
+  max_position_usd: 8
+  max_open_positions: 12
   max_hourly_rise_f: 4.0
   high_hour_local: 20
   cities:
@@ -120,8 +114,8 @@ contrarian:
   bayes_lr_shrink: 0.5
   bayes_max_lr: 8.0
   bayes_fee_buffer: 0.01
-  # Hold-to-resolution bias: only trim when NO is essentially done.
-  take_profit_no_bid: 0.985
+  # Hold-to-resolution: only trim when NO is essentially at $1.
+  take_profit_no_bid: 0.999
   # Catastrophic only; model-rally + mark drop is the early exit.
   stop_loss_no_bid: 0.40
   min_no_entry: 0.74
@@ -357,6 +351,20 @@ intel:
   caution_size_mult: 0.40
   btc_min_fear_greed: 45
   strategies: [meanrev, volspike, closingsoon, btc5m]
+
+# PredictionHunt cross-platform edge (free tier: 1 req/s, 1000/mo, 10 matched/mo).
+# Docs: https://www.predictionhunt.com/api/docs — key in PREDICTION_HUNT_API_KEY.
+predictionhunt:
+  enabled: true
+  shadow_only: true
+  min_request_interval_seconds: 1.1
+  max_monthly_requests: 950
+  max_matched_monthly: 8
+  cache_ttl_hours: 12
+  min_cross_platform_count: 2
+  min_dislocation: 0.02
+  use_matching_markets: false
+  strategies: [contrarian, conviction]
 
 live:
   clob_host: "https://clob.polymarket.com"

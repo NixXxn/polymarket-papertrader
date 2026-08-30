@@ -21,6 +21,11 @@ from papertrader.markets import (
     date_from_temp_slug,
     event_slug_from_market_slug,
 )
+from papertrader.predictionhunt import (
+    PredictionHuntClient,
+    cross_platform_no_edge,
+    predictionhunt_api_key,
+)
 from papertrader.quant.bayes import shadow_no_fade
 from papertrader.quant.book_walk import walk_asks_for_buy
 from papertrader.quant.event_kelly import CorrelatedBet, allocate_correlated_kelly
@@ -318,6 +323,14 @@ def analyze_contrarian_event(
     notable: list[dict] = []
     candidates: list[tuple[_BucketQuote, CorrelatedBet, float, str]] = []
     shadow = ShadowLedger(engine.db.data_dir)
+    ph_cfg = settings.predictionhunt
+    ph_client: PredictionHuntClient | None = None
+    if (
+        ph_cfg.enabled
+        and predictionhunt_api_key()
+        and "contrarian" in ph_cfg.strategies
+    ):
+        ph_client = PredictionHuntClient(engine.db.data_dir, ph_cfg)
 
     for quote, fair_p_yes in zip(quotes, fair_yes_list):
         bucket = quote.bucket
@@ -414,6 +427,38 @@ def analyze_contrarian_event(
                     "bucket": bucket.bucket_text,
                 },
             )
+
+        if ph_client is not None:
+            event_slug = event_slug_from_market_slug(bucket.market.slug)
+            cross = ph_client.lookup_bucket(
+                event_slug=event_slug,
+                polymarket_slug=bucket.market.slug,
+                bucket_text=bucket.bucket_text,
+            )
+            if cross is not None:
+                ph_edge, ph_supports = cross_platform_no_edge(
+                    cross=cross,
+                    pm_no_ask=fill_no,
+                    min_dislocation=ph_cfg.min_dislocation,
+                )
+                shadow.log_ph_shadow(
+                    strategy="contrarian",
+                    slug=bucket.market.slug,
+                    bucket=bucket.bucket_text,
+                    consensus_yes=cross.consensus_yes,
+                    polymarket_yes=cross.polymarket_yes_ask,
+                    dislocation=cross.dislocation,
+                    ph_edge_no=ph_edge,
+                    no_ask=fill_no,
+                    platform_count=cross.platform_count,
+                    source=cross.source,
+                    supports_no=ph_supports,
+                    extra={
+                        "group_title": cross.group_title,
+                        "yes_ask": round(quote.yes_ask, 4),
+                        "days_ahead": days_ahead,
+                    },
+                )
 
         if edge < required_edge:
             rejects["low_edge"] += 1

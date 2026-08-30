@@ -40,6 +40,8 @@ _RESET_STATS_FILES = (
     "scan_history.jsonl",
     "oddspapi_cache.json",
     "oddspapi_quota.json",
+    "predictionhunt_quota.json",
+    "predictionhunt_cache.json",
     "live_sync_state.json",
     "esports_exit_state.json",
     "momentum_exit_state.json",
