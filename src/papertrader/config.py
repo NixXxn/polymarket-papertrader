@@ -84,6 +84,13 @@ class AsymmetricSettings:
     max_hourly_rise_f: float
     high_hour_local: int
     cities: tuple[str, ...]
+    preferred_limit: float
+    fallback_limit: float
+    maker_tick: float
+    high_conf_max_limit: float
+    high_conf_min_ratio: float
+    min_dual_edge: float
+    strict_limit: bool
     exit_ladder: tuple[ExitLadderStep, ...] = ()
     hours_before_resolution: int = 1
     exit_model_prob_min_days_ahead: int = 0
@@ -571,6 +578,13 @@ def load_settings(
             exit_model_prob_min_days_ahead=int(
                 asymmetric_raw.get("exit_model_prob_min_days_ahead", 0)
             ),
+            preferred_limit=float(asymmetric_raw.get("preferred_limit", 0.01)),
+            fallback_limit=float(asymmetric_raw.get("fallback_limit", 0.02)),
+            maker_tick=float(asymmetric_raw.get("maker_tick", 0.01)),
+            high_conf_max_limit=float(asymmetric_raw.get("high_conf_max_limit", 0.10)),
+            high_conf_min_ratio=float(asymmetric_raw.get("high_conf_min_ratio", 2.5)),
+            min_dual_edge=float(asymmetric_raw.get("min_dual_edge", 0.012)),
+            strict_limit=bool(asymmetric_raw.get("strict_limit", True)),
         ),
         contrarian=_parse_contrarian_block(
             contrarian_raw,

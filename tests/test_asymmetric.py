@@ -77,8 +77,8 @@ def test_asymmetric_entry_when_ensemble_beats_market(monkeypatch):
     assert sig.action == "buy"
     assert sig.order_type == "limit"
     assert sig.limit_price is not None
-    # EV ceiling ≈ 0.75; must not walk into 0.20 asks
-    assert sig.limit_price <= 0.20
+    # Cheap resting bid: 1–2¢ when ensemble supports edge (not walking the ask book).
+    assert sig.limit_price <= 0.02
     assert "tail" in sig.reason
     assert "limit@" in sig.reason
 
@@ -104,7 +104,31 @@ def test_asymmetric_skips_when_ask_too_high(monkeypatch):
     sig = analyze_asymmetric_event(
         engine, MagicMock(), city, event_date, [bucket], settings, [], date(2026, 8, 11)
     )
-    assert sig is None
+    # High market ask no longer blocks a cheap 1–2¢ resting limit when model is strong.
+    assert sig is not None
+    assert sig.limit_price <= 0.02
+
+
+def test_pick_cheap_limit_steps_up_when_dual_tight(monkeypatch):
+    from dataclasses import replace
+
+    from papertrader.strategies.asymmetric import _pick_cheap_limit
+
+    settings = load_settings()
+    cfg = replace(
+        settings.asymmetric,
+        preferred_limit=0.01,
+        fallback_limit=0.02,
+        min_dual_edge=0.075,
+        high_conf_max_limit=0.08,
+        high_conf_min_ratio=2.0,
+        min_model_prob=0.05,
+        min_edge=0.02,
+    )
+    limit, tier = _pick_cheap_limit(p_ens=0.15, p_ow=0.08, p_model=0.15, cfg=cfg)
+    assert limit is not None
+    assert limit >= 0.03
+    assert tier == "high_conf"
 
 
 def test_asymmetric_skips_model_fade_before_event_day(monkeypatch, tmp_path):

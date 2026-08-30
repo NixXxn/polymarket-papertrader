@@ -7,8 +7,8 @@ from pm_trader.engine import Engine
 from pm_trader.models import Position
 
 from papertrader.buckets import parse_temperature_range
-from papertrader.config import City, Settings
-from papertrader.decision_log import classify_ask_reject, format_skip_summary, log_decision
+from papertrader.config import AsymmetricSettings, City, Settings
+from papertrader.decision_log import format_skip_summary, log_decision
 from papertrader.markets import (
     BucketMarket,
     best_ask,
@@ -17,7 +17,7 @@ from papertrader.markets import (
     city_local_today,
     date_from_temp_slug,
 )
-from papertrader.quant.book_walk import walk_asks_for_buy
+from papertrader.quant.book_walk import max_price_for_positive_ev
 from papertrader.quant.kelly import KellySizingEngine
 from papertrader.quant.shadow_ledger import ShadowLedger
 from papertrader.quant.variance import VarianceCalculator
@@ -32,6 +32,105 @@ from papertrader.weather.probability import ensemble_p95
 
 _KELLY = KellySizingEngine()
 _VARIANCE = VarianceCalculator()
+
+
+def _tail_model_probs(
+    ensemble,
+    rng,
+    *,
+    http: WeatherHttp,
+    city: City,
+    event_date: date,
+    local_today: date,
+) -> tuple[float, float | None, float, str, float]:
+    """Open-Meteo ensemble + OpenWeather bucket P(YES) for cheap YES limits."""
+    p_ens, src = tail_bucket_probability(ensemble, rng)
+    ow_est = _VARIANCE.from_openweather(http, city, event_date, rng, today=local_today)
+    p_ow = ow_est.p if ow_est is not None else None
+    p_model = max(p_ens, p_ow or 0.0)
+    if p_ow is not None:
+        src = f"{src}+openweather"
+    sigma = ow_est.sigma_f if ow_est is not None else _VARIANCE.sigma_for_horizon(
+        (event_date - local_today).days
+    )
+    return p_ens, p_ow, p_model, src, sigma
+
+
+def _edge_ok_at_limit(
+    *,
+    limit: float,
+    p_model: float,
+    p_ens: float,
+    p_ow: float | None,
+    cfg: AsymmetricSettings,
+    dual: bool,
+) -> bool:
+    if limit <= 0 or p_model < cfg.min_model_prob:
+        return False
+    if p_model - limit < cfg.min_edge:
+        return False
+    if p_model / limit < cfg.min_prob_ratio:
+        return False
+    if dual and p_ow is not None:
+        if p_ens - limit < cfg.min_dual_edge or p_ow - limit < cfg.min_dual_edge:
+            return False
+    return True
+
+
+def _pick_cheap_limit(
+    *,
+    p_ens: float,
+    p_ow: float | None,
+    p_model: float,
+    cfg: AsymmetricSettings,
+) -> tuple[float | None, str]:
+    """Prefer 1–2¢ resting limits; step up only when both weather APIs agree."""
+    for limit, label in (
+        (cfg.preferred_limit, "1c"),
+        (cfg.fallback_limit, "2c"),
+    ):
+        if _edge_ok_at_limit(
+            limit=limit,
+            p_model=p_model,
+            p_ens=p_ens,
+            p_ow=p_ow,
+            cfg=cfg,
+            dual=p_ow is not None,
+        ):
+            return limit, label
+
+    if p_ow is not None and p_ens >= cfg.min_model_prob and p_ow >= cfg.min_model_prob:
+        min_p = min(p_ens, p_ow)
+        if min_p / max(cfg.preferred_limit, 1e-6) >= cfg.high_conf_min_ratio:
+            ceiling = min(
+                cfg.max_ask,
+                cfg.high_conf_max_limit,
+                max_price_for_positive_ev(min_p, min_ev=cfg.min_edge),
+            )
+            limit = round(cfg.fallback_limit + cfg.maker_tick, 4)
+            best: float | None = None
+            while limit <= ceiling + 1e-9:
+                if (
+                    min_p - limit >= cfg.min_edge
+                    and min_p / limit >= cfg.min_prob_ratio
+                ):
+                    best = limit
+                limit = round(limit + cfg.maker_tick, 4)
+            if best is not None:
+                return best, "high_conf"
+
+    if p_ow is None:
+        for limit in (cfg.preferred_limit, cfg.fallback_limit):
+            if _edge_ok_at_limit(
+                limit=limit,
+                p_model=p_model,
+                p_ens=p_ens,
+                p_ow=None,
+                cfg=cfg,
+                dual=False,
+            ):
+                return limit, "openmeteo_only"
+    return None, "no_edge_at_cheap_limit"
 
 
 def _already_in(positions: list[Position], condition_id: str) -> bool:
@@ -173,39 +272,39 @@ def analyze_asymmetric_event(
             rejects["order_book_error"] += 1
             continue
         ask, ask_size = best_ask(book)
-        p_model, src = tail_bucket_probability(ensemble, bucket.rng)
-
-        ask_fail = classify_ask_reject(
-            ask,
-            ask_size,
-            min_ask=cfg.min_ask,
-            max_ask=cfg.max_ask,
-            min_size=settings.min_best_ask_size,
+        p_ens, p_ow, p_model, src, sigma = _tail_model_probs(
+            ensemble,
+            bucket.rng,
+            http=http,
+            city=city,
+            event_date=event_date,
+            local_today=local_today,
         )
-        if ask_fail:
-            rejects[ask_fail] += 1
+        p_model = min(max(p_model, 1e-6), 1.0 - 1e-6)
+
+        limit_price, limit_tier = _pick_cheap_limit(
+            p_ens=p_ens,
+            p_ow=p_ow,
+            p_model=p_model,
+            cfg=cfg,
+        )
+        if limit_price is None:
+            rejects[limit_tier] += 1
             if p_model >= cfg.min_model_prob * 0.5:
-                _near_miss(bucket, ask, ask_size, p_model, ask_fail)
+                _near_miss(bucket, ask, ask_size, p_model, limit_tier)
             continue
 
-        ow_est = _VARIANCE.from_openweather(http, city, event_date, bucket.rng, today=local_today)
-        sigma = _VARIANCE.sigma_for_horizon(days_ahead)
-        if ow_est is not None:
-            p_model = max(p_model, ow_est.p)
-            src = f"{src}+openweather"
-            sigma = ow_est.sigma_f
-
-        p_model = min(max(p_model, 1e-6), 1.0 - 1e-6)
+        if ask is not None and ask_size < settings.min_best_ask_size:
+            rejects["thin_book"] += 1
+            continue
 
         if p_model < cfg.min_model_prob:
             rejects["low_model_prob"] += 1
             _near_miss(bucket, ask, ask_size, p_model, "low_model_prob")
             continue
-        if ask <= 0 or p_model / ask < cfg.min_prob_ratio:
-            rejects["low_prob_ratio"] += 1
-            _near_miss(bucket, ask, ask_size, p_model, "low_prob_ratio")
-            continue
-        if p_model - ask < cfg.min_edge:
+        edge = p_model - limit_price
+        ratio = p_model / limit_price
+        if ratio < cfg.min_prob_ratio or edge < cfg.min_edge:
             rejects["low_edge"] += 1
             _near_miss(bucket, ask, ask_size, p_model, "low_edge")
             continue
@@ -213,12 +312,15 @@ def analyze_asymmetric_event(
             {
                 "bucket": bucket,
                 "ask": ask,
-                "book": book,
                 "p_model": p_model,
+                "p_ens": p_ens,
+                "p_ow": p_ow,
                 "src": src,
                 "sigma": sigma,
-                "edge": p_model - ask,
-                "ratio": p_model / ask,
+                "edge": edge,
+                "ratio": ratio,
+                "limit_price": limit_price,
+                "limit_tier": limit_tier,
             }
         )
 
@@ -241,11 +343,12 @@ def analyze_asymmetric_event(
             days_ahead=days_ahead,
         )
         return None
-    # Prefer the largest model-vs-market gap on the cheapest asks.
-    best = max(candidates, key=lambda c: (c["ratio"], c["edge"]))
+    # Prefer largest model gap on the cheapest resting limit.
+    best = max(candidates, key=lambda c: (c["ratio"], c["edge"], -c["limit_price"]))
     bucket: BucketMarket = best["bucket"]
+    limit_price = best["limit_price"]
     bankroll = account_cash(engine, settings.starting_balance)
-    kelly = _KELLY.compute(best["p_model"], best["ask"], bankroll)
+    kelly = _KELLY.compute(best["p_model"], limit_price, bankroll)
     if kelly.skipped or kelly.stake_usd is None:
         _log_asym(
             engine,
@@ -255,38 +358,14 @@ def analyze_asymmetric_event(
             event_date=event_date,
             bucket=bucket.bucket_text,
             ask=best["ask"],
+            limit_price=limit_price,
             p_model=best["p_model"],
             kelly_skip_reason=kelly.reason,
             days_ahead=days_ahead,
         )
         return None
 
-    # HEART: walk YES asks under EV, clip Kelly to fillable depth, strict LIMIT.
-    walk = walk_asks_for_buy(
-        best["book"],
-        p_win=best["p_model"],
-        budget_usd=kelly.stake_usd,
-        min_ev=0.0,
-        hard_max_price=cfg.max_ask,
-        min_usd=settings.min_position_usd,
-    )
-    if walk.skipped:
-        _log_asym(
-            engine,
-            decision="skip",
-            reason="book_walk_no_depth",
-            city=city,
-            event_date=event_date,
-            bucket=bucket.bucket_text,
-            ask=best["ask"],
-            p_model=best["p_model"],
-            walk_reason=walk.reason,
-            max_ev_price=walk.max_ev_price,
-            kelly_usd=kelly.stake_usd,
-            days_ahead=days_ahead,
-        )
-        return None
-    stake = round(min(kelly.stake_usd, walk.fillable_usd), 2)
+    stake = round(min(kelly.stake_usd, cfg.max_position_usd), 2)
     if stake < settings.min_position_usd:
         return None
 
@@ -296,7 +375,7 @@ def analyze_asymmetric_event(
         strategy="asymmetric",
         slug=bucket.market.slug,
         action="buy",
-        share_price=walk.vwap,
+        share_price=limit_price,
         p=best["p_model"],
         sigma=best["sigma"],
         f_star=f_star,
@@ -304,15 +383,19 @@ def analyze_asymmetric_event(
         extra={
             "source": best["src"],
             "quarter_f": kelly.quarter_f,
-            "limit_price": walk.limit_price,
-            "vwap": walk.vwap,
+            "limit_price": limit_price,
+            "limit_tier": best["limit_tier"],
+            "p_ens": best["p_ens"],
+            "p_ow": best["p_ow"],
+            "market_ask": best["ask"],
         },
     )
 
+    ow_part = f" ow={best['p_ow']:.2f}" if best["p_ow"] is not None else ""
     reason = (
-        f"tail {bucket.bucket_text} limit@{walk.limit_price:.3f} "
-        f"vwap={walk.vwap:.3f} P={best['p_model']:.2f} f*={f_star:.3f} "
-        f"qk=${stake:.2f} ({best['src']}) d+{days_ahead}"
+        f"tail {bucket.bucket_text} limit@{limit_price:.3f} ({best['limit_tier']}) "
+        f"P={best['p_model']:.2f} ens={best['p_ens']:.2f}{ow_part} "
+        f"f*={f_star:.3f} qk=${stake:.2f} ({best['src']}) d+{days_ahead}"
     )
     _log_asym(
         engine,
@@ -325,13 +408,15 @@ def analyze_asymmetric_event(
         action="buy",
         ask=best["ask"],
         p_model=best["p_model"],
+        p_ens=best["p_ens"],
+        p_ow=best["p_ow"],
         stake_usd=stake,
         edge=best["edge"],
         ratio=best["ratio"],
         source=best["src"],
         days_ahead=days_ahead,
-        limit_price=walk.limit_price,
-        vwap=walk.vwap,
+        limit_price=limit_price,
+        limit_tier=best["limit_tier"],
     )
 
     return Signal(
@@ -342,7 +427,7 @@ def analyze_asymmetric_event(
         city=city,
         event_slug=bucket.event_slug,
         order_type="limit",
-        limit_price=walk.limit_price,
+        limit_price=limit_price,
         quant=QuantMeta(
             p=best["p_model"],
             sigma=best["sigma"],

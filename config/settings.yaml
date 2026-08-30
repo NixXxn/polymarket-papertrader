@@ -46,6 +46,14 @@ asymmetric:
   min_model_prob: 0.03
   min_prob_ratio: 1.5
   min_edge: 0.02
+  # Resting YES limits: bid 1–2¢; only raise when Open-Meteo + OpenWeather agree on edge.
+  preferred_limit: 0.01
+  fallback_limit: 0.02
+  maker_tick: 0.01
+  high_conf_max_limit: 0.10
+  high_conf_min_ratio: 2.5
+  min_dual_edge: 0.012
+  strict_limit: true
   take_profit_bid: 0.95
   exit_ladder: []
   exit_model_prob: 0.02
@@ -86,6 +94,7 @@ asymmetric:
       busan,
       chongqing,
       manila,
+      vienna,
     ]
 
 # Contrarian: fade overpriced YES longshots — buy NO via L2 walk + strict LIMIT.
