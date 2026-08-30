@@ -390,6 +390,229 @@ def extract_bucket_cross_platform(
     return best
 
 
+def normalize_platform_price(platform: str, price: float | None) -> float | None:
+    """Map platform quotes to 0–1 probability. Kalshi often uses 0–100 cents."""
+    if price is None:
+        return None
+    p = float(price)
+    if p <= 0:
+        return None
+    plat = platform.lower()
+    if plat == "kalshi" and p > 1.0:
+        p = p / 100.0
+    if p > 1.0:
+        p = p / 100.0
+    return min(max(p, 1e-6), 1.0 - 1e-6)
+
+
+@dataclass(frozen=True)
+class FadeAlert:
+    """Parsed fade-finder or smart-money alert."""
+
+    alert_id: int
+    alert_type: str
+    title: str
+    market_slug: str | None
+    platform: str | None
+    fade_outcome: str  # yes | no
+    reference_price: float | None
+    stake_usd: float | None
+    created_at: str | None
+    raw: dict[str, Any]
+
+    @property
+    def is_fade(self) -> bool:
+        return "fade" in self.alert_type.lower()
+
+
+@dataclass(frozen=True)
+class SportsFadeOpportunity:
+    """PM sports line rich vs other books → fade (buy NO)."""
+
+    event_name: str
+    team: str
+    polymarket_slug: str
+    polymarket_yes: float
+    consensus_yes: float
+    dislocation: float
+    sport: str
+    group_id: int | None
+    source_url: str | None
+
+
+def _parse_alert(row: dict[str, Any]) -> FadeAlert | None:
+    if not isinstance(row, dict):
+        return None
+    alert_id = row.get("id")
+    if alert_id is None:
+        return None
+    data = row.get("data") if isinstance(row.get("data"), dict) else {}
+    slug = row.get("market_slug") or data.get("market_slug") or data.get("slug")
+    title = str(row.get("title") or "")
+    alert_type = str(row.get("alert_type") or "unknown")
+
+    fade_outcome = str(
+        data.get("fade_outcome")
+        or data.get("fade_side")
+        or data.get("recommended_side")
+        or ""
+    ).lower()
+    side = str(data.get("side") or data.get("trade_side") or "").lower()
+    if fade_outcome not in ("yes", "no"):
+        if "fade" in alert_type or "fade" in title.lower():
+            if side == "buy":
+                bought = str(data.get("outcome") or data.get("token") or "yes").lower()
+                fade_outcome = "no" if bought == "yes" else "yes"
+            elif side == "sell":
+                fade_outcome = str(data.get("outcome") or "no").lower()
+            else:
+                fade_outcome = "no"
+        elif side == "buy":
+            fade_outcome = str(data.get("outcome") or "yes").lower()
+        else:
+            fade_outcome = "no"
+
+    ref_price = data.get("price") or data.get("yes_price") or data.get("fill_price")
+    try:
+        reference_price = float(ref_price) if ref_price is not None else None
+        if reference_price is not None and reference_price > 1.0:
+            reference_price = reference_price / 100.0
+    except (TypeError, ValueError):
+        reference_price = None
+
+    stake = data.get("stake_usd") or data.get("stake") or data.get("notional_usd")
+    try:
+        stake_usd = float(stake) if stake is not None else None
+    except (TypeError, ValueError):
+        stake_usd = None
+
+    return FadeAlert(
+        alert_id=int(alert_id),
+        alert_type=alert_type,
+        title=title,
+        market_slug=str(slug) if slug else None,
+        platform=str(row.get("platform_buy") or data.get("platform") or "polymarket"),
+        fade_outcome=fade_outcome,
+        reference_price=reference_price,
+        stake_usd=stake_usd,
+        created_at=row.get("created_at"),
+        raw=row,
+    )
+
+
+def extract_sports_fades(
+    payload: dict[str, Any],
+    *,
+    sport: str,
+    min_dislocation: float,
+    slug_resolver: Any | None = None,
+) -> list[SportsFadeOpportunity]:
+    """Find PM-overpriced sports moneylines vs other platforms."""
+    out: list[SportsFadeOpportunity] = []
+    for game in payload.get("games") or []:
+        if not isinstance(game, dict):
+            continue
+        markets = game.get("markets") or []
+        if not isinstance(markets, list):
+            continue
+        pm_rows = [m for m in markets if isinstance(m, dict) and m.get("platform") == "polymarket"]
+        other_rows = [m for m in markets if isinstance(m, dict) and m.get("platform") != "polymarket"]
+        if not pm_rows or not other_rows:
+            continue
+        team = str(game.get("team") or game.get("game_title") or "")
+        event_name = str(game.get("event_name") or "")
+        group_id = game.get("group_id")
+        for pm in pm_rows:
+            pm_yes = normalize_platform_price("polymarket", pm.get("yes_ask") or pm.get("last_price"))
+            if pm_yes is None:
+                continue
+            others: list[float] = []
+            for row in other_rows:
+                p = normalize_platform_price(
+                    str(row.get("platform") or ""),
+                    row.get("yes_ask") or row.get("last_price"),
+                )
+                if p is not None and 0.02 < p < 0.98:
+                    others.append(p)
+            if not others:
+                continue
+            consensus = statistics.median(others)
+            dislocation = pm_yes - consensus
+            if dislocation < min_dislocation:
+                continue
+            source_url = pm.get("source_url")
+            slug = None
+            if slug_resolver is not None:
+                slug = slug_resolver(
+                    source_url=str(source_url) if source_url else None,
+                    team=team,
+                    market_id=str(pm.get("market_id") or ""),
+                )
+            if not slug:
+                continue
+            out.append(
+                SportsFadeOpportunity(
+                    event_name=event_name,
+                    team=team,
+                    polymarket_slug=slug,
+                    polymarket_yes=pm_yes,
+                    consensus_yes=consensus,
+                    dislocation=dislocation,
+                    sport=sport,
+                    group_id=int(group_id) if group_id is not None else None,
+                    source_url=str(source_url) if source_url else None,
+                )
+            )
+    return out
+
+
+_GAMMA_URL = "https://gamma-api.polymarket.com"
+
+
+def resolve_polymarket_slug_from_sports(
+    *,
+    source_url: str | None,
+    team: str | None,
+    market_id: str | None = None,
+    timeout: float = 10.0,
+) -> str | None:
+    """Map PH sports row → Polymarket market slug via Gamma event lookup."""
+    if not source_url:
+        return None
+    m = re.search(r"/event/([^/?#]+)", source_url)
+    if not m:
+        return None
+    event_slug = m.group(1)
+    try:
+        with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+            resp = client.get(f"{_GAMMA_URL}/events", params={"slug": event_slug})
+        if resp.status_code >= 400:
+            return None
+        events = resp.json()
+    except (httpx.HTTPError, json.JSONDecodeError):
+        return None
+    if not events or not isinstance(events, list):
+        return None
+    markets = events[0].get("markets") or []
+    if not isinstance(markets, list):
+        return None
+    team_l = (team or "").lower()
+    mid = str(market_id or "")
+    for row in markets:
+        if not isinstance(row, dict):
+            continue
+        slug = row.get("slug")
+        if not slug:
+            continue
+        blob = json.dumps(row)
+        if mid and mid in blob:
+            return str(slug)
+        question = str(row.get("question") or "").lower()
+        if team_l and team_l in question:
+            return str(slug)
+    return None
+
+
 class PredictionHuntClient:
     """Rate-limited, cached PredictionHunt client."""
 
@@ -414,7 +637,15 @@ class PredictionHuntClient:
     def _headers(self) -> dict[str, str]:
         return {"X-API-Key": self._api_key, "Accept": "application/json"}
 
-    def _get(self, path: str, params: dict[str, Any], *, matched: bool = False) -> dict[str, Any] | None:
+    def _get(
+        self,
+        path: str,
+        params: dict[str, Any],
+        *,
+        matched: bool = False,
+        use_cache: bool = True,
+        cache_ttl_hours: float | None = None,
+    ) -> dict[str, Any] | None:
         if not self.enabled:
             return None
         cfg = self._settings
@@ -427,9 +658,11 @@ class PredictionHuntClient:
             return None
 
         cache_key = f"{path}?{urlencode(sorted((k, str(v)) for k, v in params.items()))}"
-        cached = self._cache.get(cache_key, ttl_hours=cfg.cache_ttl_hours)
-        if cached is not None:
-            return cached
+        ttl = cache_ttl_hours if cache_ttl_hours is not None else cfg.cache_ttl_hours
+        if use_cache:
+            cached = self._cache.get(cache_key, ttl_hours=ttl)
+            if cached is not None:
+                return cached
 
         self._quota.wait_for_rate_limit(cfg.min_request_interval_seconds)
         url = f"{_BASE_URL}{path}"
@@ -446,6 +679,14 @@ class PredictionHuntClient:
             return None
 
         if resp.status_code >= 400:
+            try:
+                err = resp.json()
+                code = err.get("code") if isinstance(err, dict) else None
+            except json.JSONDecodeError:
+                code = None
+            if resp.status_code == 403 and code == "auth.endpoint_blocked":
+                log.info("PredictionHunt endpoint blocked (upgrade tier): %s", path)
+                return {"success": False, "_blocked": True, "code": code}
             log.warning("PredictionHunt HTTP %s: %s", resp.status_code, resp.text[:200])
             return None
 
@@ -456,11 +697,14 @@ class PredictionHuntClient:
             return None
         if not isinstance(data, dict):
             return None
+        if data.get("_blocked"):
+            return data
         if data.get("success") is False:
             log.info("PredictionHunt no match: %s", data.get("message") or data.get("error"))
             return None
 
-        self._cache.put(cache_key, data)
+        if use_cache:
+            self._cache.put(cache_key, data)
         return data
 
     def lookup_bucket(
@@ -514,6 +758,77 @@ class PredictionHuntClient:
         if matched is not None and matched.platform_count >= self._settings.min_cross_platform_count:
             return matched
         return search_hit
+
+    def fetch_fade_finder_alerts(
+        self,
+        *,
+        platform: str = "polymarket",
+        limit: int = 50,
+        since: str | None = None,
+    ) -> tuple[list[FadeAlert], str | None]:
+        """Whale fade alerts (Dev+ tier). Returns (alerts, block_reason)."""
+        params: dict[str, Any] = {
+            "platform": platform,
+            "limit": limit,
+            "alert_type": "all",
+        }
+        if since:
+            params["since"] = since
+        data = self._get("/alerts/fade-finder", params, use_cache=False)
+        if data is None:
+            return [], None
+        if data.get("_blocked"):
+            return [], "fade-finder_blocked"
+        rows = data.get("alerts") or data.get("data") or []
+        if not isinstance(rows, list):
+            return [], None
+        out = [a for row in rows if (a := _parse_alert(row)) is not None]
+        return out, None
+
+    def fetch_smart_money_alerts(
+        self,
+        *,
+        platform: str = "polymarket",
+        limit: int = 50,
+        since: str | None = None,
+    ) -> tuple[list[FadeAlert], str | None]:
+        """Smart-money trade alerts (Dev+ tier)."""
+        params: dict[str, Any] = {
+            "platform": platform,
+            "limit": limit,
+            "alert_type": "all",
+        }
+        if since:
+            params["since"] = since
+        data = self._get("/alerts/smart-money", params, use_cache=False)
+        if data is None:
+            return [], None
+        if data.get("_blocked"):
+            return [], "smart-money_blocked"
+        rows = data.get("alerts") or data.get("data") or []
+        if not isinstance(rows, list):
+            return [], None
+        out = [a for row in rows if (a := _parse_alert(row)) is not None]
+        return out, None
+
+    def fetch_sports_matching(
+        self,
+        *,
+        sport: str,
+        date: str | None = None,
+        cache_ttl_hours: float = 24.0,
+    ) -> dict[str, Any] | None:
+        """Cross-platform sports games (free tier). Counts toward matched quota."""
+        params: dict[str, Any] = {"sport": sport}
+        if date:
+            params["date"] = date
+        return self._get(
+            "/matching-markets/sports",
+            params,
+            matched=True,
+            use_cache=True,
+            cache_ttl_hours=cache_ttl_hours,
+        )
 
 
 def cross_platform_no_edge(

@@ -302,6 +302,33 @@ class PredictionHuntSettings:
 
 
 @dataclass(frozen=True)
+class FadeFinderSettings:
+    """Prediction Hunt fade-finder / smart-money + sports cross-platform fades."""
+
+    poll_interval_seconds: int
+    use_fade_alerts: bool
+    use_smart_money_alerts: bool
+    sports_fallback: bool
+    sports: tuple[str, ...]
+    min_dislocation: float
+    min_whale_stake_usd: float
+    min_no_ask: float
+    max_no_ask: float
+    min_yes_ask: float
+    max_yes_ask: float
+    position_usd: float
+    max_position_usd: float
+    max_open_positions: int
+    take_profit_pct: float
+    stop_loss_entry_pct: float
+    alert_lookback_hours: float
+    alert_limit: int
+    sports_per_scan: int
+    sports_cache_ttl_hours: float
+    starting_balance: float | None
+
+
+@dataclass(frozen=True)
 class Settings:
     poll_interval_seconds: int
     horizon_days: int
@@ -316,6 +343,7 @@ class Settings:
     live: LiveSettings
     intel: IntelSettings
     predictionhunt: PredictionHuntSettings
+    fadefinder: FadeFinderSettings
     safe: SafeSettings
     asymmetric: AsymmetricSettings
     contrarian: ContrarianSettings
@@ -437,6 +465,7 @@ def load_settings(
     contrarian_raw = raw.get("contrarian") or {}
     conviction_raw = raw.get("conviction") or {}
     esports_raw = raw.get("esports") or {}
+    fadefinder_raw = raw.get("fadefinder") or {}
     oddspapi_raw = esports_raw.get("oddspapi") or {}
     momentum_raw = raw.get("momentum") or {}
     copy_raw = raw.get("copy") or {}
@@ -612,6 +641,43 @@ def load_settings(
                 base_url=str(
                     oddspapi_raw.get("base_url") or "https://api.oddspapi.io/v4"
                 ),
+            ),
+        ),
+        fadefinder=FadeFinderSettings(
+            poll_interval_seconds=int(fadefinder_raw.get("poll_interval_seconds", 120)),
+            use_fade_alerts=bool(fadefinder_raw.get("use_fade_alerts", True)),
+            use_smart_money_alerts=bool(
+                fadefinder_raw.get("use_smart_money_alerts", False)
+            ),
+            sports_fallback=bool(fadefinder_raw.get("sports_fallback", True)),
+            sports=tuple(
+                fadefinder_raw.get("sports")
+                or ("nfl", "nba", "mlb", "nhl", "lol", "cs2")
+            ),
+            min_dislocation=float(
+                fadefinder_raw.get("min_dislocation")
+                or predictionhunt_raw.get("min_dislocation", 0.04)
+            ),
+            min_whale_stake_usd=float(fadefinder_raw.get("min_whale_stake_usd", 500)),
+            min_no_ask=float(fadefinder_raw.get("min_no_ask", 0.12)),
+            max_no_ask=float(fadefinder_raw.get("max_no_ask", 0.92)),
+            min_yes_ask=float(fadefinder_raw.get("min_yes_ask", 0.08)),
+            max_yes_ask=float(fadefinder_raw.get("max_yes_ask", 0.85)),
+            position_usd=float(fadefinder_raw.get("position_usd", 5)),
+            max_position_usd=float(fadefinder_raw.get("max_position_usd", 15)),
+            max_open_positions=int(fadefinder_raw.get("max_open_positions", 8)),
+            take_profit_pct=float(fadefinder_raw.get("take_profit_pct", 0.15)),
+            stop_loss_entry_pct=float(fadefinder_raw.get("stop_loss_entry_pct", 0.70)),
+            alert_lookback_hours=float(fadefinder_raw.get("alert_lookback_hours", 24)),
+            alert_limit=int(fadefinder_raw.get("alert_limit", 50)),
+            sports_per_scan=int(fadefinder_raw.get("sports_per_scan", 1)),
+            sports_cache_ttl_hours=float(
+                fadefinder_raw.get("sports_cache_ttl_hours", 24)
+            ),
+            starting_balance=(
+                float(fadefinder_raw["starting_balance"])
+                if fadefinder_raw.get("starting_balance") is not None
+                else None
             ),
         ),
         momentum=MomentumSettings(

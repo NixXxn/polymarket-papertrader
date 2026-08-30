@@ -364,7 +364,32 @@ predictionhunt:
   min_cross_platform_count: 2
   min_dislocation: 0.02
   use_matching_markets: false
-  strategies: [contrarian, conviction]
+  strategies: [contrarian, conviction, fadefinder]
+
+# Prediction Hunt fade-finder: whale fades + sports cross-platform (free-tier sports fallback).
+# Dev+ ($49/mo) required for /alerts/fade-finder — flip use_fade_alerts when upgraded.
+fadefinder:
+  starting_balance: 500
+  poll_interval_seconds: 300
+  use_fade_alerts: false
+  use_smart_money_alerts: false
+  sports_fallback: true
+  sports_per_scan: 1
+  sports_cache_ttl_hours: 24
+  sports: [lol, cs2, nfl, nba, mlb, nhl]
+  min_dislocation: 0.05
+  min_whale_stake_usd: 500
+  min_no_ask: 0.15
+  max_no_ask: 0.90
+  min_yes_ask: 0.10
+  max_yes_ask: 0.82
+  position_usd: 4
+  max_position_usd: 12
+  max_open_positions: 6
+  take_profit_pct: 0.18
+  stop_loss_entry_pct: 0.65
+  alert_lookback_hours: 24
+  alert_limit: 50
 
 live:
   clob_host: "https://clob.polymarket.com"

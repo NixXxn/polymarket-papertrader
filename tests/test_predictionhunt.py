@@ -13,6 +13,8 @@ from papertrader.predictionhunt import (
     PredictionHuntQuota,
     cross_platform_no_edge,
     extract_bucket_cross_platform,
+    extract_sports_fades,
+    normalize_platform_price,
     search_query_from_event_slug,
 )
 
@@ -150,3 +152,33 @@ def test_client_uses_cache(tmp_path: Path, monkeypatch):
     )
     assert first_calls >= 1
     assert len(calls) == first_calls
+
+
+def test_extract_sports_fades_requires_dislocation():
+    payload = {
+        "games": [
+            {
+                "team": "Lakers",
+                "markets": [
+                    {"platform": "polymarket", "yes_ask": 0.51, "source_url": "https://x/event/nba"},
+                    {"platform": "kalshi", "yes_ask": 50},
+                ],
+            }
+        ]
+    }
+    opps = extract_sports_fades(
+        payload,
+        sport="nba",
+        min_dislocation=0.05,
+        slug_resolver=lambda **_: None,
+    )
+    assert opps == []
+
+    opps2 = extract_sports_fades(
+        payload,
+        sport="nba",
+        min_dislocation=0.005,
+        slug_resolver=lambda **_: "lakers-slug",
+    )
+    assert len(opps2) == 1
+    assert normalize_platform_price("kalshi", 50) == pytest.approx(0.5)

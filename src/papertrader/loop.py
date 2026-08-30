@@ -20,6 +20,7 @@ from papertrader.markets import city_local_today, discover_events, event_dates, 
 from papertrader.report import ScanCounts, combine_engines, format_scan_update
 from papertrader.scan_history import append_scan
 from papertrader.signals import Signal
+from papertrader.sizing import account_cash
 from papertrader.trade_log import append_activity, append_skipped
 from papertrader.esports_state import EsportsExitStore
 from papertrader.momentum_state import MomentumExitStore
@@ -33,6 +34,14 @@ from papertrader.strategies.momentum import (
 )
 from papertrader.weather_ws_client import MarketTick, run_market_websocket
 from papertrader.esports_markets import discover_esports_markets
+from papertrader.fadefinder_state import FadeFinderState
+from papertrader.predictionhunt import PredictionHuntClient
+from papertrader.strategies.fadefinder import (
+    analyze_fade_alert,
+    analyze_sports_fade,
+    discover_fade_opportunities,
+    fadefinder_exits,
+)
 from papertrader.oddspapi import OddsPapiService, oddspapi_api_key
 from papertrader.strategies.asymmetric import analyze_asymmetric_event, asymmetric_exits
 from papertrader.strategies.contrarian import analyze_contrarian_event, contrarian_exits
@@ -1243,6 +1252,252 @@ def run_esports_loop(
             _, counts = scan_esports_once(
                 settings=settings,
                 esports_engine=esports_engine,
+                dry_run=dry_run,
+                live=live,
+                ctx=ctx,
+            )
+            last = print_scan_update(counts, named_engines, data_dir=data_dir)
+    finally:
+        pass
+    return last
+
+
+def _log_fadefinder_scan(
+    engine: Engine,
+    *,
+    stats: dict[str, int | str | None],
+    orders_placed: int,
+    pending: int,
+    ph_quota: dict[str, int | None] | None = None,
+) -> None:
+    reason = (
+        f"fadefinder scan: {stats.get('fade_alerts', 0)} fade alerts / "
+        f"{stats.get('smart_alerts', 0)} smart-money / "
+        f"{stats.get('sports_opps', 0)} sports fades"
+    )
+    if stats.get("sports_scanned"):
+        reason += f" / scanned {stats['sports_scanned']} sport(s)"
+    if stats.get("fade_blocked"):
+        reason += f" / fade blocked ({stats['fade_blocked']})"
+    if stats.get("smart_blocked"):
+        reason += f" / smart blocked ({stats['smart_blocked']})"
+    if ph_quota:
+        reason += (
+            f" / PH quota {ph_quota.get('monthly_used', 0)}m"
+            f" {ph_quota.get('matched_monthly_used', 0)} matched"
+        )
+    log_decision(
+        engine.db.data_dir,
+        strategy="fadefinder",
+        decision="scan",
+        reason=reason,
+        orders_placed=orders_placed,
+        pending_positions=pending,
+        fade_alerts=stats.get("fade_alerts"),
+        smart_alerts=stats.get("smart_alerts"),
+        sports_opps=stats.get("sports_opps"),
+    )
+    append_activity(
+        engine.db.data_dir,
+        level="info",
+        event="fadefinder_scan",
+        strategy="fadefinder",
+        message=reason,
+        orders_placed=orders_placed,
+        pending_positions=pending,
+    )
+    log.info("FadeFinder scan — %s", reason)
+
+
+def scan_fadefinder_once(
+    *,
+    settings: Settings,
+    fadefinder_engine: Engine,
+    dry_run: bool,
+    live: LiveTrader | None = None,
+    ctx: ExecutionContext | None = None,
+) -> tuple[list[Signal], ScanCounts]:
+    emitted: list[Signal] = []
+    counts = ScanCounts()
+    ctx = ctx or ExecutionContext()
+    cfg = settings.fadefinder
+    state = FadeFinderState(fadefinder_engine.db.data_dir)
+    ph_client = PredictionHuntClient(
+        fadefinder_engine.db.data_dir,
+        settings.predictionhunt,
+    )
+
+    if live is not None and not ctx.balance_checked:
+        ctx.wallet_balance = live.client.get_balance()
+        ctx.balance_checked = True
+    if live is not None:
+        _sync_live_engines(live, [("fadefinder", fadefinder_engine)])
+    _purge_logs([fadefinder_engine])
+    if live is None:
+        try:
+            fadefinder_engine.check_orders()
+        except Exception as e:
+            log.debug("check_orders: %s", e)
+        counts.resolved += _resolve(fadefinder_engine)
+
+    for sig in fadefinder_exits(fadefinder_engine, settings, fadefinder_engine.db.get_open_positions(), state=state):
+        filled = execute_signal(
+            fadefinder_engine, sig, dry_run, live=live, ctx=ctx, strategy="fadefinder"
+        )
+        emitted.append(sig)
+        if filled:
+            counts.orders_placed += 1
+            counts.fills += 1
+            counts.risk_exits += 1
+
+    positions = fadefinder_engine.db.get_open_positions()
+    remaining = max(0, cfg.max_open_positions - len(positions))
+    cash = account_cash(fadefinder_engine, settings.starting_balance)
+
+    stats = discover_fade_opportunities(
+        fadefinder_engine, settings, ph_client=ph_client, state=state
+    )
+
+    fade_alerts = stats.get("_fade_alerts") or []
+    smart_alerts = stats.get("_smart_alerts") or []
+    sports_opps = stats.get("_sports_opps") or []
+
+    for alert in fade_alerts:
+        if remaining <= 0:
+            break
+        sig = analyze_fade_alert(
+            fadefinder_engine,
+            alert,
+            settings,
+            positions,
+            state=state,
+            remaining_slots=remaining,
+            cash=cash,
+            source="fade-finder",
+        )
+        if sig is None:
+            continue
+        filled = execute_signal(
+            fadefinder_engine, sig, dry_run, live=live, ctx=ctx, strategy="fadefinder"
+        )
+        emitted.append(sig)
+        if filled:
+            counts.orders_placed += 1
+            counts.fills += 1
+            remaining -= 1
+            positions = fadefinder_engine.db.get_open_positions()
+
+    for alert in smart_alerts:
+        if remaining <= 0:
+            break
+        sig = analyze_fade_alert(
+            fadefinder_engine,
+            alert,
+            settings,
+            positions,
+            state=state,
+            remaining_slots=remaining,
+            cash=cash,
+            source="smart-money",
+        )
+        if sig is None:
+            continue
+        filled = execute_signal(
+            fadefinder_engine, sig, dry_run, live=live, ctx=ctx, strategy="fadefinder"
+        )
+        emitted.append(sig)
+        if filled:
+            counts.orders_placed += 1
+            counts.fills += 1
+            remaining -= 1
+            positions = fadefinder_engine.db.get_open_positions()
+
+    for opp in sports_opps:
+        if remaining <= 0:
+            break
+        sig = analyze_sports_fade(
+            fadefinder_engine,
+            opp,
+            settings,
+            positions,
+            state=state,
+            remaining_slots=remaining,
+            cash=cash,
+        )
+        if sig is None:
+            continue
+        filled = execute_signal(
+            fadefinder_engine, sig, dry_run, live=live, ctx=ctx, strategy="fadefinder"
+        )
+        emitted.append(sig)
+        if filled:
+            counts.orders_placed += 1
+            counts.fills += 1
+            remaining -= 1
+            positions = fadefinder_engine.db.get_open_positions()
+
+    if live is None:
+        try:
+            fadefinder_engine.check_orders()
+        except Exception as e:
+            log.debug("check_orders: %s", e)
+        for sig in fadefinder_exits(
+            fadefinder_engine, settings, fadefinder_engine.db.get_open_positions(), state=state
+        ):
+            filled = execute_signal(
+                fadefinder_engine, sig, dry_run, live=live, ctx=ctx, strategy="fadefinder"
+            )
+            emitted.append(sig)
+            if filled:
+                counts.orders_placed += 1
+                counts.fills += 1
+                counts.risk_exits += 1
+
+    counts.pending = len(fadefinder_engine.db.get_open_positions())
+    counts.fills += counts.resolved
+    ph_quota = ph_client._quota.snapshot() if ph_client.enabled else None
+    _log_fadefinder_scan(
+        fadefinder_engine,
+        stats=stats,
+        orders_placed=counts.orders_placed,
+        pending=counts.pending,
+        ph_quota=ph_quota,
+    )
+    return emitted, counts
+
+
+def run_fadefinder_loop(
+    *,
+    settings: Settings,
+    fadefinder_engine: Engine,
+    dry_run: bool,
+    once: bool,
+    live: LiveTrader | None = None,
+    data_dir: Path | None = None,
+) -> str:
+    """Poll Prediction Hunt fade-finder / sports matching for whale-fade edges."""
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    named_engines = [("fadefinder", fadefinder_engine)]
+    poll_seconds = max(30, settings.fadefinder.poll_interval_seconds)
+    last = ""
+    try:
+        ctx = ExecutionContext()
+        _, counts = scan_fadefinder_once(
+            settings=settings,
+            fadefinder_engine=fadefinder_engine,
+            dry_run=dry_run,
+            live=live,
+            ctx=ctx,
+        )
+        last = print_scan_update(counts, named_engines, data_dir=data_dir)
+        if once:
+            return last
+        while True:
+            time.sleep(poll_seconds)
+            ctx = ExecutionContext()
+            _, counts = scan_fadefinder_once(
+                settings=settings,
+                fadefinder_engine=fadefinder_engine,
                 dry_run=dry_run,
                 live=live,
                 ctx=ctx,

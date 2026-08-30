@@ -9,12 +9,12 @@ from papertrader.accounts import data_dir_from_env, make_engine, reset_all_strat
 from papertrader.config import ROOT, load_settings
 from papertrader.execution import get_shared_live_client
 from papertrader.live import LiveTrader, PyClobLiveClient
-from papertrader.loop import run_copy_loop, run_esports_loop, run_loop, run_momentum_loop
+from papertrader.loop import run_copy_loop, run_esports_loop, run_fadefinder_loop, run_loop, run_momentum_loop
 from papertrader.mode import ModeError, load_dotenv_file, resolve_mode
 
 log = logging.getLogger("papertrader")
 
-_STRATEGIES = ("safe", "asymmetric", "contrarian", "conviction", "both", "copy", "esports", "momentum", "meanrev", "volspike", "closingsoon", "btc5m")
+_STRATEGIES = ("safe", "asymmetric", "contrarian", "conviction", "both", "copy", "esports", "fadefinder", "momentum", "meanrev", "volspike", "closingsoon", "btc5m")
 
 
 def _strategy_balance(settings, name: str) -> float:
@@ -138,6 +138,13 @@ def _start(
         esports_engine = make_engine(
             "esports", resolved.data_dir, settings.starting_balance, reset=reset
         )
+    if strategy in ("fadefinder", "both"):
+        fadefinder_engine = make_engine(
+            "fadefinder",
+            resolved.data_dir,
+            _strategy_balance(settings, "fadefinder"),
+            reset=reset,
+        )
     if strategy == "copy":
         copy_engine = make_engine("copy", resolved.data_dir, settings.starting_balance, reset=reset)
         if live is not None:
@@ -157,6 +164,18 @@ def _start(
         run_esports_loop(
             settings=settings,
             esports_engine=esports_engine,
+            dry_run=dry_run,
+            once=once,
+            live=live,
+            data_dir=resolved.data_dir,
+        )
+        return
+    if strategy == "fadefinder":
+        if live is not None:
+            live.sync_cash(fadefinder_engine)
+        run_fadefinder_loop(
+            settings=settings,
+            fadefinder_engine=fadefinder_engine,
             dry_run=dry_run,
             once=once,
             live=live,

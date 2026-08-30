@@ -42,7 +42,7 @@ def test_scan_history_roundtrip(tmp_path):
 def test_fetch_dashboard_empty_data_dir(tmp_path):
     payload = fetch_dashboard(data_dir=tmp_path, mode="paper")
     assert payload["ok"] is True
-    assert len(payload["portfolio"]["by_strategy"]) == 11
+    assert len(payload["portfolio"]["by_strategy"]) == 12
     assert payload["portfolio"]["total"] > 0
     assert payload["activity_log"] == []
     assert payload["decisions"] == []
@@ -95,7 +95,7 @@ def test_reset_strategy_budgets(tmp_path):
     make_engine("asymmetric", tmp_path, starting_balance=100.0, reset=True)
     result = reset_strategy_budgets(data_dir=tmp_path, mode="paper", balance=500.0)
     assert result["ok"] is True
-    assert len(result["strategies"]) == 11
+    assert len(result["strategies"]) == 12
     assert all(s["cash"] == 500.0 for s in result["strategies"])
     payload = fetch_dashboard(data_dir=tmp_path, mode="paper")
     assert payload["portfolio"]["by_strategy"][0]["cash"] == 500.0
