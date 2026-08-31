@@ -53,6 +53,8 @@
     .strategy-volspike { color:#fb923c; }
     .strategy-closingsoon { color:#a78bfa; }
     .strategy-btc5m { color:#2dd4bf; }
+    .strategy-obieweather { color:#60a5fa; }
+    .strategy-conviction { color:#e879f9; }
     .right { text-align:right; }
     .muted { color:var(--muted); }
     .status { padding:16px; color:var(--muted); }
@@ -88,6 +90,7 @@
         <option value="safe">Safe</option>
         <option value="asymmetric">Asymmetric</option>
         <option value="contrarian">Contrarian</option>
+        <option value="obieweather">ObieWeather</option>
         <option value="copy">Copy (legacy)</option>
         <option value="esports">Esports</option>
         <option value="momentum">Momentum</option>
@@ -209,12 +212,14 @@
   let allTrades = [];
   let allPositions = [];
   let allActivity = [];
+  let strategyLabels = { obieweather: 'ObieWeather' };
 
   const money = n => new Intl.NumberFormat('de-DE', {style:'currency', currency:'USD'}).format(Number(n||0));
   const pct = n => `${Number(n||0).toLocaleString('de-DE', {maximumFractionDigits:2})}%`;
   const price = n => Number(n||0).toLocaleString('de-DE', {maximumFractionDigits:4});
   const dt = s => s ? new Date(s).toLocaleString('de-DE') : '–';
   const esc = v => String(v??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+  const strategyLabel = name => strategyLabels[name] || name;
   const ms = n => n == null ? '–' : `${Math.round(Number(n)).toLocaleString('de-DE')} ms`;
   const REJECT_LABELS = {
     no_ask: 'kein Ask',
@@ -290,7 +295,7 @@
       el.className = 'card';
       const strategyBudget = Math.round(Number(s.cash ?? s.starting_balance ?? 0));
       el.innerHTML = `
-        <div class="label strategy-${esc(s.name)}">${esc(s.name)}</div>
+        <div class="label strategy-${esc(s.name)}">${esc(s.display_name || strategyLabel(s.name))}</div>
         <div class="value ${pnlClass(s.pnl)}">${s.pnl >= 0 ? '+' : ''}${money(s.pnl)}</div>
         <div class="mini">ROI ${pct(s.roi_pct)} · Win Rate ${pct(s.win_rate_pct ?? s.win_rate * 100)}</div>
         <div class="mini">${s.trades} Trades (${s.buys} buys / ${s.sells} sells)</div>
@@ -399,7 +404,7 @@
         <td class="muted">${dt(r.ts)}</td>
         <td><span class="badge level-${esc(level)}">${esc(level)}</span></td>
         <td class="mono decision-${esc(decision)}">${esc(r.decision || r.event || '–')}</td>
-        <td><span class="badge strategy-${esc(r.strategy || 'system')}">${esc(r.strategy || 'system')}</span></td>
+        <td><span class="badge strategy-${esc(r.strategy || 'system')}">${esc(strategyLabel(r.strategy || 'system'))}</span></td>
         <td><div>${esc(detailParts[0] || '')}</div>
             <div class="muted mono">${esc(detailParts.slice(1).join(' · '))}</div></td>`;
       tbody.appendChild(tr);
@@ -435,7 +440,7 @@
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td class="muted">${dt(r.ts)}</td>
-        <td><span class="badge strategy-${esc(r.strategy)}">${esc(r.strategy)}</span></td>
+        <td><span class="badge strategy-${esc(r.strategy)}">${esc(strategyLabel(r.strategy))}</span></td>
         <td><span class="badge ${esc(r.action)}">${esc(r.action)}</span></td>
         <td><div>${esc(r.slug)}</div><div class="muted">${esc(r.reason || '')}</div></td>
         <td class="bad">${esc(r.error)}</td>`;
@@ -483,7 +488,7 @@
     for (const p of rows) {
       const tr = document.createElement('tr');
       tr.innerHTML = `
-        <td><span class="badge strategy-${esc(p.strategy)}">${esc(p.strategy)}</span></td>
+        <td><span class="badge strategy-${esc(p.strategy)}">${esc(strategyLabel(p.strategy))}</span></td>
         <td><div>${esc(p.market_question)}</div><div class="muted"><a href="${esc(p.url)}" target="_blank">Polymarket ↗</a></div></td>
         <td>${esc(p.outcome)}</td>
         <td>${Number(p.shares).toFixed(2)}</td>
@@ -522,7 +527,7 @@
       const tr = document.createElement('tr');
       tr.innerHTML = `
         <td class="muted">${dt(t.created_at)}</td>
-        <td><span class="badge strategy-${esc(t.strategy)}">${esc(t.strategy)}</span></td>
+        <td><span class="badge strategy-${esc(t.strategy)}">${esc(strategyLabel(t.strategy))}</span></td>
         <td><div>${esc(t.market_question)}</div><div class="muted"><a href="${esc(t.url)}" target="_blank">Polymarket ↗</a></div></td>
         <td><span class="badge ${esc(t.side)}">${esc(t.side)}</span></td>
         <td class="right">${money(t.amount_usd)}</td>
@@ -544,6 +549,7 @@
     try {
       const r = await fetch('/api/dashboard', {cache:'no-store'});
       const data = await readJsonOrThrow(r);
+      if (data.strategy_labels) strategyLabels = { ...strategyLabels, ...data.strategy_labels };
       renderPortfolio(data.portfolio, data);
       renderCopy(data.copy || {});
       window._liveSync = data.live_sync || {};

@@ -52,7 +52,7 @@ def test_fetch_dashboard_empty_data_dir(tmp_path):
 def test_fetch_dashboard_includes_all_strategies(tmp_path):
     payload = fetch_dashboard(data_dir=tmp_path, mode="paper")
     names = {s["name"] for s in payload["portfolio"]["by_strategy"]}
-    assert names == {"safe", "asymmetric", "contrarian", "conviction", "copy", "esports", "momentum", "meanrev", "volspike", "closingsoon", "btc5m"}
+    assert names == {"safe", "asymmetric", "contrarian", "conviction", "obieweather", "copy", "esports", "momentum", "meanrev", "volspike", "closingsoon", "btc5m"}
 
 
 def test_fetch_dashboard_with_engines_and_logs(tmp_path):
@@ -95,7 +95,7 @@ def test_reset_strategy_budgets(tmp_path):
     make_engine("asymmetric", tmp_path, starting_balance=100.0, reset=True)
     result = reset_strategy_budgets(data_dir=tmp_path, mode="paper", balance=500.0)
     assert result["ok"] is True
-    assert len(result["strategies"]) == 12
+    assert len(result["strategies"]) == 13
     assert all(s["cash"] == 500.0 for s in result["strategies"])
     payload = fetch_dashboard(data_dir=tmp_path, mode="paper")
     assert payload["portfolio"]["by_strategy"][0]["cash"] == 500.0

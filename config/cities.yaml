@@ -9,7 +9,7 @@ cities:
     lon: -80.2870
     tz: America/New_York
     country: US
-    strategies: [safe]
+    strategies: [safe, obieweather]
     position_usd: 5
   atlanta:
     name: Atlanta
@@ -19,7 +19,7 @@ cities:
     lon: -84.4277
     tz: America/New_York
     country: US
-    strategies: [safe]
+    strategies: [safe, obieweather]
     position_usd: 4
   dallas:
     name: Dallas
@@ -29,7 +29,7 @@ cities:
     lon: -96.8518
     tz: America/Chicago
     country: US
-    strategies: [safe, asymmetric]
+    strategies: [safe, asymmetric, obieweather]
     position_usd: 2
   houston:
     name: Houston
@@ -79,7 +79,7 @@ cities:
     lon: -118.4081
     tz: America/Los_Angeles
     country: US
-    strategies: [safe, asymmetric]
+    strategies: [safe, asymmetric, obieweather]
     position_usd: 2
   denver:
     name: Denver
@@ -129,7 +129,7 @@ cities:
     lon: 18.6017
     tz: Africa/Johannesburg
     country: ZA
-    strategies: [asymmetric]
+    strategies: [asymmetric, obieweather]
     position_usd: 2
   munich:
     name: Munich
@@ -260,4 +260,154 @@ cities:
     tz: Europe/Vienna
     country: AT
     strategies: [asymmetric]
+    position_usd: 2
+  san-diego:
+    name: San Diego
+    slug: san-diego
+    station: KSAN
+    lat: 32.7338
+    lon: -117.1933
+    tz: America/Los_Angeles
+    country: US
+    strategies: [obieweather]
+    position_usd: 2
+  honolulu:
+    name: Honolulu
+    slug: honolulu
+    station: PHNL
+    lat: 21.3187
+    lon: -157.9225
+    tz: Pacific/Honolulu
+    country: US
+    strategies: [obieweather]
+    position_usd: 2
+  charleston:
+    name: Charleston
+    slug: charleston
+    station: KCHS
+    lat: 32.8986
+    lon: -80.0405
+    tz: America/New_York
+    country: US
+    strategies: [obieweather]
+    position_usd: 2
+  tampa:
+    name: Tampa
+    slug: tampa
+    station: KTPA
+    lat: 27.9755
+    lon: -82.5332
+    tz: America/New_York
+    country: US
+    strategies: [obieweather]
+    position_usd: 2
+  las-palmas:
+    name: Las Palmas
+    slug: las-palmas
+    station: GCLP
+    lat: 27.9319
+    lon: -15.3866
+    tz: Atlantic/Canary
+    country: ES
+    strategies: [obieweather]
+    position_usd: 2
+  santa-cruz-de-tenerife:
+    name: Santa Cruz de Tenerife
+    slug: santa-cruz-de-tenerife
+    station: GCTS
+    lat: 28.4827
+    lon: -16.3415
+    tz: Atlantic/Canary
+    country: ES
+    strategies: [obieweather]
+    position_usd: 2
+  medellin:
+    name: Medellín
+    slug: medellin
+    station: SKRG
+    lat: 6.1645
+    lon: -75.4231
+    tz: America/Bogota
+    country: CO
+    strategies: [obieweather]
+    position_usd: 2
+  kunming:
+    name: Kunming
+    slug: kunming
+    station: ZPPP
+    lat: 25.1019
+    lon: 102.9292
+    tz: Asia/Shanghai
+    country: CN
+    strategies: [obieweather]
+    position_usd: 2
+  sydney:
+    name: Sydney
+    slug: sydney
+    station: YSSY
+    lat: -33.9461
+    lon: 151.1772
+    tz: Australia/Sydney
+    country: AU
+    strategies: [obieweather]
+    position_usd: 2
+  buenos-aires:
+    name: Buenos Aires
+    slug: buenos-aires
+    station: SAEZ
+    lat: -34.8222
+    lon: -58.5358
+    tz: America/Argentina/Buenos_Aires
+    country: AR
+    strategies: [obieweather]
+    position_usd: 2
+  vina-del-mar:
+    name: Viña del Mar
+    slug: vina-del-mar
+    station: SCVD
+    lat: -33.0681
+    lon: -71.5575
+    tz: America/Santiago
+    country: CL
+    strategies: [obieweather]
+    position_usd: 2
+  florianopolis:
+    name: Florianópolis
+    slug: florianopolis
+    station: SBFL
+    lat: -27.6705
+    lon: -48.5477
+    tz: America/Sao_Paulo
+    country: BR
+    strategies: [obieweather]
+    position_usd: 2
+  nice:
+    name: Nice
+    slug: nice
+    station: LFMN
+    lat: 43.6584
+    lon: 7.2159
+    tz: Europe/Paris
+    country: FR
+    strategies: [obieweather]
+    position_usd: 2
+  nairobi:
+    name: Nairobi
+    slug: nairobi
+    station: HKJK
+    lat: -1.3192
+    lon: 36.9278
+    tz: Africa/Nairobi
+    country: KE
+    strategies: [obieweather]
+    position_usd: 2
+  arequipa:
+    name: Arequipa
+    slug: arequipa
+    station: SPQU
+    lat: -16.3411
+    lon: -71.5831
+    tz: America/Lima
+    country: PE
+    strategies: [obieweather]
     position_usd: 2

@@ -46,12 +46,12 @@ asymmetric:
   min_model_prob: 0.03
   min_prob_ratio: 1.5
   min_edge: 0.02
-  # Resting YES limits: bid 1–2¢; only raise when Open-Meteo + OpenWeather agree on edge.
+  # Resting YES limits: bid 1–2¢ only; no step-up tier (high_conf disabled).
   preferred_limit: 0.01
   fallback_limit: 0.02
   maker_tick: 0.01
-  high_conf_max_limit: 0.10
-  high_conf_min_ratio: 2.5
+  high_conf_max_limit: 0.02
+  high_conf_min_ratio: 99
   min_dual_edge: 0.012
   strict_limit: true
   take_profit_bid: 0.95
@@ -66,8 +66,8 @@ asymmetric:
   min_event_volume: 200
   min_ensemble_members: 8
   position_usd: 2
-  max_position_usd: 8
-  max_open_positions: 12
+  max_position_usd: 2
+  max_open_positions: 8
   max_hourly_rise_f: 4.0
   high_hour_local: 20
   cities:
@@ -95,6 +95,50 @@ asymmetric:
       chongqing,
       manila,
       vienna,
+    ]
+
+# ObieWeather ladder: 3–4 cheap YES legs across forecast range (~60¢ concept; $4 paper floor).
+obieweather:
+  starting_balance: 500
+  min_yes_ask: 0.03
+  max_yes_ask: 0.40
+  min_yes_bets_per_event: 3
+  max_yes_bets_per_event: 4
+  max_event_usd: 4.0
+  target_event_usd: 0.60
+  max_event_fraction: 0.02
+  min_model_prob: 0.08
+  min_ensemble_prob_sum: 0.35
+  maker_tick: 0.01
+  strict_limit: true
+  min_event_volume: 150
+  min_ensemble_members: 8
+  max_open_positions: 40
+  max_open_per_event: 4
+  min_days_ahead: 0
+  max_days_ahead: 2
+  cities:
+    [
+      san-diego,
+      los-angeles,
+      honolulu,
+      miami,
+      atlanta,
+      dallas,
+      charleston,
+      tampa,
+      las-palmas,
+      santa-cruz-de-tenerife,
+      medellin,
+      kunming,
+      cape-town,
+      sydney,
+      buenos-aires,
+      vina-del-mar,
+      florianopolis,
+      nice,
+      nairobi,
+      arequipa,
     ]
 
 # Contrarian: fade overpriced YES longshots — buy NO via L2 walk + strict LIMIT.

@@ -23,6 +23,8 @@ def root_data_dir(path: Path | str) -> Path:
         "safe",
         "asymmetric",
         "contrarian",
+        "conviction",
+        "obieweather",
         "copy",
         "edge",
         "esports",

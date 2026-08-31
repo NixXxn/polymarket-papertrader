@@ -153,6 +153,31 @@ class ContrarianSettings:
 
 
 @dataclass(frozen=True)
+class ObieWeatherSettings:
+    """Ladder: 3–4 cheap YES legs across forecast range; one win covers losses."""
+
+    min_yes_ask: float
+    max_yes_ask: float
+    min_yes_bets_per_event: int
+    max_yes_bets_per_event: int
+    max_event_usd: float
+    target_event_usd: float
+    max_event_fraction: float
+    min_model_prob: float
+    min_ensemble_prob_sum: float
+    maker_tick: float
+    strict_limit: bool
+    min_event_volume: float
+    min_ensemble_members: int
+    max_open_positions: int
+    max_open_per_event: int
+    min_days_ahead: int
+    max_days_ahead: int
+    starting_balance: float | None
+    cities: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class EsportsSettings:
     horizon_hours: float
     poll_interval_seconds: int
@@ -369,6 +394,7 @@ class Settings:
     asymmetric: AsymmetricSettings
     contrarian: ContrarianSettings
     conviction: ContrarianSettings
+    obieweather: ObieWeatherSettings
     esports: EsportsSettings
     momentum: MomentumSettings
     meanrev: MeanReversionSettings
@@ -485,6 +511,7 @@ def load_settings(
     edge_raw = raw.get("edge") or {}
     contrarian_raw = raw.get("contrarian") or {}
     conviction_raw = raw.get("conviction") or {}
+    obieweather_raw = raw.get("obieweather") or {}
     esports_raw = raw.get("esports") or {}
     fadefinder_raw = raw.get("fadefinder") or {}
     oddspapi_raw = esports_raw.get("oddspapi") or {}
@@ -632,6 +659,57 @@ def load_settings(
                 "min_ensemble_members": 10,
                 "max_open_per_city": 1,
             },
+        ),
+        obieweather=ObieWeatherSettings(
+            min_yes_ask=float(obieweather_raw.get("min_yes_ask", 0.03)),
+            max_yes_ask=float(obieweather_raw.get("max_yes_ask", 0.40)),
+            min_yes_bets_per_event=int(obieweather_raw.get("min_yes_bets_per_event", 3)),
+            max_yes_bets_per_event=int(obieweather_raw.get("max_yes_bets_per_event", 4)),
+            max_event_usd=float(obieweather_raw.get("max_event_usd", 4.0)),
+            target_event_usd=float(obieweather_raw.get("target_event_usd", 0.60)),
+            max_event_fraction=float(obieweather_raw.get("max_event_fraction", 0.02)),
+            min_model_prob=float(obieweather_raw.get("min_model_prob", 0.08)),
+            min_ensemble_prob_sum=float(obieweather_raw.get("min_ensemble_prob_sum", 0.35)),
+            maker_tick=float(obieweather_raw.get("maker_tick", 0.01)),
+            strict_limit=bool(obieweather_raw.get("strict_limit", True)),
+            min_event_volume=float(
+                obieweather_raw.get("min_event_volume", raw.get("min_event_volume", 150))
+            ),
+            min_ensemble_members=int(obieweather_raw.get("min_ensemble_members", 8)),
+            max_open_positions=int(obieweather_raw.get("max_open_positions", 40)),
+            max_open_per_event=int(obieweather_raw.get("max_open_per_event", 4)),
+            min_days_ahead=int(obieweather_raw.get("min_days_ahead", 0)),
+            max_days_ahead=int(obieweather_raw.get("max_days_ahead", 2)),
+            starting_balance=(
+                float(obieweather_raw["starting_balance"])
+                if obieweather_raw.get("starting_balance") is not None
+                else None
+            ),
+            cities=tuple(
+                obieweather_raw.get("cities")
+                or (
+                    "san-diego",
+                    "los-angeles",
+                    "honolulu",
+                    "miami",
+                    "atlanta",
+                    "dallas",
+                    "charleston",
+                    "tampa",
+                    "las-palmas",
+                    "santa-cruz-de-tenerife",
+                    "medellin",
+                    "kunming",
+                    "cape-town",
+                    "sydney",
+                    "buenos-aires",
+                    "vina-del-mar",
+                    "florianopolis",
+                    "nice",
+                    "nairobi",
+                    "arequipa",
+                )
+            ),
         ),
         esports=EsportsSettings(
             horizon_hours=float(esports_raw.get("horizon_hours", 6)),

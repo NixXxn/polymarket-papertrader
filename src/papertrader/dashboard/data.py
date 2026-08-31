@@ -30,7 +30,11 @@ from papertrader.trade_log import (
 )
 
 
-STRATEGIES = ("safe", "asymmetric", "contrarian", "conviction", "copy", "esports", "momentum", "meanrev", "volspike", "closingsoon", "btc5m")
+STRATEGIES = ("safe", "asymmetric", "contrarian", "conviction", "obieweather", "copy", "esports", "momentum", "meanrev", "volspike", "closingsoon", "btc5m")
+
+STRATEGY_LABELS: dict[str, str] = {
+    "obieweather": "ObieWeather",
+}
 
 _RESET_STATS_FILES = (
     "activity.jsonl",
@@ -377,6 +381,7 @@ def fetch_dashboard(
             portfolio["by_strategy"].append(
                 {
                     "name": s.name,
+                    "display_name": STRATEGY_LABELS.get(s.name, s.name),
                     "trades": s.trades,
                     "buys": s.buys,
                     "sells": s.sells,
@@ -405,6 +410,7 @@ def fetch_dashboard(
             "starting_balance": settings.starting_balance,
             "poll_interval_seconds": settings.poll_interval_seconds,
             "updated_at": datetime.now(timezone.utc).isoformat(),
+            "strategy_labels": STRATEGY_LABELS,
             "portfolio": portfolio,
             "positions": positions,
             "trades": trades[:500],

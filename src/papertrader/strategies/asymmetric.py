@@ -101,24 +101,25 @@ def _pick_cheap_limit(
             return limit, label
 
     if p_ow is not None and p_ens >= cfg.min_model_prob and p_ow >= cfg.min_model_prob:
-        min_p = min(p_ens, p_ow)
-        if min_p / max(cfg.preferred_limit, 1e-6) >= cfg.high_conf_min_ratio:
-            ceiling = min(
-                cfg.max_ask,
-                cfg.high_conf_max_limit,
-                max_price_for_positive_ev(min_p, min_ev=cfg.min_edge),
-            )
-            limit = round(cfg.fallback_limit + cfg.maker_tick, 4)
-            best: float | None = None
-            while limit <= ceiling + 1e-9:
-                if (
-                    min_p - limit >= cfg.min_edge
-                    and min_p / limit >= cfg.min_prob_ratio
-                ):
-                    best = limit
-                limit = round(limit + cfg.maker_tick, 4)
-            if best is not None:
-                return best, "high_conf"
+        if cfg.high_conf_max_limit > cfg.fallback_limit:
+            min_p = min(p_ens, p_ow)
+            if min_p / max(cfg.preferred_limit, 1e-6) >= cfg.high_conf_min_ratio:
+                ceiling = min(
+                    cfg.max_ask,
+                    cfg.high_conf_max_limit,
+                    max_price_for_positive_ev(min_p, min_ev=cfg.min_edge),
+                )
+                limit = round(cfg.fallback_limit + cfg.maker_tick, 4)
+                best: float | None = None
+                while limit <= ceiling + 1e-9:
+                    if (
+                        min_p - limit >= cfg.min_edge
+                        and min_p / limit >= cfg.min_prob_ratio
+                    ):
+                        best = limit
+                    limit = round(limit + cfg.maker_tick, 4)
+                if best is not None:
+                    return best, "high_conf"
 
     if p_ow is None:
         for limit in (cfg.preferred_limit, cfg.fallback_limit):
@@ -366,7 +367,10 @@ def analyze_asymmetric_event(
         regime_snap = vol_store.observe(bucket.market.slug, mark)
         regime_ready = vol_store.ready(regime_snap)
 
-    kelly = _KELLY.compute(
+    kelly = KellySizingEngine(
+        max_usd=cfg.max_position_usd,
+        min_usd=settings.min_position_usd,
+    ).compute(
         best["p_model"],
         limit_price,
         bankroll,
