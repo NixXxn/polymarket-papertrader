@@ -37,6 +37,7 @@ def analyze_conviction_event(
         _patched_settings(settings),
         open_positions,
         today=today,
+        strategy_name="conviction",
     )
 
 

@@ -361,6 +361,16 @@ intel:
   btc_min_fear_greed: 45
   strategies: [meanrev, volspike, closingsoon, btc5m]
 
+# Adaptive Kelly: f* scaled by (1 - σ_current/σ_rolling); past bars only.
+adaptive_sizing:
+  enabled: true
+  rolling_window: 36
+  recent_window: 9
+  min_observations: 8
+  regime_floor: 0.0
+  regime_cap: 1.0
+  strategies: [asymmetric, contrarian, conviction]
+
 # PredictionHunt cross-platform edge (free tier: 1 req/s, 1000/mo, 10 matched/mo).
 # Docs: https://www.predictionhunt.com/api/docs — key in PREDICTION_HUNT_API_KEY.
 predictionhunt:

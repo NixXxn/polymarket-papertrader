@@ -32,6 +32,7 @@ from papertrader.quant.event_kelly import CorrelatedBet, allocate_correlated_kel
 from papertrader.quant.shadow_ledger import ShadowLedger
 from papertrader.quant.shin import shin_fair_probs_from_asks
 from papertrader.quant.variance import VarianceCalculator
+from papertrader.quant.vol_regime import VolRegimeStore
 from papertrader.signals import QuantMeta, Signal
 from papertrader.sizing import account_cash
 from papertrader.weather import WeatherHttp, fetch_metar_observed_high
@@ -267,6 +268,8 @@ def analyze_contrarian_event(
     settings: Settings,
     open_positions: list[Position],
     today: date | None = None,
+    *,
+    strategy_name: str = "contrarian",
 ) -> list[Signal]:
     """Fade overpriced YES longshots via L2-capped LIMIT NO buys (Kelly ∩ EV depth)."""
     if not _city_allowed(city, settings):
@@ -515,6 +518,18 @@ def analyze_contrarian_event(
     if not allocated:
         return []
 
+    adapt = settings.adaptive_sizing
+    vol_store: VolRegimeStore | None = None
+    if adapt.enabled and strategy_name in adapt.strategies:
+        vol_store = VolRegimeStore(
+            engine.db.data_dir,
+            rolling_window=adapt.rolling_window,
+            recent_window=adapt.recent_window,
+            min_observations=adapt.min_observations,
+            regime_floor=adapt.regime_floor,
+            regime_cap=adapt.regime_cap,
+        )
+
     by_label = {row[1].label: row for row in candidates}
     signals: list[Signal] = []
     for bet, stake in allocated:
@@ -530,6 +545,28 @@ def analyze_contrarian_event(
         ):
             stake = min(cfg.max_position_usd, round(stake * _HIGH_CONF_SIZE_MULT, 2))
         stake = min(cfg.max_position_usd, max(settings.min_position_usd, stake))
+
+        regime_mult: float | None = None
+        if vol_store is not None and quote.yes_ask > 0:
+            snap = vol_store.observe(bucket.market.slug, quote.yes_ask)
+            if vol_store.ready(snap) and snap.regime_multiplier is not None:
+                regime_mult = snap.regime_multiplier
+                if regime_mult <= 0:
+                    _log_contrarian(
+                        engine,
+                        decision="skip",
+                        reason="vol_regime_hot",
+                        city=city,
+                        event_date=event_date,
+                        slug=bucket.market.slug,
+                        bucket=bucket.bucket_text,
+                        sigma_current=snap.sigma_current,
+                        sigma_rolling=snap.sigma_rolling,
+                    )
+                    continue
+                stake = round(stake * regime_mult, 2)
+                if stake < settings.min_position_usd:
+                    continue
 
         # HEART: walk NO asks under EV ceiling, clip Kelly to fillable depth, strict LIMIT.
         walk_min_ev = max(0.0, float(getattr(cfg, "book_walk_min_ev", 0.0)))
@@ -619,6 +656,7 @@ def analyze_contrarian_event(
             days_ahead=days_ahead,
             vwap=fill_ref,
             order_type=order_type,
+            regime_multiplier=regime_mult,
             **bayes_extra,
         )
         shadow.log_entry(
@@ -635,6 +673,7 @@ def analyze_contrarian_event(
                 "fair_yes": fair_p_yes,
                 "order_type": order_type,
                 "limit_price": limit_price,
+                "regime_multiplier": regime_mult,
                 **bayes_extra,
             },
         )

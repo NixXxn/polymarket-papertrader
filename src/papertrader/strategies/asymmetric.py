@@ -19,6 +19,7 @@ from papertrader.markets import (
 )
 from papertrader.quant.book_walk import max_price_for_positive_ev
 from papertrader.quant.kelly import KellySizingEngine
+from papertrader.quant.vol_regime import VolRegimeStore
 from papertrader.quant.shadow_ledger import ShadowLedger
 from papertrader.quant.variance import VarianceCalculator
 from papertrader.signals import QuantMeta, Signal
@@ -348,7 +349,30 @@ def analyze_asymmetric_event(
     bucket: BucketMarket = best["bucket"]
     limit_price = best["limit_price"]
     bankroll = account_cash(engine, settings.starting_balance)
-    kelly = _KELLY.compute(best["p_model"], limit_price, bankroll)
+
+    regime_snap = None
+    regime_ready = False
+    adapt = settings.adaptive_sizing
+    if adapt.enabled and "asymmetric" in adapt.strategies:
+        vol_store = VolRegimeStore(
+            engine.db.data_dir,
+            rolling_window=adapt.rolling_window,
+            recent_window=adapt.recent_window,
+            min_observations=adapt.min_observations,
+            regime_floor=adapt.regime_floor,
+            regime_cap=adapt.regime_cap,
+        )
+        mark = best["ask"] if best["ask"] else limit_price
+        regime_snap = vol_store.observe(bucket.market.slug, mark)
+        regime_ready = vol_store.ready(regime_snap)
+
+    kelly = _KELLY.compute(
+        best["p_model"],
+        limit_price,
+        bankroll,
+        regime=regime_snap if regime_ready else None,
+        min_regime_observations=adapt.min_observations if adapt.enabled else 0,
+    )
     if kelly.skipped or kelly.stake_usd is None:
         _log_asym(
             engine,
@@ -388,6 +412,9 @@ def analyze_asymmetric_event(
             "p_ens": best["p_ens"],
             "p_ow": best["p_ow"],
             "market_ask": best["ask"],
+            "regime_multiplier": kelly.regime_multiplier,
+            "sigma_current": kelly.sigma_current,
+            "sigma_rolling": kelly.sigma_rolling,
         },
     )
 
@@ -417,6 +444,8 @@ def analyze_asymmetric_event(
         days_ahead=days_ahead,
         limit_price=limit_price,
         limit_tier=best["limit_tier"],
+        kelly_reason=kelly.reason,
+        regime_multiplier=kelly.regime_multiplier,
     )
 
     return Signal(

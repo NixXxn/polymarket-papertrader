@@ -336,6 +336,19 @@ class FadeFinderSettings:
 
 
 @dataclass(frozen=True)
+class AdaptiveSizingSettings:
+    """Vol-regime Kelly: size up when σ_current < σ_rolling (past-only bars)."""
+
+    enabled: bool
+    rolling_window: int
+    recent_window: int
+    min_observations: int
+    regime_floor: float
+    regime_cap: float
+    strategies: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class Settings:
     poll_interval_seconds: int
     horizon_days: int
@@ -349,6 +362,7 @@ class Settings:
     mode: str
     live: LiveSettings
     intel: IntelSettings
+    adaptive_sizing: AdaptiveSizingSettings
     predictionhunt: PredictionHuntSettings
     fadefinder: FadeFinderSettings
     safe: SafeSettings
@@ -482,6 +496,7 @@ def load_settings(
     btc5m_raw = raw.get("btc5m") or {}
     live_raw = raw.get("live") or {}
     intel_raw = raw.get("intel") or {}
+    adaptive_raw = raw.get("adaptive_sizing") or {}
     predictionhunt_raw = raw.get("predictionhunt") or {}
     mode = normalize_mode(str(raw.get("mode") or PAPER))
     return Settings(
@@ -513,6 +528,17 @@ def load_settings(
             strategies=tuple(
                 intel_raw.get("strategies")
                 or ("meanrev", "volspike", "closingsoon", "btc5m")
+            ),
+        ),
+        adaptive_sizing=AdaptiveSizingSettings(
+            enabled=bool(adaptive_raw.get("enabled", True)),
+            rolling_window=int(adaptive_raw.get("rolling_window", 36)),
+            recent_window=int(adaptive_raw.get("recent_window", 9)),
+            min_observations=int(adaptive_raw.get("min_observations", 8)),
+            regime_floor=float(adaptive_raw.get("regime_floor", 0.0)),
+            regime_cap=float(adaptive_raw.get("regime_cap", 1.0)),
+            strategies=tuple(
+                adaptive_raw.get("strategies") or ("asymmetric", "contrarian", "conviction")
             ),
         ),
         predictionhunt=PredictionHuntSettings(
