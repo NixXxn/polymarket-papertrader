@@ -717,53 +717,18 @@ def scan_once(
                     positions = conviction_engine.db.get_open_positions()
 
     if obieweather_engine:
-        if live is None:
-            try:
-                obieweather_engine.check_orders()
-            except Exception as e:
-                log.debug("check_orders: %s", e)
-        if live is None:
-            counts.resolved += _resolve(obieweather_engine)
-        positions = obieweather_engine.db.get_open_positions()
-        for sig in obieweather_exits(
-            obieweather_engine, http, settings, positions, settings.cities
-        ):
-            filled = execute_signal(
-                obieweather_engine, sig, dry_run, live=live, ctx=ctx, strategy="obieweather"
-            )
-            emitted.append(sig)
-            if filled:
-                counts.orders_placed += 1
-                counts.fills += 1
-                counts.risk_exits += 1
-        cities = settings.cities_for("obieweather")
-        if settings.obieweather.cities:
-            cities = [
-                settings.cities[s] for s in settings.obieweather.cities if s in settings.cities
-            ]
-        events = discover_events(obieweather_engine, cities, settings, now=now)
-        _log_missing_markets(
-            obieweather_engine,
-            strategy="obieweather",
-            cities=cities,
-            events=events,
-            settings=settings,
-            now=now,
-        )
-        prefetch_combined_ensembles(http, events)
-        positions = obieweather_engine.db.get_open_positions()
-        for _slug, event_date, city, buckets, _vol in events:
-            counts.candidates += len(buckets)
-            sigs = analyze_obieweather_event(
-                obieweather_engine,
-                http,
-                city,
-                event_date,
-                buckets,
-                settings,
-                positions,
-            )
-            for sig in sigs:
+        try:
+            if live is None:
+                try:
+                    obieweather_engine.check_orders()
+                except Exception as e:
+                    log.debug("check_orders: %s", e)
+            if live is None:
+                counts.resolved += _resolve(obieweather_engine)
+            positions = obieweather_engine.db.get_open_positions()
+            for sig in obieweather_exits(
+                obieweather_engine, http, settings, positions, settings.cities
+            ):
                 filled = execute_signal(
                     obieweather_engine, sig, dry_run, live=live, ctx=ctx, strategy="obieweather"
                 )
@@ -771,7 +736,59 @@ def scan_once(
                 if filled:
                     counts.orders_placed += 1
                     counts.fills += 1
-                    positions = obieweather_engine.db.get_open_positions()
+                    counts.risk_exits += 1
+            cities = settings.cities_for("obieweather")
+            if settings.obieweather.cities:
+                cities = [
+                    settings.cities[s] for s in settings.obieweather.cities if s in settings.cities
+                ]
+            events = discover_events(obieweather_engine, cities, settings, now=now)
+            _log_missing_markets(
+                obieweather_engine,
+                strategy="obieweather",
+                cities=cities,
+                events=events,
+                settings=settings,
+                now=now,
+            )
+            prefetch_combined_ensembles(http, events)
+            positions = obieweather_engine.db.get_open_positions()
+            for _slug, event_date, city, buckets, _vol in events:
+                counts.candidates += len(buckets)
+                sigs = analyze_obieweather_event(
+                    obieweather_engine,
+                    http,
+                    city,
+                    event_date,
+                    buckets,
+                    settings,
+                    positions,
+                )
+                for sig in sigs:
+                    filled = execute_signal(
+                        obieweather_engine, sig, dry_run, live=live, ctx=ctx, strategy="obieweather"
+                    )
+                    emitted.append(sig)
+                    if filled:
+                        counts.orders_placed += 1
+                        counts.fills += 1
+                        positions = obieweather_engine.db.get_open_positions()
+        except Exception as e:
+            log.exception("obieweather scan failed: %s", e)
+            append_activity(
+                obieweather_engine.db.data_dir,
+                level="error",
+                event="scan_failed",
+                strategy="obieweather",
+                message=str(e),
+            )
+            log_decision(
+                obieweather_engine.db.data_dir,
+                strategy="obieweather",
+                decision="scan_failed",
+                reason=str(e),
+                level="error",
+            )
 
     if copy_engine:
         is_live = live is not None

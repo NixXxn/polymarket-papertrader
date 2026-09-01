@@ -90,30 +90,31 @@ def _select_ladder_window(
     scored: list[_LadderLeg],
     cfg: ObieWeatherSettings,
 ) -> list[_LadderLeg] | None:
-    """Pick 3–4 contiguous buckets centered on the highest ensemble-probability leg."""
+    """Best contiguous 3–4 leg window: asks ≤40¢, limit-price sum ≤60¢."""
     if len(scored) < cfg.min_yes_bets_per_event:
         return None
 
-    scored = sorted(scored, key=lambda row: row.sort_key)
-    peak_idx = max(range(len(scored)), key=lambda i: scored[i].p_model)
-    peak = scored[peak_idx]
-    if peak.ask > cfg.max_yes_ask:
-        return None
+    ordered = sorted(scored, key=lambda row: row.sort_key)
+    best: list[_LadderLeg] | None = None
+    best_prob = -1.0
 
-    want = min(cfg.max_yes_bets_per_event, len(scored))
-    want = max(want, cfg.min_yes_bets_per_event)
-    start = max(0, peak_idx - (want // 2))
-    end = min(len(scored), start + want)
-    start = max(0, end - want)
-    window = scored[start:end]
-
-    if len(window) < cfg.min_yes_bets_per_event:
-        return None
-    if any(leg.ask > cfg.max_yes_ask for leg in window):
-        return None
-    if sum(leg.p_model for leg in window) < cfg.min_ensemble_prob_sum:
-        return None
-    return window
+    for size in range(cfg.max_yes_bets_per_event, cfg.min_yes_bets_per_event - 1, -1):
+        if size > len(ordered):
+            continue
+        for start in range(0, len(ordered) - size + 1):
+            window = ordered[start : start + size]
+            if any(leg.ask > cfg.max_yes_ask for leg in window):
+                continue
+            limit_sum = sum(leg.limit_price for leg in window)
+            if limit_sum > cfg.max_ladder_price_sum + 1e-9:
+                continue
+            prob_sum = sum(leg.p_model for leg in window)
+            if prob_sum < cfg.min_ensemble_prob_sum:
+                continue
+            if prob_sum > best_prob:
+                best_prob = prob_sum
+                best = window
+    return best
 
 
 def analyze_obieweather_event(

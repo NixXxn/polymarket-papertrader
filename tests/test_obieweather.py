@@ -56,6 +56,7 @@ def test_select_ladder_window_picks_contiguous_peak():
         max_yes_bets_per_event=4,
         max_event_usd=4.0,
         target_event_usd=0.60,
+        max_ladder_price_sum=0.65,
         max_event_fraction=0.02,
         min_model_prob=0.08,
         min_ensemble_prob_sum=0.30,

@@ -97,21 +97,22 @@ asymmetric:
       vienna,
     ]
 
-# ObieWeather ladder: 3–4 cheap YES legs across forecast range (~60¢ concept; $4 paper floor).
+# ObieWeather ladder: 3–4 cheap YES legs; limit-price sum ≤60¢ (one win covers losses).
 obieweather:
   starting_balance: 500
-  min_yes_ask: 0.03
+  min_yes_ask: 0.01
   max_yes_ask: 0.40
   min_yes_bets_per_event: 3
   max_yes_bets_per_event: 4
   max_event_usd: 4.0
   target_event_usd: 0.60
+  max_ladder_price_sum: 0.60
   max_event_fraction: 0.02
-  min_model_prob: 0.08
-  min_ensemble_prob_sum: 0.35
+  min_model_prob: 0.05
+  min_ensemble_prob_sum: 0.28
   maker_tick: 0.01
   strict_limit: true
-  min_event_volume: 150
+  min_event_volume: 100
   min_ensemble_members: 8
   max_open_positions: 40
   max_open_per_event: 4

@@ -162,6 +162,7 @@ class ObieWeatherSettings:
     max_yes_bets_per_event: int
     max_event_usd: float
     target_event_usd: float
+    max_ladder_price_sum: float
     max_event_fraction: float
     min_model_prob: float
     min_ensemble_prob_sum: float
@@ -667,9 +668,13 @@ def load_settings(
             max_yes_bets_per_event=int(obieweather_raw.get("max_yes_bets_per_event", 4)),
             max_event_usd=float(obieweather_raw.get("max_event_usd", 4.0)),
             target_event_usd=float(obieweather_raw.get("target_event_usd", 0.60)),
+            max_ladder_price_sum=float(
+                obieweather_raw.get("max_ladder_price_sum")
+                or obieweather_raw.get("target_event_usd", 0.60)
+            ),
             max_event_fraction=float(obieweather_raw.get("max_event_fraction", 0.02)),
-            min_model_prob=float(obieweather_raw.get("min_model_prob", 0.08)),
-            min_ensemble_prob_sum=float(obieweather_raw.get("min_ensemble_prob_sum", 0.35)),
+            min_model_prob=float(obieweather_raw.get("min_model_prob", 0.05)),
+            min_ensemble_prob_sum=float(obieweather_raw.get("min_ensemble_prob_sum", 0.28)),
             maker_tick=float(obieweather_raw.get("maker_tick", 0.01)),
             strict_limit=bool(obieweather_raw.get("strict_limit", True)),
             min_event_volume=float(
