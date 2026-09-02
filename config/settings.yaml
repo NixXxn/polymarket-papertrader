@@ -6,7 +6,7 @@ poll_interval_seconds: 30
 horizon_days: 3
 starting_balance: 500
 # position_usd values are the stake at starting_balance; live bets scale with cash.
-min_position_usd: 1
+min_position_usd: 2
 min_event_volume: 200
 min_best_ask_size: 1
 # Assumed model P(yes) ceiling for safe favorite buys (ask must be <= this).
@@ -26,16 +26,16 @@ safe:
   min_edge_high: 0.05
   min_edge_low: 0.02
   position_usd:
-    miami: 25
-    atlanta: 25
-    nyc: 25
-    chicago: 25
-    dallas: 25
-    houston: 25
-    austin: 25
-    phoenix: 25
-    denver: 25
-    los-angeles: 25
+    miami: 75
+    atlanta: 75
+    nyc: 75
+    chicago: 75
+    dallas: 75
+    houston: 75
+    austin: 75
+    phoenix: 75
+    denver: 75
+    los-angeles: 75
 
 # Asymmetric: cheap YES lottery (1-in-~20); hold tails to resolution, no ladder trims.
 asymmetric:
@@ -63,9 +63,9 @@ asymmetric:
   min_sell_bid: 0.02
   min_event_volume: 200
   min_ensemble_members: 8
-  position_usd: 2
-  max_position_usd: 2
-  max_open_positions: 8
+  position_usd: 5
+  max_position_usd: 5
+  max_open_positions: 10
   max_hourly_rise_f: 4.0
   high_hour_local: 20
   cities:
@@ -102,10 +102,10 @@ obieweather:
   max_yes_ask: 0.40
   min_yes_bets_per_event: 3
   max_yes_bets_per_event: 4
-  max_event_usd: 4.0
+  max_event_usd: 10.0
   target_event_usd: 0.60
   max_ladder_price_sum: 0.60
-  max_event_fraction: 0.02
+  max_event_fraction: 0.05
   min_model_prob: 0.05
   min_ensemble_prob_sum: 0.28
   maker_tick: 0.01
@@ -153,11 +153,11 @@ contrarian:
   min_vig_edge: 0.005
   maker_tick: 0.01
   max_no_bets_per_event: 1
-  kelly_fraction: 0.25
-  max_event_fraction: 0.10
+  kelly_fraction: 0.28
+  max_event_fraction: 0.12
   min_event_volume: 120
   min_ensemble_members: 8
-  max_position_usd: 36
+  max_position_usd: 75
   max_open_positions: 16
   max_open_per_city: 2
   # HEART: walk asks under EV (p - price), clip to Kelly, place BUY LIMIT at max level.
@@ -221,11 +221,11 @@ conviction:
   min_vig_edge: 0.006
   maker_tick: 0.01
   max_no_bets_per_event: 1
-  kelly_fraction: 0.30
-  max_event_fraction: 0.12
+  kelly_fraction: 0.33
+  max_event_fraction: 0.14
   min_event_volume: 120
   min_ensemble_members: 8
-  max_position_usd: 40
+  max_position_usd: 85
   max_open_positions: 8
   max_open_per_city: 1
   strict_limit: true
@@ -240,7 +240,7 @@ conviction:
 
 copy:
   wallet: "0x09b045baad1fbe115c70785635a261411774a3b6"
-  scale: 0.05
+  scale: 0.10
   poll_interval_ms: 250
   recent_limit: 50
 
@@ -252,9 +252,9 @@ esports:
   max_ask: 0.50
   take_profit_pct: 0.12
   stop_loss_entry_pct: 0.45
-  position_usd: 5
-  max_position_usd: 15
-  max_open_positions: 4
+  position_usd: 12
+  max_position_usd: 30
+  max_open_positions: 5
   min_event_volume: 80
   search_queries:
     [
@@ -303,7 +303,7 @@ esports:
     max_daily_requests: 20
     max_monthly_requests: 245
     refresh_interval_hours: 3
-    kelly_fraction: 0.20
+    kelly_fraction: 0.25
     maker_edge_cents: 0.01
     require_match: true
     max_tournaments_per_sport: 10
@@ -319,11 +319,11 @@ momentum:
   entry_trigger_price: 0.90
   take_profit_price: 0.98
   stop_loss_price: 0.78
-  order_size_shares: 20.0
+  order_size_shares: 45.0
   use_share_sizing: true
-  position_usd: 20
-  max_position_usd: 40
-  max_open_positions: 2
+  position_usd: 45
+  max_position_usd: 90
+  max_open_positions: 3
   min_event_volume: 200
   entry_price_buffer: 0.01
   exit_slippage_buffer: 0.01
@@ -338,10 +338,10 @@ meanrev:
   min_z_score: 2.0
   min_edge: 0.040
   min_confidence: 0.60
-  kelly_fraction: 0.12
-  max_position_usd: 15
-  max_open_positions: 3
-  position_usd: 10
+  kelly_fraction: 0.18
+  max_position_usd: 35
+  max_open_positions: 4
+  position_usd: 22
   stop_loss_pct: 0.15
   take_profit_pct: 0.08
 
@@ -354,10 +354,10 @@ volspike:
   spike_threshold: 1.70
   min_edge: 0.028
   min_confidence: 0.55
-  kelly_fraction: 0.12
-  max_position_usd: 18
-  max_open_positions: 4
-  position_usd: 10
+  kelly_fraction: 0.18
+  max_position_usd: 40
+  max_open_positions: 5
+  position_usd: 22
   stop_loss_pct: 0.18
   take_profit_pct: 0.08
 
@@ -372,10 +372,10 @@ closingsoon:
   min_direction: 0.45
   min_edge: 0.012
   min_confidence: 0.70
-  kelly_fraction: 0.15
-  max_position_usd: 20
-  max_open_positions: 3
-  position_usd: 12
+  kelly_fraction: 0.22
+  max_position_usd: 45
+  max_open_positions: 4
+  position_usd: 28
   stop_loss_pct: 0.30
 
 # BTC 5m Up/Down scalper: spot-vs-open confirmation, FAK taker (wider window for paper flow).
@@ -388,9 +388,9 @@ btc5m:
   min_edge: 0.035
   min_liquidity: 400
   look_ahead_windows: 2
-  position_usd: 18
-  max_position_usd: 35
-  max_open_positions: 1
+  position_usd: 40
+  max_position_usd: 75
+  max_open_positions: 2
   stop_loss_pct: 0.35
 
 # World-intel style overlays (macro Fear&Greed + BTC SMAs + event taxonomy).
@@ -402,7 +402,7 @@ intel:
   fail_open_on_error: true
   # Steady-profit bias: block sports/elections/longshots; size-down in CAUTION.
   block_event_score: 65
-  caution_size_mult: 0.40
+  caution_size_mult: 0.55
   btc_min_fear_greed: 45
   strategies: [meanrev, volspike, closingsoon, btc5m]
 
@@ -447,9 +447,9 @@ fadefinder:
   max_no_ask: 0.88
   min_yes_ask: 0.12
   max_yes_ask: 0.78
-  position_usd: 4
-  max_position_usd: 10
-  max_open_positions: 5
+  position_usd: 8
+  max_position_usd: 20
+  max_open_positions: 6
   take_profit_pct: 0.18
   stop_loss_entry_pct: 0.65
   alert_lookback_hours: 24
