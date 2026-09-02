@@ -763,6 +763,7 @@ def scan_once(
                     buckets,
                     settings,
                     positions,
+                    paper_mode=live is None and not dry_run,
                 )
                 for sig in sigs:
                     filled = execute_signal(

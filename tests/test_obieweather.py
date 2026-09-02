@@ -62,6 +62,7 @@ def test_select_ladder_window_picks_contiguous_peak():
         min_ensemble_prob_sum=0.30,
         maker_tick=0.01,
         strict_limit=True,
+        paper_fak_at_ask=False,
         min_event_volume=150,
         min_ensemble_members=8,
         max_open_positions=40,
@@ -160,6 +161,55 @@ def test_obieweather_emits_ladder_yes_signals(monkeypatch, tmp_path):
     assert all(s.limit_price is not None and s.limit_price <= 0.40 for s in sigs)
     total_stake = sum(s.amount_usd or 0 for s in sigs)
     assert total_stake <= settings.obieweather.max_event_usd + 0.01
+
+
+def test_obieweather_paper_fak_at_ask(monkeypatch, tmp_path):
+    settings = load_settings()
+    city = _obie_city()
+    event_date = date(2026, 8, 13)
+    buckets = [
+        _range_bucket(city, event_date, 82, 83, 0.15),
+        _range_bucket(city, event_date, 84, 85, 0.18),
+        _range_bucket(city, event_date, 86, 87, 0.12),
+        _range_bucket(city, event_date, 88, 89, 0.10),
+    ]
+    engine = MagicMock()
+    engine.db.data_dir = tmp_path
+    engine.get_account.return_value = SimpleNamespace(cash=500.0)
+
+    def _book(ask):
+        return SimpleNamespace(
+            asks=[FakeLevel(ask, 50)],
+            bids=[FakeLevel(max(0.01, ask - 0.02), 20)],
+        )
+
+    engine.api.get_order_book.side_effect = lambda token: _book(
+        {"token-82": 0.15, "token-84": 0.18, "token-86": 0.12, "token-88": 0.10}[token]
+    )
+
+    import papertrader.strategies.obieweather as obie_mod
+
+    members = [83.0] * 4 + [84.5] * 8 + [86.0] * 8
+    monkeypatch.setattr(
+        obie_mod,
+        "fetch_combined_ensemble",
+        lambda *a, **k: EnsembleForecast(tuple(members), "gfs:20"),
+    )
+
+    sigs = analyze_obieweather_event(
+        engine,
+        MagicMock(),
+        city,
+        event_date,
+        [b[0] for b in buckets],
+        settings,
+        [],
+        date(2026, 8, 12),
+        paper_mode=True,
+    )
+    assert len(sigs) >= 3
+    assert all(s.order_type == "fak" for s in sigs)
+    assert all(s.limit_price is not None and s.limit_price <= 0.40 for s in sigs)
 
 
 def test_obieweather_skips_when_asks_too_high(monkeypatch, tmp_path):

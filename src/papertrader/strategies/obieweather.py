@@ -126,9 +126,12 @@ def analyze_obieweather_event(
     settings: Settings,
     open_positions: list[Position],
     today: date | None = None,
+    *,
+    paper_mode: bool = False,
 ) -> list[Signal]:
     """Buy 3–4 cheap YES buckets spanning the forecast range (one win covers losses)."""
     cfg = settings.obieweather
+    use_paper_fak = paper_mode and cfg.paper_fak_at_ask
     if not _city_allowed(city, settings):
         return []
 
@@ -228,11 +231,11 @@ def analyze_obieweather_event(
             rejects["already_in_bucket"] = rejects.get("already_in_bucket", 0) + 1
             continue
 
-        if cfg.strict_limit:
+        if use_paper_fak or not cfg.strict_limit:
+            limit_price = round(min(ask, cfg.max_yes_ask), 4)
+        else:
             limit_price = round(min(ask, cfg.max_yes_ask) - cfg.maker_tick, 4)
             limit_price = max(limit_price, cfg.min_yes_ask)
-        else:
-            limit_price = round(min(ask, cfg.max_yes_ask), 4)
 
         scored.append(
             _LadderLeg(
@@ -329,7 +332,7 @@ def analyze_obieweather_event(
                 amount_usd=stake,
                 city=city,
                 event_slug=leg.bucket.event_slug,
-                order_type="limit" if cfg.strict_limit else "fak",
+                order_type="fak" if (use_paper_fak or not cfg.strict_limit) else "limit",
                 limit_price=leg.limit_price,
                 quant=QuantMeta(
                     p=leg.p_model,

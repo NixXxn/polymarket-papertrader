@@ -16,28 +16,26 @@ user_agent: "polymarket-papertrader/0.1 (paper trading; local use)"
 
 safe:
   cities: [miami, atlanta, nyc, chicago, dallas, houston, austin, phoenix, denver, los-angeles]
-  # Consensus matches with market agreement; FAK taker fills.
-  # Paper -$786 @ 10% WR on 0.62–0.67 asks; require clearer favorites only.
-  min_ask: 0.70
-  max_ask: 0.75
-  max_open_positions: 0
+  # Re-enabled: paper was -$786 @ 10% WR on 70–75¢; only near-resolution favorites.
+  min_ask: 0.85
+  max_ask: 0.92
+  max_open_positions: 2
   min_sell_bid: 0.02
-  # Safe-only paper bankroll override for larger test sizing.
   starting_balance: 10000
-  min_edge: 0.02
-  min_edge_high: 0.04
-  min_edge_low: 0.01
+  min_edge: 0.03
+  min_edge_high: 0.05
+  min_edge_low: 0.02
   position_usd:
-    miami: 100
-    atlanta: 100
-    nyc: 100
-    chicago: 100
-    dallas: 100
-    houston: 100
-    austin: 100
-    phoenix: 100
-    denver: 100
-    los-angeles: 100
+    miami: 25
+    atlanta: 25
+    nyc: 25
+    chicago: 25
+    dallas: 25
+    houston: 25
+    austin: 25
+    phoenix: 25
+    denver: 25
+    los-angeles: 25
 
 # Asymmetric: cheap YES lottery (1-in-~20); hold tails to resolution, no ladder trims.
 asymmetric:
@@ -112,6 +110,8 @@ obieweather:
   min_ensemble_prob_sum: 0.28
   maker_tick: 0.01
   strict_limit: true
+  # Paper: FAK at ask for immediate sim fills; live keeps strict LIMIT at ask-tick.
+  paper_fak_at_ask: true
   min_event_volume: 100
   min_ensemble_members: 8
   max_open_positions: 40
@@ -215,18 +215,18 @@ conviction:
   min_days_ahead: 0
   max_days_ahead: 0
   min_yes_ask: 0.02
-  max_yes_ask: 0.16
-  max_model_yes: 0.04
-  min_edge: 0.048
-  min_vig_edge: 0.008
+  max_yes_ask: 0.18
+  max_model_yes: 0.05
+  min_edge: 0.042
+  min_vig_edge: 0.006
   maker_tick: 0.01
   max_no_bets_per_event: 1
   kelly_fraction: 0.30
   max_event_fraction: 0.12
-  min_event_volume: 150
-  min_ensemble_members: 10
-  max_position_usd: 45
-  max_open_positions: 10
+  min_event_volume: 120
+  min_ensemble_members: 8
+  max_position_usd: 40
+  max_open_positions: 8
   max_open_per_city: 1
   strict_limit: true
   book_walk_min_ev: 0.015
@@ -248,13 +248,13 @@ copy:
 esports:
   horizon_hours: 8
   poll_interval_seconds: 45
-  min_ask: 0.05
-  max_ask: 0.55
-  take_profit_pct: 0.14
-  stop_loss_entry_pct: 0.55
-  position_usd: 6
-  max_position_usd: 20
-  max_open_positions: 6
+  min_ask: 0.08
+  max_ask: 0.50
+  take_profit_pct: 0.12
+  stop_loss_entry_pct: 0.45
+  position_usd: 5
+  max_position_usd: 15
+  max_open_positions: 4
   min_event_volume: 80
   search_queries:
     [
@@ -296,7 +296,7 @@ esports:
   # OddsPapi fair-value only (ODDSP_API_KEY in .env). CS2 + LoL.
   oddspapi:
     enabled: true
-    min_edge: 0.12
+    min_edge: 0.15
     primary_bookmaker: bet365
     fallback_bookmakers: [unibet, stake, pinnacle]
     sport_ids: [17, 18] # CS2, LoL
@@ -309,74 +309,74 @@ esports:
     max_tournaments_per_sport: 10
     base_url: "https://api.oddspapi.io/v4"
 
-# Weather momentum: high WR favorites — buy >= 80¢, TP 98¢, wider SL to avoid noise stops.
+# Weather momentum: high WR favorites — buy >= 90¢, TP 98¢, wider SL to avoid noise stops.
 momentum:
   ws_url: "wss://ws-subscriptions-clob.polymarket.com/ws/market"
   use_websocket: true
   poll_interval_seconds: 5
   mode: ANY_BUCKET
   specific_token_id: ""
-  entry_trigger_price: 0.86
+  entry_trigger_price: 0.90
   take_profit_price: 0.98
-  stop_loss_price: 0.70
-  order_size_shares: 25.0
+  stop_loss_price: 0.78
+  order_size_shares: 20.0
   use_share_sizing: true
-  position_usd: 40
-  max_position_usd: 80
-  max_open_positions: 0
+  position_usd: 20
+  max_position_usd: 40
+  max_open_positions: 2
   min_event_volume: 200
   entry_price_buffer: 0.01
   exit_slippage_buffer: 0.01
   cities: [nyc, miami, atlanta, chicago, dallas, houston]
 
-# Mean reversion: fade Yes/No price excursions (FAK).
+# Mean reversion: fade Yes/No price excursions (FAK). Re-enabled with tighter gates.
 meanrev:
-  min_liquidity: 2500
-  price_min: 0.10
-  price_max: 0.88
+  min_liquidity: 3000
+  price_min: 0.15
+  price_max: 0.85
   rolling_window: 36
-  min_z_score: 1.60
-  min_edge: 0.030
-  min_confidence: 0.55
-  kelly_fraction: 0.15
-  max_position_usd: 25
-  max_open_positions: 0
-  position_usd: 12
-  stop_loss_pct: 0.18
-  take_profit_pct: 0.10
+  min_z_score: 2.0
+  min_edge: 0.040
+  min_confidence: 0.60
+  kelly_fraction: 0.12
+  max_position_usd: 15
+  max_open_positions: 3
+  position_usd: 10
+  stop_loss_pct: 0.15
+  take_profit_pct: 0.08
 
 # Volume/activity spike: follow inter-poll price bursts on liquid Yes/No markets.
 volspike:
-  min_liquidity: 2000
-  price_min: 0.10
-  price_max: 0.88
+  min_liquidity: 2500
+  price_min: 0.12
+  price_max: 0.85
   volume_history_len: 24
-  spike_threshold: 1.55
-  min_edge: 0.022
-  min_confidence: 0.50
-  kelly_fraction: 0.15
-  max_position_usd: 25
-  max_open_positions: 0
-  position_usd: 12
-  stop_loss_pct: 0.20
-  take_profit_pct: 0.10
+  spike_threshold: 1.70
+  min_edge: 0.028
+  min_confidence: 0.55
+  kelly_fraction: 0.12
+  max_position_usd: 18
+  max_open_positions: 4
+  position_usd: 10
+  stop_loss_pct: 0.18
+  take_profit_pct: 0.08
 
 # Closing soon: weather favorites only — skip crypto/sports (0% WR on BTC day bands).
 closingsoon:
   weather_only: true
-  min_liquidity: 2000
+  min_liquidity: 2500
   min_hours: 4
-  max_hours: 24
-  price_min: 0.955
+  max_hours: 20
+  price_min: 0.96
   price_max: 0.985
-  min_direction: 0.40
-  min_edge: 0.010
-  min_confidence: 0.65
-  kelly_fraction: 0.20
-  max_position_usd: 30
-  max_open_positions: 4
-  position_usd: 15
-  stop_loss_pct: 0.35
+  min_direction: 0.45
+  min_edge: 0.012
+  min_confidence: 0.70
+  kelly_fraction: 0.15
+  max_position_usd: 20
+  max_open_positions: 3
+  position_usd: 12
+  stop_loss_pct: 0.30
 
 # BTC 5m Up/Down scalper: spot-vs-open confirmation, FAK taker (wider window for paper flow).
 btc5m:
@@ -438,18 +438,18 @@ fadefinder:
   use_fade_alerts: false
   use_smart_money_alerts: false
   sports_fallback: true
-  sports_per_scan: 1
+  sports_per_scan: 2
   sports_cache_ttl_hours: 24
   sports: [lol, cs2, nfl, nba, mlb, nhl]
-  min_dislocation: 0.05
-  min_whale_stake_usd: 500
-  min_no_ask: 0.15
-  max_no_ask: 0.90
-  min_yes_ask: 0.10
-  max_yes_ask: 0.82
+  min_dislocation: 0.04
+  min_whale_stake_usd: 400
+  min_no_ask: 0.18
+  max_no_ask: 0.88
+  min_yes_ask: 0.12
+  max_yes_ask: 0.78
   position_usd: 4
-  max_position_usd: 12
-  max_open_positions: 6
+  max_position_usd: 10
+  max_open_positions: 5
   take_profit_pct: 0.18
   stop_loss_entry_pct: 0.65
   alert_lookback_hours: 24

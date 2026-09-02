@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 # Keep paper runners alive; restart if either process exits.
-set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 CLI="$ROOT/.venv/bin/papertrader"
 BOTH_LOG=/tmp/papertrader-both.log
@@ -8,29 +7,40 @@ FF_LOG=/tmp/papertrader-fadefinder.log
 BOTH_PID=/tmp/papertrader-both.pid
 FF_PID=/tmp/papertrader-fadefinder.pid
 
+log() {
+  echo "$(date '+%Y-%m-%d %H:%M:%S') $*"
+}
+
+alive() {
+  local pidfile=$1
+  local pid
+  pid=$(cat "$pidfile" 2>/dev/null) || return 1
+  [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+}
+
 start_both() {
   nohup "$CLI" run --strategy both --mode paper >>"$BOTH_LOG" 2>&1 &
-  echo $! >"$BOTH_PID"
-  echo "started both pid=$(cat "$BOTH_PID")"
+  local pid=$!
+  disown "$pid" 2>/dev/null || true
+  echo "$pid" >"$BOTH_PID"
+  log "started both pid=$pid"
 }
 
 start_ff() {
   nohup "$CLI" run --strategy fadefinder --mode paper >>"$FF_LOG" 2>&1 &
-  echo $! >"$FF_PID"
-  echo "started fadefinder pid=$(cat "$FF_PID")"
+  local pid=$!
+  disown "$pid" 2>/dev/null || true
+  echo "$pid" >"$FF_PID"
+  log "started fadefinder pid=$pid"
 }
 
 ensure() {
-  if ! ps -p "$(cat "$BOTH_PID" 2>/dev/null)" >/dev/null 2>&1; then
-    start_both
-  fi
-  if ! ps -p "$(cat "$FF_PID" 2>/dev/null)" >/dev/null 2>&1; then
-    start_ff
-  fi
+  alive "$BOTH_PID" || start_both
+  alive "$FF_PID" || start_ff
 }
 
+log "watch-paper starting (pid=$$)"
 ensure
-while true; do
-  sleep 60
+while sleep 60; do
   ensure
 done

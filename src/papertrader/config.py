@@ -168,6 +168,7 @@ class ObieWeatherSettings:
     min_ensemble_prob_sum: float
     maker_tick: float
     strict_limit: bool
+    paper_fak_at_ask: bool
     min_event_volume: float
     min_ensemble_members: int
     max_open_positions: int
@@ -677,6 +678,7 @@ def load_settings(
             min_ensemble_prob_sum=float(obieweather_raw.get("min_ensemble_prob_sum", 0.28)),
             maker_tick=float(obieweather_raw.get("maker_tick", 0.01)),
             strict_limit=bool(obieweather_raw.get("strict_limit", True)),
+            paper_fak_at_ask=bool(obieweather_raw.get("paper_fak_at_ask", False)),
             min_event_volume=float(
                 obieweather_raw.get("min_event_volume", raw.get("min_event_volume", 150))
             ),
