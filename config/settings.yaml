@@ -400,6 +400,16 @@ arbitrage:
   prefer_crypto_weather: true
   prefer_lp_rewards: true
   scan_limit: 250
+  # Hybrid active exits after locked-edge entry (don't hold both legs to resolution).
+  exit_ladder_prices: [0.50, 0.70, 0.85, 0.95]
+  exit_ladder_fraction: 0.25
+  lose_leg_bid_max: 0.35
+  lose_leg_bid_min: 0.05
+  lose_leg_lead_bid: 0.55
+  rebalance_enabled: true
+  rebalance_move: 0.04
+  rebalance_fraction: 0.10
+  rebalance_min_lead: 0.55
 
 # BTC 5m Up/Down scalper: spot-vs-open confirmation, FAK taker (wider window for paper flow).
 btc5m:

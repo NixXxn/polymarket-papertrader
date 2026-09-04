@@ -129,6 +129,15 @@ def _rollback_partial_exit(
         store.unmark_ladder_level(condition_id, signal.outcome, signal.ladder_multiple)
     else:
         store.unmark_partial_tp(condition_id, signal.outcome)
+    try:
+        from papertrader.arbitrage_state import ArbExitStore
+
+        if signal.ladder_multiple is not None:
+            ArbExitStore(engine.db.data_dir).unmark_ladder(
+                condition_id, signal.outcome, float(signal.ladder_multiple)
+            )
+    except Exception:
+        pass
 
 
 def _sync_live_engines(

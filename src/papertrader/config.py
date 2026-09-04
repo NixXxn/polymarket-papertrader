@@ -310,6 +310,16 @@ class ArbitrageSettings:
     prefer_lp_rewards: bool
     scan_limit: int
     starting_balance: float | None
+    # Hybrid active exits after locked-edge entry.
+    exit_ladder_prices: tuple[float, ...]
+    exit_ladder_fraction: float
+    lose_leg_bid_max: float
+    lose_leg_bid_min: float
+    lose_leg_lead_bid: float
+    rebalance_enabled: bool
+    rebalance_move: float
+    rebalance_fraction: float
+    rebalance_min_lead: float
 
 
 @dataclass(frozen=True)
@@ -443,6 +453,21 @@ class Settings:
 def _load_yaml(path: Path) -> dict[str, Any]:
     with path.open() as f:
         return yaml.safe_load(f) or {}
+
+
+def _parse_arb_ladder_prices(raw: Any) -> tuple[float, ...]:
+    default = (0.50, 0.70, 0.85, 0.95)
+    if raw is None:
+        return default
+    if raw == []:
+        return ()
+    prices: list[float] = []
+    for row in raw:
+        try:
+            prices.append(float(row))
+        except (TypeError, ValueError):
+            continue
+    return tuple(sorted(set(prices))) if prices else default
 
 
 def _parse_exit_ladder(raw: Any) -> tuple[ExitLadderStep, ...]:
@@ -942,6 +967,17 @@ def load_settings(
                 if arbitrage_raw.get("starting_balance") is not None
                 else None
             ),
+            exit_ladder_prices=_parse_arb_ladder_prices(
+                arbitrage_raw.get("exit_ladder_prices")
+            ),
+            exit_ladder_fraction=float(arbitrage_raw.get("exit_ladder_fraction", 0.25)),
+            lose_leg_bid_max=float(arbitrage_raw.get("lose_leg_bid_max", 0.35)),
+            lose_leg_bid_min=float(arbitrage_raw.get("lose_leg_bid_min", 0.05)),
+            lose_leg_lead_bid=float(arbitrage_raw.get("lose_leg_lead_bid", 0.55)),
+            rebalance_enabled=bool(arbitrage_raw.get("rebalance_enabled", True)),
+            rebalance_move=float(arbitrage_raw.get("rebalance_move", 0.04)),
+            rebalance_fraction=float(arbitrage_raw.get("rebalance_fraction", 0.10)),
+            rebalance_min_lead=float(arbitrage_raw.get("rebalance_min_lead", 0.55)),
         ),
         edge=EdgeSettings(
             min_ask=float(edge_raw.get("min_ask", 0.45)),
