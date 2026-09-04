@@ -113,13 +113,54 @@ def realized_pnl_total(trades_chronological: list) -> float:
     return sum(_sell_realized_pnl(trades_chronological).values())
 
 
+def _position_ledger_realized(engine: Engine) -> tuple[float, int, int]:
+    """Sum realized P&L from closed positions (sells + resolutions).
+
+    Resolutions credit cash via resolve_position but do not insert sell trades,
+    so trade-only stats understate hold-to-resolution strategies (incl. arbitrage).
+    """
+    try:
+        rows = engine.db.conn.execute(
+            """
+            SELECT realized_pnl
+            FROM positions
+            WHERE (shares <= 0 OR is_resolved = 1)
+              AND realized_pnl IS NOT NULL
+            """
+        ).fetchall()
+    except Exception:
+        return 0.0, 0, 0
+    total = 0.0
+    wins = 0
+    closed = 0
+    for (pnl,) in rows:
+        try:
+            value = float(pnl)
+        except (TypeError, ValueError):
+            continue
+        closed += 1
+        total += value
+        if value > 0:
+            wins += 1
+    return total, wins, closed
+
+
 def account_stats(engine: Engine) -> dict:
     account = engine.get_account()
     positions_value = mark_positions(engine)
     trades = engine.db.get_trades(limit=10_000)
     chronological = list(reversed(trades))
     raw = compute_stats(trades, account, positions_value)
-    realized = realized_pnl_total(chronological)
+    sell_realized = realized_pnl_total(chronological)
+    pos_realized, pos_wins, pos_closed = _position_ledger_realized(engine)
+    # Prefer position ledger when it captures resolutions; fall back to sells.
+    if pos_closed > 0:
+        realized = pos_realized
+        if pos_closed > 0:
+            raw["win_rate"] = pos_wins / pos_closed
+            raw["sell_count"] = max(int(raw.get("sell_count", 0)), pos_closed)
+    else:
+        realized = sell_realized
     total_pnl = float(raw.get("pnl", 0.0))
     raw["unrealized_pnl"] = total_pnl - realized
     raw["realized_pnl"] = realized

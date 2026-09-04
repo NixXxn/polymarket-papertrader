@@ -30,10 +30,12 @@ from papertrader.trade_log import (
 )
 
 
-STRATEGIES = ("safe", "asymmetric", "contrarian", "conviction", "obieweather", "copy", "esports", "momentum", "meanrev", "volspike", "closingsoon", "btc5m")
+STRATEGIES = ("safe", "asymmetric", "contrarian", "conviction", "obieweather", "copy", "esports", "momentum", "meanrev", "volspike", "closingsoon", "btc5m", "arbitrage")
 
 STRATEGY_LABELS: dict[str, str] = {
     "obieweather": "ObieWeather",
+    "arbitrage": "Arbitrage",
+    "btc5m": "BTC 5m",
 }
 
 _RESET_STATS_FILES = (

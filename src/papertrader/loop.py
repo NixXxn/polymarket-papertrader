@@ -191,6 +191,77 @@ def _log_missing_markets(
             )
 
 
+def _paper_fill_limit_buy(
+    engine: Engine,
+    signal: Signal,
+    *,
+    strategy: str,
+    started: float,
+) -> bool:
+    """Fill a paper maker buy at limit_price (no ask walk) for locked-edge sims."""
+    amount = float(signal.amount_usd or 0)
+    price = float(signal.limit_price or 0)
+    if amount <= 0 or price <= 0:
+        raise OrderRejectedError("paper fill-at-limit buy needs amount and limit_price")
+    shares = amount / price
+    market = engine.api.get_market(signal.slug)
+    outcome = engine._validate_outcome(signal.outcome, market)
+    account = engine._require_account()
+    fee = 0.0
+    total_outflow = amount + fee
+    if total_outflow > account.cash:
+        from pm_trader.models import InsufficientBalanceError
+
+        raise InsufficientBalanceError(required=total_outflow, available=account.cash)
+    engine.db.update_cash(account.cash - total_outflow)
+    trade = engine.db.insert_trade(
+        market_condition_id=market.condition_id,
+        market_slug=market.slug,
+        market_question=market.question,
+        outcome=outcome,
+        side="buy",
+        order_type="fak",  # ledger CHECK only allows fok/fak
+        avg_price=price,
+        amount_usd=amount,
+        shares=shares,
+        fee_rate_bps=0,
+        fee=fee,
+        slippage=0.0,
+        levels_filled=1,
+        is_partial=False,
+    )
+    engine._update_position_after_buy(
+        market=market,
+        outcome=outcome,
+        new_shares=shares,
+        cost=total_outflow,
+        avg_fill_price=price,
+    )
+    log.info(
+        "PAPER FILL-AT-LIMIT BUY %s %s @ %.4f shares=%.2f — %s",
+        signal.slug,
+        outcome,
+        price,
+        shares,
+        signal.reason,
+    )
+    log_fill_latency(f"PAPER LIMIT-FILL {signal.slug}", started)
+    log_decision(
+        engine.db.data_dir,
+        strategy=strategy,
+        decision="executed",
+        reason=signal.reason,
+        city=signal.city.slug if signal.city else None,
+        slug=signal.slug,
+        action=signal.action,
+        amount_usd=signal.amount_usd,
+        shares=shares,
+        limit_price=price,
+        trade_id=getattr(trade, "id", None),
+    )
+    return True
+
+
 def execute_signal(
     engine: Engine,
     signal: Signal,
@@ -243,6 +314,13 @@ def execute_signal(
                     shares=signal.shares,
                 )
             return filled
+        if (
+            signal.paper_fill_at_limit
+            and signal.order_type == "limit"
+            and signal.limit_price is not None
+            and signal.action == "buy"
+        ):
+            return _paper_fill_limit_buy(engine, signal, strategy=strategy, started=started)
         if signal.order_type == "limit" and signal.limit_price is not None:
             before = engine.db.get_trades(limit=1)
             before_trade_id = before[0].id if before else None
@@ -450,6 +528,7 @@ def scan_once(
     volspike_engine: Engine | None = None,
     closingsoon_engine: Engine | None = None,
     btc5m_engine: Engine | None = None,
+    arbitrage_engine: Engine | None = None,
     dry_run: bool,
     today: date | None = None,
     live: LiveTrader | None = None,
@@ -499,6 +578,7 @@ def scan_once(
             volspike_engine,
             closingsoon_engine,
             btc5m_engine,
+            arbitrage_engine,
         )
         if e is not None
     ]
@@ -937,6 +1017,42 @@ def scan_once(
                 message=str(e),
             )
 
+    if arbitrage_engine:
+        try:
+            from papertrader.strategies.arbitrage import analyze_arbitrage, arbitrage_exits
+
+            if live is None:
+                counts.resolved += _resolve(arbitrage_engine)
+            for sig in arbitrage_exits(arbitrage_engine, settings):
+                filled = execute_signal(
+                    arbitrage_engine, sig, dry_run, live=live, ctx=ctx, strategy="arbitrage"
+                )
+                emitted.append(sig)
+                if filled:
+                    counts.risk_exits += 1
+                    counts.fills += 1
+            for sig in analyze_arbitrage(
+                arbitrage_engine,
+                settings,
+                paper_mode=live is None and not dry_run,
+            ):
+                filled = execute_signal(
+                    arbitrage_engine, sig, dry_run, live=live, ctx=ctx, strategy="arbitrage"
+                )
+                emitted.append(sig)
+                counts.orders_placed += 1
+                if filled:
+                    counts.fills += 1
+        except Exception as e:
+            log.exception("arbitrage scan failed: %s", e)
+            append_activity(
+                arbitrage_engine.db.data_dir,
+                level="error",
+                event="scan_failed",
+                strategy="arbitrage",
+                message=str(e),
+            )
+
     engines = [
         e
         for e in (
@@ -952,6 +1068,7 @@ def scan_once(
             volspike_engine,
             closingsoon_engine,
             btc5m_engine,
+            arbitrage_engine,
         )
         if e is not None
     ]
@@ -988,6 +1105,7 @@ def run_loop(
     volspike_engine: Engine | None = None,
     closingsoon_engine: Engine | None = None,
     btc5m_engine: Engine | None = None,
+    arbitrage_engine: Engine | None = None,
     dry_run: bool,
     once: bool,
     live: LiveTrader | None = None,
@@ -1019,6 +1137,8 @@ def run_loop(
         named_engines.append(("closingsoon", closingsoon_engine))
     if btc5m_engine is not None:
         named_engines.append(("btc5m", btc5m_engine))
+    if arbitrage_engine is not None:
+        named_engines.append(("arbitrage", arbitrage_engine))
     poll_seconds = (
         settings.copy.poll_interval_seconds
         if copy_engine is not None
@@ -1049,6 +1169,7 @@ def run_loop(
             volspike_engine=volspike_engine,
             closingsoon_engine=closingsoon_engine,
             btc5m_engine=btc5m_engine,
+            arbitrage_engine=arbitrage_engine,
             dry_run=dry_run,
             live=live,
             ctx=ctx,
@@ -1075,6 +1196,7 @@ def run_loop(
                 volspike_engine=volspike_engine,
                 closingsoon_engine=closingsoon_engine,
                 btc5m_engine=btc5m_engine,
+                arbitrage_engine=arbitrage_engine,
                 dry_run=dry_run,
                 live=live,
                 ctx=ctx,

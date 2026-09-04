@@ -1,3 +1,4 @@
+from papertrader.strategies.arbitrage import analyze_arbitrage, arbitrage_exits
 from papertrader.strategies.asymmetric import analyze_asymmetric_event, asymmetric_exits
 from papertrader.strategies.btc5m import analyze_btc5m, btc5m_exits
 from papertrader.strategies.closingsoon import analyze_closingsoon, closingsoon_exits
@@ -27,4 +28,6 @@ __all__ = [
     "closingsoon_exits",
     "analyze_btc5m",
     "btc5m_exits",
+    "analyze_arbitrage",
+    "arbitrage_exits",
 ]

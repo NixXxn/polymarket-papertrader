@@ -29,6 +29,8 @@ class Signal:
     # Default taker: GTC maker limits often rest unfilled unless priced through the ask/bid.
     order_type: Literal["fak", "limit"] = "fak"
     limit_price: float | None = None
+    # Paper-only: fill resting maker limits at limit_price (spread-capture sim).
+    paper_fill_at_limit: bool = False
     partial_exit: bool = False
     ladder_multiple: float | None = None
     esports_take_profit: bool = False

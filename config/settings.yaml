@@ -378,6 +378,29 @@ closingsoon:
   position_usd: 28
   stop_loss_pct: 0.30
 
+# Arbitrage / spread-capture: buy BOTH sides when ask_yes + ask_no < $1 (locked edge).
+# Prefers fast crypto + weather markets; ranks LP-reward books higher when advertised.
+arbitrage:
+  starting_balance: 1000
+  max_pair_cost: 0.97
+  # Maker: still post paired limits when live asks sum slightly over $1.
+  max_maker_ask_sum: 1.04
+  min_edge: 0.025
+  fee_buffer: 0.01
+  min_liquidity: 400
+  min_volume_24h: 150
+  min_ask: 0.02
+  max_ask: 0.95
+  min_ask_size: 3
+  position_usd: 40
+  max_position_usd: 100
+  max_open_pairs: 8
+  maker_tick: 0.01
+  paper_fak: true
+  prefer_crypto_weather: true
+  prefer_lp_rewards: true
+  scan_limit: 250
+
 # BTC 5m Up/Down scalper: spot-vs-open confirmation, FAK taker (wider window for paper flow).
 btc5m:
   min_confirm_bps: 10.0

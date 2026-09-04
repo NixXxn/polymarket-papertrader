@@ -289,6 +289,30 @@ class Btc5mSettings:
 
 
 @dataclass(frozen=True)
+class ArbitrageSettings:
+    """Two-leg spread capture: buy both sides when combined cost < $1."""
+
+    max_pair_cost: float
+    max_maker_ask_sum: float
+    min_edge: float
+    fee_buffer: float
+    min_liquidity: float
+    min_volume_24h: float
+    min_ask: float
+    max_ask: float
+    min_ask_size: float
+    position_usd: float
+    max_position_usd: float
+    max_open_pairs: int
+    maker_tick: float
+    paper_fak: bool
+    prefer_crypto_weather: bool
+    prefer_lp_rewards: bool
+    scan_limit: int
+    starting_balance: float | None
+
+
+@dataclass(frozen=True)
 class CopySettings:
     username: str
     wallet: str
@@ -403,6 +427,7 @@ class Settings:
     volspike: VolumeSpikeSettings
     closingsoon: ClosingSoonSettings
     btc5m: Btc5mSettings
+    arbitrage: ArbitrageSettings
     edge: EdgeSettings
     copy: CopySettings
     cities: dict[str, City] = field(default_factory=dict)
@@ -523,6 +548,7 @@ def load_settings(
     volspike_raw = raw.get("volspike") or {}
     closingsoon_raw = raw.get("closingsoon") or {}
     btc5m_raw = raw.get("btc5m") or {}
+    arbitrage_raw = raw.get("arbitrage") or {}
     live_raw = raw.get("live") or {}
     intel_raw = raw.get("intel") or {}
     adaptive_raw = raw.get("adaptive_sizing") or {}
@@ -892,6 +918,30 @@ def load_settings(
             max_position_usd=float(btc5m_raw.get("max_position_usd", 50.0)),
             max_open_positions=int(btc5m_raw.get("max_open_positions", 2)),
             stop_loss_pct=float(btc5m_raw.get("stop_loss_pct", 0.45)),
+        ),
+        arbitrage=ArbitrageSettings(
+            max_pair_cost=float(arbitrage_raw.get("max_pair_cost", 0.97)),
+            max_maker_ask_sum=float(arbitrage_raw.get("max_maker_ask_sum", 1.04)),
+            min_edge=float(arbitrage_raw.get("min_edge", 0.025)),
+            fee_buffer=float(arbitrage_raw.get("fee_buffer", 0.01)),
+            min_liquidity=float(arbitrage_raw.get("min_liquidity", 400.0)),
+            min_volume_24h=float(arbitrage_raw.get("min_volume_24h", 150.0)),
+            min_ask=float(arbitrage_raw.get("min_ask", 0.02)),
+            max_ask=float(arbitrage_raw.get("max_ask", 0.95)),
+            min_ask_size=float(arbitrage_raw.get("min_ask_size", 3.0)),
+            position_usd=float(arbitrage_raw.get("position_usd", 40.0)),
+            max_position_usd=float(arbitrage_raw.get("max_position_usd", 100.0)),
+            max_open_pairs=int(arbitrage_raw.get("max_open_pairs", 8)),
+            maker_tick=float(arbitrage_raw.get("maker_tick", 0.01)),
+            paper_fak=bool(arbitrage_raw.get("paper_fak", True)),
+            prefer_crypto_weather=bool(arbitrage_raw.get("prefer_crypto_weather", True)),
+            prefer_lp_rewards=bool(arbitrage_raw.get("prefer_lp_rewards", True)),
+            scan_limit=int(arbitrage_raw.get("scan_limit", 250)),
+            starting_balance=(
+                float(arbitrage_raw["starting_balance"])
+                if arbitrage_raw.get("starting_balance") is not None
+                else None
+            ),
         ),
         edge=EdgeSettings(
             min_ask=float(edge_raw.get("min_ask", 0.45)),
