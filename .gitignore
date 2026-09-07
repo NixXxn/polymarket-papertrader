@@ -12,3 +12,6 @@ build/
 .env.*
 !.env.example
 !.env.coolify.example
+
+# Local historic backtest extracts
+data/backtest/

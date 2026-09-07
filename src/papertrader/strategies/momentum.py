@@ -261,7 +261,7 @@ def momentum_exits(
         )
         return signals
 
-    if bid <= cfg.stop_loss_price:
+    if cfg.stop_loss_price is not None and bid <= cfg.stop_loss_price:
         exit_price = max(round(bid - cfg.exit_slippage_buffer, 2), 0.01)
         reason = (
             f"momentum SL bid={bid:.3f} <= {cfg.stop_loss_price:.3f} "

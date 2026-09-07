@@ -208,7 +208,7 @@ class MomentumSettings:
     specific_token_id: str
     entry_trigger_price: float
     take_profit_price: float | None
-    stop_loss_price: float
+    stop_loss_price: float | None
     order_size_shares: float
     use_share_sizing: bool
     position_usd: float
@@ -871,7 +871,11 @@ def load_settings(
                 if momentum_raw.get("take_profit_price") is not None
                 else 0.98
             ),
-            stop_loss_price=float(momentum_raw.get("stop_loss_price", 0.75)),
+            stop_loss_price=(
+                float(momentum_raw["stop_loss_price"])
+                if momentum_raw.get("stop_loss_price") is not None
+                else None
+            ),
             order_size_shares=float(momentum_raw.get("order_size_shares", 50.0)),
             use_share_sizing=bool(momentum_raw.get("use_share_sizing", True)),
             position_usd=float(momentum_raw.get("position_usd", 50)),

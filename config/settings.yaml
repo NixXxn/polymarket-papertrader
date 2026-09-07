@@ -1,24 +1,27 @@
-# $50 per isolated account. Combined paper start is 2 × this (safe + asymmetric).
-# mode: paper (test/sim, default) or live. Live still needs --confirm-live or
-# PAPERTRADER_LIVE=1 plus PAPERTRADER_PRIVATE_KEY. yaml alone cannot fire orders.
 mode: paper
 poll_interval_seconds: 30
 horizon_days: 3
 starting_balance: 500
-# position_usd values are the stake at starting_balance; live bets scale with cash.
 min_position_usd: 2
 min_event_volume: 200
 min_best_ask_size: 1
-# Assumed model P(yes) ceiling for safe favorite buys (ask must be <= this).
 forecast_confidence: 0.95
 forecast_disagreement_f: 3.0
-user_agent: "polymarket-papertrader/0.1 (paper trading; local use)"
-
+user_agent: polymarket-papertrader/0.1 (paper trading; local use)
 safe:
-  cities: [miami, atlanta, nyc, chicago, dallas, houston, austin, phoenix, denver, los-angeles]
-  # Re-enabled: paper was -$786 @ 10% WR on 70–75¢; only near-resolution favorites.
-  min_ask: 0.85
-  max_ask: 0.92
+  cities:
+  - miami
+  - atlanta
+  - nyc
+  - chicago
+  - dallas
+  - houston
+  - austin
+  - phoenix
+  - denver
+  - los-angeles
+  min_ask: 0.75
+  max_ask: 0.88
   max_open_positions: 2
   min_sell_bid: 0.02
   starting_balance: 10000
@@ -26,25 +29,22 @@ safe:
   min_edge_high: 0.05
   min_edge_low: 0.02
   position_usd:
-    miami: 75
-    atlanta: 75
-    nyc: 75
-    chicago: 75
-    dallas: 75
-    houston: 75
-    austin: 75
-    phoenix: 75
-    denver: 75
-    los-angeles: 75
-
-# Asymmetric: cheap YES lottery (1-in-~20); hold tails to resolution, no ladder trims.
+    miami: 40
+    atlanta: 40
+    nyc: 40
+    chicago: 40
+    dallas: 40
+    houston: 40
+    austin: 40
+    phoenix: 40
+    denver: 40
+    los-angeles: 40
 asymmetric:
-  min_ask: 0.01
-  max_ask: 0.20
+  min_ask: 0.02
+  max_ask: 0.08
   min_model_prob: 0.03
   min_prob_ratio: 1.5
   min_edge: 0.02
-  # Resting YES limits: bid 1–2¢ only; no step-up tier (high_conf disabled).
   preferred_limit: 0.01
   fallback_limit: 0.02
   maker_tick: 0.01
@@ -55,62 +55,55 @@ asymmetric:
   take_profit_bid: 0.95
   exit_ladder: []
   exit_model_prob: 0.02
-  # Only fade on model collapse on event day; hold through forecast noise earlier.
   exit_model_prob_min_days_ahead: 0
-  # Hold through resolution hour (no 1h-early time stop).
   hours_before_resolution: 0
   stop_loss_bid: 0.01
   min_sell_bid: 0.02
   min_event_volume: 200
   min_ensemble_members: 8
-  position_usd: 5
-  max_position_usd: 5
+  position_usd: 8
+  max_position_usd: 12
   max_open_positions: 10
   max_hourly_rise_f: 4.0
   high_hour_local: 20
   cities:
-    [
-      denver,
-      chicago,
-      dallas,
-      phoenix,
-      houston,
-      austin,
-      nyc,
-      london,
-      wellington,
-      cape-town,
-      munich,
-      guangzhou,
-      warsaw,
-      karachi,
-      beijing,
-      wuhan,
-      seoul,
-      shanghai,
-      tokyo,
-      busan,
-      chongqing,
-      manila,
-      vienna,
-    ]
-
-# ObieWeather ladder: 3–4 cheap YES legs; limit-price sum ≤60¢ (one win covers losses).
+  - denver
+  - chicago
+  - dallas
+  - phoenix
+  - houston
+  - austin
+  - nyc
+  - london
+  - wellington
+  - cape-town
+  - munich
+  - guangzhou
+  - warsaw
+  - karachi
+  - beijing
+  - wuhan
+  - seoul
+  - shanghai
+  - tokyo
+  - busan
+  - chongqing
+  - manila
+  - vienna
 obieweather:
   starting_balance: 500
   min_yes_ask: 0.01
-  max_yes_ask: 0.40
+  max_yes_ask: 0.12
   min_yes_bets_per_event: 3
   max_yes_bets_per_event: 4
-  max_event_usd: 10.0
-  target_event_usd: 0.60
-  max_ladder_price_sum: 0.60
+  max_event_usd: 12.0
+  target_event_usd: 0.55
+  max_ladder_price_sum: 0.5
   max_event_fraction: 0.05
-  min_model_prob: 0.05
-  min_ensemble_prob_sum: 0.28
+  min_model_prob: 0.04
+  min_ensemble_prob_sum: 0.25
   maker_tick: 0.01
   strict_limit: true
-  # Paper: FAK at ask for immediate sim fills; live keeps strict LIMIT at ask-tick.
   paper_fak_at_ask: true
   min_event_volume: 100
   min_ensemble_members: 8
@@ -119,37 +112,32 @@ obieweather:
   min_days_ahead: 0
   max_days_ahead: 2
   cities:
-    [
-      san-diego,
-      los-angeles,
-      honolulu,
-      miami,
-      atlanta,
-      dallas,
-      charleston,
-      tampa,
-      las-palmas,
-      santa-cruz-de-tenerife,
-      medellin,
-      kunming,
-      cape-town,
-      sydney,
-      buenos-aires,
-      vina-del-mar,
-      florianopolis,
-      nice,
-      nairobi,
-      arequipa,
-    ]
-
-# Contrarian: fade overpriced YES longshots — buy NO via L2 walk + strict LIMIT.
-# Hold toward $1; skip ultra-tight NO asks with bad risk/reward.
+  - san-diego
+  - los-angeles
+  - honolulu
+  - miami
+  - atlanta
+  - dallas
+  - charleston
+  - tampa
+  - las-palmas
+  - santa-cruz-de-tenerife
+  - medellin
+  - kunming
+  - cape-town
+  - sydney
+  - buenos-aires
+  - vina-del-mar
+  - florianopolis
+  - nice
+  - nairobi
+  - arequipa
 contrarian:
   starting_balance: 2500
   min_yes_ask: 0.02
-  max_yes_ask: 0.20
+  max_yes_ask: 0.15
   max_model_yes: 0.07
-  min_edge: 0.030
+  min_edge: 0.04
   min_vig_edge: 0.005
   maker_tick: 0.01
   max_no_bets_per_event: 1
@@ -157,67 +145,57 @@ contrarian:
   max_event_fraction: 0.12
   min_event_volume: 120
   min_ensemble_members: 8
-  max_position_usd: 75
+  max_position_usd: 80
   max_open_positions: 16
   max_open_per_city: 2
-  # HEART: walk asks under EV (p - price), clip to Kelly, place BUY LIMIT at max level.
   strict_limit: true
-  book_walk_min_ev: 0.010
-  # Bayes shadow (Parlex): prior=Shin fair YES, LR from model vs prior (shrunk); log only.
+  book_walk_min_ev: 0.01
   bayes_shadow: true
   bayes_lr_shrink: 0.5
   bayes_max_lr: 8.0
   bayes_fee_buffer: 0.01
-  # Hold-to-resolution: only trim when NO is essentially at $1.
   take_profit_no_bid: 0.999
-  # Catastrophic only; model-rally + mark drop is the early exit.
-  stop_loss_no_bid: 0.40
+  stop_loss_no_bid: 0.4
   min_no_entry: 0.74
-  # Paper losses clustered on 87¢+ NO entries (tiny upside / fat downside).
-  max_no_ask: 0.86
+  max_no_ask: 0.8
   max_days_ahead: 2
-  # Model-fade only on event day AND when P(yes) is clearly elevated (see code: needs bid drop).
   exit_model_yes: 0.35
   exit_model_prob_min_days_ahead: 0
   min_sell_bid: 0.02
   max_hourly_rise_f: 4.0
   high_hour_local: 20
   cities:
-    [
-      denver,
-      chicago,
-      dallas,
-      phoenix,
-      houston,
-      austin,
-      nyc,
-      london,
-      wellington,
-      cape-town,
-      munich,
-      guangzhou,
-      warsaw,
-      karachi,
-      beijing,
-      wuhan,
-      seoul,
-      shanghai,
-      tokyo,
-      busan,
-      chongqing,
-      manila,
-      vienna,
-    ]
-
-# Conviction: d+0 only — highest-confidence weather NO fades (event-day edge).
+  - denver
+  - chicago
+  - dallas
+  - phoenix
+  - houston
+  - austin
+  - nyc
+  - london
+  - wellington
+  - cape-town
+  - munich
+  - guangzhou
+  - warsaw
+  - karachi
+  - beijing
+  - wuhan
+  - seoul
+  - shanghai
+  - tokyo
+  - busan
+  - chongqing
+  - manila
+  - vienna
 conviction:
   starting_balance: 2500
   min_days_ahead: 0
   max_days_ahead: 0
   min_yes_ask: 0.02
-  max_yes_ask: 0.18
+  max_yes_ask: 0.15
   max_model_yes: 0.05
-  min_edge: 0.042
+  min_edge: 0.05
   min_vig_edge: 0.006
   maker_tick: 0.01
   max_no_bets_per_event: 1
@@ -231,25 +209,31 @@ conviction:
   strict_limit: true
   book_walk_min_ev: 0.015
   min_no_entry: 0.76
-  max_no_ask: 0.80
+  max_no_ask: 0.8
   take_profit_no_bid: 0.985
   stop_loss_no_bid: 0.45
-  exit_model_yes: 0.30
+  exit_model_yes: 0.3
   cities:
-    [nyc, miami, atlanta, chicago, dallas, houston, austin, phoenix, denver, london]
-
+  - nyc
+  - miami
+  - atlanta
+  - chicago
+  - dallas
+  - houston
+  - austin
+  - phoenix
+  - denver
+  - london
 copy:
-  wallet: "0x09b045baad1fbe115c70785635a261411774a3b6"
-  scale: 0.10
+  wallet: '0x09b045baad1fbe115c70785635a261411774a3b6'
+  scale: 0.1
   poll_interval_ms: 250
   recent_limit: 50
-
-# Esports: CS2 + LoL only, OddsPapi fair-value required (no cheap-swing fallback).
 esports:
   horizon_hours: 8
   poll_interval_seconds: 45
   min_ask: 0.08
-  max_ask: 0.50
+  max_ask: 0.5
   take_profit_pct: 0.12
   stop_loss_entry_pct: 0.45
   position_usd: 12
@@ -257,49 +241,47 @@ esports:
   max_open_positions: 5
   min_event_volume: 80
   search_queries:
-    [
-      cs2,
-      counter-strike,
-      lol,
-      league-of-legends,
-      lck,
-      lpl,
-      lec,
-      lcs,
-    ]
+  - cs2
+  - counter-strike
+  - lol
+  - league-of-legends
+  - lck
+  - lpl
+  - lec
+  - lcs
   event_tags:
-    [
-      league-of-legends,
-      counter-strike,
-      cs2,
-      esports,
-    ]
+  - league-of-legends
+  - counter-strike
+  - cs2
+  - esports
   search_limit: 60
   tag_slug: esports
   exclude_slug_patterns:
-    [
-      "-spread-",
-      "-total-",
-      "-o-u-",
-      "player-props",
-      "more-markets",
-      "-handicap-",
-      "-first-half-",
-      "-1h-",
-      "-map-",
-      "-kill-",
-      "-first-blood-",
-      "dota",
-      "valorant",
-      "vct-",
-    ]
-  # OddsPapi fair-value only (ODDSP_API_KEY in .env). CS2 + LoL.
+  - -spread-
+  - -total-
+  - -o-u-
+  - player-props
+  - more-markets
+  - -handicap-
+  - -first-half-
+  - -1h-
+  - -map-
+  - -kill-
+  - -first-blood-
+  - dota
+  - valorant
+  - vct-
   oddspapi:
     enabled: true
     min_edge: 0.15
     primary_bookmaker: bet365
-    fallback_bookmakers: [unibet, stake, pinnacle]
-    sport_ids: [17, 18] # CS2, LoL
+    fallback_bookmakers:
+    - unibet
+    - stake
+    - pinnacle
+    sport_ids:
+    - 17
+    - 18
     max_daily_requests: 20
     max_monthly_requests: 245
     refresh_interval_hours: 3
@@ -307,83 +289,77 @@ esports:
     maker_edge_cents: 0.01
     require_match: true
     max_tournaments_per_sport: 10
-    base_url: "https://api.oddspapi.io/v4"
-
-# Weather momentum: high WR favorites — buy >= 90¢, TP 98¢, wider SL to avoid noise stops.
+    base_url: https://api.oddspapi.io/v4
 momentum:
-  ws_url: "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+  ws_url: wss://ws-subscriptions-clob.polymarket.com/ws/market
   use_websocket: true
   poll_interval_seconds: 5
   mode: ANY_BUCKET
-  specific_token_id: ""
-  entry_trigger_price: 0.90
-  take_profit_price: 0.98
-  stop_loss_price: 0.78
-  order_size_shares: 45.0
+  specific_token_id: ''
+  entry_trigger_price: 0.92
+  take_profit_price: 0.95
+  stop_loss_price: null
+  order_size_shares: 30.0
   use_share_sizing: true
-  position_usd: 45
-  max_position_usd: 90
-  max_open_positions: 3
+  position_usd: 30
+  max_position_usd: 50
+  max_open_positions: 2
   min_event_volume: 200
   entry_price_buffer: 0.01
   exit_slippage_buffer: 0.01
-  cities: [nyc, miami, atlanta, chicago, dallas, houston]
-
-# Mean reversion: fade Yes/No price excursions (FAK). Re-enabled with tighter gates.
+  cities:
+  - nyc
+  - miami
+  - atlanta
+  - chicago
+  - dallas
+  - houston
 meanrev:
   min_liquidity: 3000
   price_min: 0.15
   price_max: 0.85
-  rolling_window: 36
-  min_z_score: 2.0
-  min_edge: 0.040
-  min_confidence: 0.60
+  rolling_window: 24
+  min_z_score: 1.5
+  min_edge: 0.04
+  min_confidence: 0.6
   kelly_fraction: 0.18
-  max_position_usd: 35
-  max_open_positions: 4
-  position_usd: 22
-  stop_loss_pct: 0.15
-  take_profit_pct: 0.08
-
-# Volume/activity spike: follow inter-poll price bursts on liquid Yes/No markets.
-volspike:
-  min_liquidity: 2500
-  price_min: 0.12
-  price_max: 0.85
-  volume_history_len: 24
-  spike_threshold: 1.70
-  min_edge: 0.028
-  min_confidence: 0.55
-  kelly_fraction: 0.18
-  max_position_usd: 40
-  max_open_positions: 5
-  position_usd: 22
-  stop_loss_pct: 0.18
-  take_profit_pct: 0.08
-
-# Closing soon: weather favorites only — skip crypto/sports (0% WR on BTC day bands).
-closingsoon:
-  weather_only: true
-  min_liquidity: 2500
-  min_hours: 4
-  max_hours: 20
-  price_min: 0.96
-  price_max: 0.985
-  min_direction: 0.45
-  min_edge: 0.012
-  min_confidence: 0.70
-  kelly_fraction: 0.22
   max_position_usd: 45
   max_open_positions: 4
   position_usd: 28
-  stop_loss_pct: 0.30
-
-# Arbitrage / spread-capture: buy BOTH sides when ask_yes + ask_no < $1 (locked edge).
-# Prefers fast crypto + weather markets; ranks LP-reward books higher when advertised.
+  stop_loss_pct: 0.15
+  take_profit_pct: 0.08
+volspike:
+  min_liquidity: 2500
+  price_min: 0.2
+  price_max: 0.9
+  volume_history_len: 12
+  spike_threshold: 3.0
+  min_edge: 0.028
+  min_confidence: 0.55
+  kelly_fraction: 0.18
+  max_position_usd: 50
+  max_open_positions: 5
+  position_usd: 28
+  stop_loss_pct: 0.18
+  take_profit_pct: 0.08
+closingsoon:
+  weather_only: true
+  min_liquidity: 2500
+  min_hours: 6.0
+  max_hours: 12.0
+  price_min: 0.85
+  price_max: 0.92
+  min_direction: 0.45
+  min_edge: 0.02
+  min_confidence: 0.7
+  kelly_fraction: 0.22
+  max_position_usd: 25
+  max_open_positions: 3
+  position_usd: 15
+  stop_loss_pct: 0.3
 arbitrage:
   starting_balance: 1000
-  max_pair_cost: 0.97
-  # Maker: still post paired limits when live asks sum slightly over $1.
+  max_pair_cost: 0.94
   max_maker_ask_sum: 1.04
   min_edge: 0.025
   fee_buffer: 0.01
@@ -392,54 +368,53 @@ arbitrage:
   min_ask: 0.02
   max_ask: 0.95
   min_ask_size: 3
-  position_usd: 40
-  max_position_usd: 100
+  position_usd: 45
+  max_position_usd: 110
   max_open_pairs: 8
   maker_tick: 0.01
   paper_fak: true
-  prefer_crypto_weather: true
+  prefer_crypto_weather: false
   prefer_lp_rewards: true
   scan_limit: 250
-  # Hybrid active exits after locked-edge entry (don't hold both legs to resolution).
-  exit_ladder_prices: [0.50, 0.70, 0.85, 0.95]
+  exit_ladder_prices:
+  - 0.5
+  - 0.7
+  - 0.85
+  - 0.95
   exit_ladder_fraction: 0.25
   lose_leg_bid_max: 0.35
   lose_leg_bid_min: 0.05
   lose_leg_lead_bid: 0.55
   rebalance_enabled: true
   rebalance_move: 0.04
-  rebalance_fraction: 0.10
+  rebalance_fraction: 0.1
   rebalance_min_lead: 0.55
-
-# BTC 5m Up/Down scalper: spot-vs-open confirmation, FAK taker (wider window for paper flow).
 btc5m:
-  min_confirm_bps: 10.0
-  min_entry_seconds_left: 15
-  max_entry_seconds_left: 120
+  min_confirm_bps: 40.0
+  min_entry_seconds_left: 20
+  max_entry_seconds_left: 90
   min_ask: 0.58
   max_ask: 0.82
-  min_edge: 0.035
-  min_liquidity: 400
+  min_edge: 0.04
+  min_liquidity: 500
   look_ahead_windows: 2
-  position_usd: 40
-  max_position_usd: 75
-  max_open_positions: 2
-  stop_loss_pct: 0.35
-
-# World-intel style overlays (macro Fear&Greed + BTC SMAs + event taxonomy).
-# Free APIs only — inspired by marc-shade/world-intel-mcp domains, no MCP on hot path.
+  position_usd: 25
+  max_position_usd: 40
+  max_open_positions: 1
+  stop_loss_pct: 0.3
 intel:
   enabled: true
   shadow_only: false
   ttl_seconds: 900
   fail_open_on_error: true
-  # Steady-profit bias: block sports/elections/longshots; size-down in CAUTION.
   block_event_score: 65
   caution_size_mult: 0.55
   btc_min_fear_greed: 45
-  strategies: [meanrev, volspike, closingsoon, btc5m]
-
-# Adaptive Kelly: f* scaled by (1 - σ_current/σ_rolling); past bars only.
+  strategies:
+  - meanrev
+  - volspike
+  - closingsoon
+  - btc5m
 adaptive_sizing:
   enabled: true
   rolling_window: 36
@@ -447,10 +422,10 @@ adaptive_sizing:
   min_observations: 8
   regime_floor: 0.0
   regime_cap: 1.0
-  strategies: [asymmetric, contrarian, conviction]
-
-# PredictionHunt cross-platform edge (free tier: 1 req/s, 1000/mo, 10 matched/mo).
-# Docs: https://www.predictionhunt.com/api/docs — key in PREDICTION_HUNT_API_KEY.
+  strategies:
+  - asymmetric
+  - contrarian
+  - conviction
 predictionhunt:
   enabled: true
   shadow_only: true
@@ -461,10 +436,10 @@ predictionhunt:
   min_cross_platform_count: 2
   min_dislocation: 0.02
   use_matching_markets: false
-  strategies: [contrarian, conviction, fadefinder]
-
-# Prediction Hunt fade-finder: whale fades + sports cross-platform (free-tier sports fallback).
-# Dev+ ($49/mo) required for /alerts/fade-finder — flip use_fade_alerts when upgraded.
+  strategies:
+  - contrarian
+  - conviction
+  - fadefinder
 fadefinder:
   starting_balance: 500
   poll_interval_seconds: 300
@@ -473,7 +448,13 @@ fadefinder:
   sports_fallback: true
   sports_per_scan: 2
   sports_cache_ttl_hours: 24
-  sports: [lol, cs2, nfl, nba, mlb, nhl]
+  sports:
+  - lol
+  - cs2
+  - nfl
+  - nba
+  - mlb
+  - nhl
   min_dislocation: 0.04
   min_whale_stake_usd: 400
   min_no_ask: 0.18
@@ -487,10 +468,8 @@ fadefinder:
   stop_loss_entry_pct: 0.65
   alert_lookback_hours: 24
   alert_limit: 50
-
 live:
-  clob_host: "https://clob.polymarket.com"
+  clob_host: https://clob.polymarket.com
   chain_id: 137
-  # 0 = EOA private key, 1 = email/Magic proxy, 2 = Gnosis safe
   signature_type: 1
-  funder: ""
+  funder: ''
