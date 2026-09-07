@@ -323,6 +323,26 @@ class ArbitrageSettings:
 
 
 @dataclass(frozen=True)
+class PennySettings:
+    """Bid 1¢ on near-term weather YES; rest a 3¢ sell immediately after fill."""
+
+    buy_limit: float
+    sell_limit: float
+    max_ask_to_bid: float
+    min_ask_size: float
+    min_event_volume: float
+    min_days_ahead: int
+    max_days_ahead: int
+    position_usd: float
+    max_position_usd: float
+    max_open_positions: int
+    max_open_per_event: int
+    paper_fill_at_limit: bool
+    starting_balance: float | None
+    cities: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class CopySettings:
     username: str
     wallet: str
@@ -438,6 +458,7 @@ class Settings:
     closingsoon: ClosingSoonSettings
     btc5m: Btc5mSettings
     arbitrage: ArbitrageSettings
+    penny: PennySettings
     edge: EdgeSettings
     copy: CopySettings
     cities: dict[str, City] = field(default_factory=dict)
@@ -574,6 +595,7 @@ def load_settings(
     closingsoon_raw = raw.get("closingsoon") or {}
     btc5m_raw = raw.get("btc5m") or {}
     arbitrage_raw = raw.get("arbitrage") or {}
+    penny_raw = raw.get("penny") or {}
     live_raw = raw.get("live") or {}
     intel_raw = raw.get("intel") or {}
     adaptive_raw = raw.get("adaptive_sizing") or {}
@@ -982,6 +1004,28 @@ def load_settings(
             rebalance_move=float(arbitrage_raw.get("rebalance_move", 0.04)),
             rebalance_fraction=float(arbitrage_raw.get("rebalance_fraction", 0.10)),
             rebalance_min_lead=float(arbitrage_raw.get("rebalance_min_lead", 0.55)),
+        ),
+        penny=PennySettings(
+            buy_limit=float(penny_raw.get("buy_limit", 0.01)),
+            sell_limit=float(penny_raw.get("sell_limit", 0.03)),
+            max_ask_to_bid=float(penny_raw.get("max_ask_to_bid", 0.08)),
+            min_ask_size=float(penny_raw.get("min_ask_size", 1.0)),
+            min_event_volume=float(
+                penny_raw.get("min_event_volume", raw.get("min_event_volume", 100))
+            ),
+            min_days_ahead=int(penny_raw.get("min_days_ahead", 0)),
+            max_days_ahead=int(penny_raw.get("max_days_ahead", 2)),
+            position_usd=float(penny_raw.get("position_usd", 2.0)),
+            max_position_usd=float(penny_raw.get("max_position_usd", 5.0)),
+            max_open_positions=int(penny_raw.get("max_open_positions", 40)),
+            max_open_per_event=int(penny_raw.get("max_open_per_event", 6)),
+            paper_fill_at_limit=bool(penny_raw.get("paper_fill_at_limit", True)),
+            starting_balance=(
+                float(penny_raw["starting_balance"])
+                if penny_raw.get("starting_balance") is not None
+                else None
+            ),
+            cities=tuple(penny_raw.get("cities") or ()),
         ),
         edge=EdgeSettings(
             min_ask=float(edge_raw.get("min_ask", 0.45)),

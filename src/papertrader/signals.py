@@ -35,4 +35,5 @@ class Signal:
     ladder_multiple: float | None = None
     esports_take_profit: bool = False
     momentum_take_profit: bool = False
+    penny_take_profit: bool = False
     market_condition_id: str | None = None

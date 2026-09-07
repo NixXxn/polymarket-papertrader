@@ -30,12 +30,13 @@ from papertrader.trade_log import (
 )
 
 
-STRATEGIES = ("safe", "asymmetric", "contrarian", "conviction", "obieweather", "copy", "esports", "momentum", "meanrev", "volspike", "closingsoon", "btc5m", "arbitrage")
+STRATEGIES = ("safe", "asymmetric", "contrarian", "conviction", "obieweather", "copy", "esports", "momentum", "meanrev", "volspike", "closingsoon", "btc5m", "arbitrage", "penny")
 
 STRATEGY_LABELS: dict[str, str] = {
     "obieweather": "ObieWeather",
     "arbitrage": "Arbitrage",
     "btc5m": "BTC 5m",
+    "penny": "Penny",
 }
 
 _RESET_STATS_FILES = (
@@ -51,6 +52,7 @@ _RESET_STATS_FILES = (
     "live_sync_state.json",
     "esports_exit_state.json",
     "momentum_exit_state.json",
+    "penny_exit_state.json",
     "copy/copy_events.jsonl",
     "copy/copied_trades.json",
 )

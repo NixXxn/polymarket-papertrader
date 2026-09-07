@@ -24,7 +24,9 @@ from papertrader.sizing import account_cash
 from papertrader.trade_log import append_activity, append_skipped
 from papertrader.esports_state import EsportsExitStore
 from papertrader.momentum_state import MomentumExitStore
+from papertrader.penny_state import PennyExitStore
 from papertrader.strategies.esports import analyze_esports_candidate, esports_exits
+from papertrader.strategies.penny import analyze_penny_event, penny_exits
 from papertrader.strategies.momentum import (
     TokenWatch,
     analyze_momentum_entry,
@@ -105,6 +107,35 @@ def _mark_esports_take_profit(engine: Engine, signal: Signal) -> None:
     if not condition_id:
         return
     EsportsExitStore(engine.db.data_dir).mark_take_profit(
+        condition_id,
+        signal.outcome,
+        market_slug=signal.slug,
+        take_profit_price=float(signal.limit_price),
+    )
+
+
+def _rollback_penny_take_profit(
+    engine: Engine, signal: Signal, ctx: ExecutionContext | None = None
+) -> None:
+    if not signal.penny_take_profit:
+        return
+    condition_id = signal.market_condition_id
+    if not condition_id:
+        try:
+            market = (ctx or ExecutionContext()).get_market(engine, signal.slug)
+            condition_id = market.condition_id
+        except Exception:
+            return
+    PennyExitStore(engine.db.data_dir).unmark_take_profit(condition_id, signal.outcome)
+
+
+def _mark_penny_take_profit(engine: Engine, signal: Signal) -> None:
+    if not signal.penny_take_profit or signal.limit_price is None:
+        return
+    condition_id = signal.market_condition_id
+    if not condition_id:
+        return
+    PennyExitStore(engine.db.data_dir).mark_take_profit(
         condition_id,
         signal.outcome,
         market_slug=signal.slug,
@@ -310,6 +341,8 @@ def execute_signal(
                 _mark_esports_take_profit(engine, signal)
             if filled and signal.momentum_take_profit:
                 _mark_momentum_take_profit(engine, signal)
+            if filled and signal.penny_take_profit:
+                _mark_penny_take_profit(engine, signal)
             if filled:
                 log_decision(
                     engine.db.data_dir,
@@ -337,6 +370,8 @@ def execute_signal(
                 _mark_esports_take_profit(engine, signal)
             if signal.momentum_take_profit and signal.action == "sell":
                 _mark_momentum_take_profit(engine, signal)
+            if signal.penny_take_profit and signal.action == "sell":
+                _mark_penny_take_profit(engine, signal)
             if signal.action == "buy":
                 amount = float(signal.amount_usd or 0)
                 if amount <= 0:
@@ -446,6 +481,7 @@ def execute_signal(
             _rollback_partial_exit(engine, signal, ctx=ctx)
             _rollback_esports_take_profit(engine, signal, ctx=ctx)
             _rollback_momentum_take_profit(engine, signal, ctx=ctx)
+            _rollback_penny_take_profit(engine, signal, ctx=ctx)
             append_skipped(engine.db.data_dir, strategy=strategy, signal=signal, error=str(e))
             append_activity(
                 engine.db.data_dir,
@@ -538,6 +574,7 @@ def scan_once(
     closingsoon_engine: Engine | None = None,
     btc5m_engine: Engine | None = None,
     arbitrage_engine: Engine | None = None,
+    penny_engine: Engine | None = None,
     dry_run: bool,
     today: date | None = None,
     live: LiveTrader | None = None,
@@ -569,6 +606,8 @@ def scan_once(
         live_engines.append(("esports", esports_engine))
     if momentum_engine is not None:
         live_engines.append(("momentum", momentum_engine))
+    if penny_engine is not None:
+        live_engines.append(("penny", penny_engine))
     if live is not None and live_engines:
         _sync_live_engines(live, live_engines)
 
@@ -588,6 +627,7 @@ def scan_once(
             closingsoon_engine,
             btc5m_engine,
             arbitrage_engine,
+            penny_engine,
         )
         if e is not None
     ]
@@ -1062,6 +1102,73 @@ def scan_once(
                 message=str(e),
             )
 
+    if penny_engine:
+        try:
+            if live is None:
+                try:
+                    penny_engine.check_orders()
+                except Exception as e:
+                    log.debug("check_orders: %s", e)
+                counts.resolved += _resolve(penny_engine)
+            positions = penny_engine.db.get_open_positions()
+            for sig in penny_exits(penny_engine, settings, positions):
+                filled = execute_signal(
+                    penny_engine, sig, dry_run, live=live, ctx=ctx, strategy="penny"
+                )
+                emitted.append(sig)
+                if filled:
+                    counts.risk_exits += 1
+                    counts.fills += 1
+            cities = settings.cities_for("penny")
+            if settings.penny.cities:
+                cities = [
+                    settings.cities[s] for s in settings.penny.cities if s in settings.cities
+                ]
+            events = discover_events(penny_engine, cities, settings, now=now)
+            positions = penny_engine.db.get_open_positions()
+            any_buy_fill = False
+            for _event_slug, event_date, city, buckets, _volume in events:
+                sigs = analyze_penny_event(
+                    penny_engine,
+                    city,
+                    event_date,
+                    buckets,
+                    settings,
+                    positions,
+                    today=city_local_today(city, now),
+                    paper_mode=live is None and not dry_run,
+                )
+                for sig in sigs:
+                    filled = execute_signal(
+                        penny_engine, sig, dry_run, live=live, ctx=ctx, strategy="penny"
+                    )
+                    emitted.append(sig)
+                    counts.orders_placed += 1
+                    if filled:
+                        counts.fills += 1
+                        any_buy_fill = True
+                        positions = penny_engine.db.get_open_positions()
+            # Immediately rest 3¢ sells after any same-scan fills.
+            if any_buy_fill:
+                positions = penny_engine.db.get_open_positions()
+                for sig in penny_exits(penny_engine, settings, positions):
+                    filled = execute_signal(
+                        penny_engine, sig, dry_run, live=live, ctx=ctx, strategy="penny"
+                    )
+                    emitted.append(sig)
+                    if filled:
+                        counts.risk_exits += 1
+                        counts.fills += 1
+        except Exception as e:
+            log.exception("penny scan failed: %s", e)
+            append_activity(
+                penny_engine.db.data_dir,
+                level="error",
+                event="scan_failed",
+                strategy="penny",
+                message=str(e),
+            )
+
     engines = [
         e
         for e in (
@@ -1078,6 +1185,7 @@ def scan_once(
             closingsoon_engine,
             btc5m_engine,
             arbitrage_engine,
+            penny_engine,
         )
         if e is not None
     ]
@@ -1115,6 +1223,7 @@ def run_loop(
     closingsoon_engine: Engine | None = None,
     btc5m_engine: Engine | None = None,
     arbitrage_engine: Engine | None = None,
+    penny_engine: Engine | None = None,
     dry_run: bool,
     once: bool,
     live: LiveTrader | None = None,
@@ -1148,6 +1257,8 @@ def run_loop(
         named_engines.append(("btc5m", btc5m_engine))
     if arbitrage_engine is not None:
         named_engines.append(("arbitrage", arbitrage_engine))
+    if penny_engine is not None:
+        named_engines.append(("penny", penny_engine))
     poll_seconds = (
         settings.copy.poll_interval_seconds
         if copy_engine is not None
@@ -1179,6 +1290,7 @@ def run_loop(
             closingsoon_engine=closingsoon_engine,
             btc5m_engine=btc5m_engine,
             arbitrage_engine=arbitrage_engine,
+            penny_engine=penny_engine,
             dry_run=dry_run,
             live=live,
             ctx=ctx,
@@ -1206,6 +1318,7 @@ def run_loop(
                 closingsoon_engine=closingsoon_engine,
                 btc5m_engine=btc5m_engine,
                 arbitrage_engine=arbitrage_engine,
+                penny_engine=penny_engine,
                 dry_run=dry_run,
                 live=live,
                 ctx=ctx,

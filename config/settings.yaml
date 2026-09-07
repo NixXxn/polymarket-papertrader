@@ -402,6 +402,33 @@ btc5m:
   max_position_usd: 40
   max_open_positions: 1
   stop_loss_pct: 0.3
+penny:
+  starting_balance: 500
+  buy_limit: 0.01
+  sell_limit: 0.03
+  max_ask_to_bid: 0.08
+  min_ask_size: 1
+  min_event_volume: 100
+  min_days_ahead: 0
+  max_days_ahead: 2
+  position_usd: 2
+  max_position_usd: 5
+  max_open_positions: 40
+  max_open_per_event: 6
+  paper_fill_at_limit: true
+  cities:
+  - miami
+  - atlanta
+  - dallas
+  - houston
+  - austin
+  - nyc
+  - chicago
+  - denver
+  - phoenix
+  - los-angeles
+  - london
+  - munich
 intel:
   enabled: true
   shadow_only: false

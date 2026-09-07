@@ -56,6 +56,7 @@
     .strategy-obieweather { color:#60a5fa; }
     .strategy-conviction { color:#e879f9; }
     .strategy-arbitrage { color:#4ade80; }
+    .strategy-penny { color:#fcd34d; }
     .right { text-align:right; }
     .muted { color:var(--muted); }
     .status { padding:16px; color:var(--muted); }
@@ -82,7 +83,7 @@
   <div class="top">
     <div>
       <h1>Papertrader Dashboard</h1>
-      <div class="sub" id="meta">Safe · Asymmetric · Contrarian · ObieWeather · Arbitrage · Copy · Esports · Momentum · Meanrev · Volspike · Closingsoon · Btc5m</div>
+      <div class="sub" id="meta">Safe · Asymmetric · Contrarian · ObieWeather · Arbitrage · Penny · Copy · Esports · Momentum · Meanrev · Volspike · Closingsoon · Btc5m</div>
     </div>
     <div class="actions">
       <input id="search" placeholder="Markt suchen…">
@@ -94,6 +95,7 @@
         <option value="conviction">Conviction</option>
         <option value="obieweather">ObieWeather</option>
         <option value="arbitrage">Arbitrage</option>
+        <option value="penny">Penny</option>
         <option value="copy">Copy (legacy)</option>
         <option value="esports">Esports</option>
         <option value="momentum">Momentum</option>
@@ -215,7 +217,7 @@
   let allTrades = [];
   let allPositions = [];
   let allActivity = [];
-  let strategyLabels = { obieweather: 'ObieWeather' };
+  let strategyLabels = { obieweather: 'ObieWeather', penny: 'Penny' };
 
   const money = n => new Intl.NumberFormat('de-DE', {style:'currency', currency:'USD'}).format(Number(n||0));
   const pct = n => `${Number(n||0).toLocaleString('de-DE', {maximumFractionDigits:2})}%`;

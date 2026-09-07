@@ -34,6 +34,7 @@ def root_data_dir(path: Path | str) -> Path:
         "closingsoon",
         "btc5m",
         "arbitrage",
+        "penny",
     ):
         return root.parent
     return root
