@@ -128,6 +128,20 @@
     <div class="pill-row" id="copyPills"></div>
   </div>
 
+  <div class="section card" id="phSection" hidden>
+    <h2>Prediction Hunt · Edges &amp; Arb</h2>
+    <div class="pill-row" id="phPills"></div>
+    <div class="table-wrap" style="margin-top:10px">
+      <table id="phTable">
+        <thead><tr>
+          <th>Zeit</th><th>Typ</th><th>Titel / Markt</th>
+          <th class="right">ROI / Edge</th><th class="right">Cost</th><th>Details</th>
+        </tr></thead>
+        <tbody id="phBody"></tbody>
+      </table>
+    </div>
+  </div>
+
   <div class="section" id="openOrdersSection" hidden>
     <h2>Offene CLOB-Orders (Live)</h2>
     <div class="table-wrap">
@@ -355,6 +369,47 @@
       ${latPill}`;
   }
 
+  function renderPredictionHunt(ph) {
+    const sec = document.getElementById('phSection');
+    if (!ph || (!ph.enabled && !(ph.signals || []).length)) {
+      sec.hidden = true;
+      return;
+    }
+    sec.hidden = false;
+    const signals = ph.signals || [];
+    document.getElementById('phPills').innerHTML = `
+      <span class="pill">${ph.api_key_configured ? 'API key OK' : 'API key missing'}</span>
+      <span class="pill">${ph.shadow_only ? 'shadow edges' : 'live edges'}</span>
+      <span class="pill">arb scan ${ph.scan_arb ? 'on' : 'off'}</span>
+      <span class="pill">${signals.length} signals</span>`;
+    const body = document.getElementById('phBody');
+    body.innerHTML = '';
+    for (const row of signals.slice(0, 40)) {
+      const tr = document.createElement('tr');
+      const ev = row.event || '–';
+      const title = row.group_title || row.slug || row.bucket || row.reason || '–';
+      let metric = '–';
+      if (row.roi_pct != null) metric = `${Number(row.roi_pct).toFixed(2)}%`;
+      else if (row.ph_edge_no != null) metric = Number(row.ph_edge_no).toFixed(3);
+      else if (row.dislocation != null) metric = `Δ ${Number(row.dislocation).toFixed(3)}`;
+      const cost = row.total_cost != null ? Number(row.total_cost).toFixed(3) : '–';
+      const detail = row.is_polymarket_pair
+        ? 'PM pair'
+        : (row.legs ? `${(row.legs || []).map(l => l.platform + ':' + l.side).join(' / ')}` : (row.source || ''));
+      tr.innerHTML = `
+        <td class="mono">${esc(dt(row.ts))}</td>
+        <td>${esc(ev)}</td>
+        <td>${esc(title)}</td>
+        <td class="right">${esc(metric)}</td>
+        <td class="right">${esc(cost)}</td>
+        <td class="muted">${esc(detail)}</td>`;
+      body.appendChild(tr);
+    }
+    if (!signals.length) {
+      body.innerHTML = '<tr><td colspan="6" class="muted">Noch keine PH-Signale (Arb braucht Dev+; Edges kommen aus Contrarian/Conviction-Scans).</td></tr>';
+    }
+  }
+
   function renderActivity(rows, liveSync, mode) {
     allActivity = rows || [];
     const meta = document.getElementById('activityMeta');
@@ -557,6 +612,7 @@
       if (data.strategy_labels) strategyLabels = { ...strategyLabels, ...data.strategy_labels };
       renderPortfolio(data.portfolio, data);
       renderCopy(data.copy || {});
+      renderPredictionHunt(data.predictionhunt || {});
       window._liveSync = data.live_sync || {};
       window._mode = data.mode;
       renderActivity(data.activity_log || [], data.live_sync || {}, data.mode);

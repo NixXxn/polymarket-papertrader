@@ -133,10 +133,15 @@ def test_client_uses_cache(tmp_path: Path, monkeypatch):
     cfg.min_request_interval_seconds = 0.0
     cfg.max_monthly_requests = 100
     cfg.max_matched_monthly = 10
+    cfg.max_arb_monthly = 450
     cfg.cache_ttl_hours = 24
     cfg.min_cross_platform_count = 1
     cfg.min_dislocation = 0.02
     cfg.use_matching_markets = False
+    cfg.scan_arb = True
+    cfg.arb_min_roi = 0.5
+    cfg.arb_limit = 10
+    cfg.arb_platforms = "polymarket,kalshi"
 
     client = PredictionHuntClient(tmp_path, cfg, api_key="pmx_test")
     client.lookup_bucket(
@@ -182,3 +187,107 @@ def test_extract_sports_fades_requires_dislocation():
     )
     assert len(opps2) == 1
     assert normalize_platform_price("kalshi", 50) == pytest.approx(0.5)
+
+
+def test_parse_arb_opportunities_and_slug():
+    from papertrader.predictionhunt import parse_arb_opportunities, polymarket_slug_from_leg
+
+    payload = {
+        "opportunities": [
+            {
+                "group_id": 42,
+                "group_title": "Will BTC hit 100k?",
+                "roi_pct": 3.2,
+                "total_cost": 0.97,
+                "max_wager_usd": 120,
+                "event_type": "crypto",
+                "legs": [
+                    {
+                        "side": "yes",
+                        "platform": "polymarket",
+                        "market_id": "btc-100k",
+                        "price": 0.48,
+                        "source_url": "https://polymarket.com/event/btc-100k",
+                        "liquidity_usd": 500,
+                    },
+                    {
+                        "side": "no",
+                        "platform": "kalshi",
+                        "market_id": "KXBTC",
+                        "price": 0.49,
+                        "liquidity_usd": 400,
+                    },
+                ],
+            },
+            {
+                "group_id": 7,
+                "group_title": "PM both sides",
+                "roi_pct": 5.0,
+                "total_cost": 0.94,
+                "legs": [
+                    {
+                        "side": "yes",
+                        "platform": "polymarket",
+                        "market_id": "foo-yes",
+                        "price": 0.45,
+                        "source_url": "https://polymarket.com/event/foo-market",
+                    },
+                    {
+                        "side": "no",
+                        "platform": "polymarket",
+                        "market_id": "foo-no",
+                        "price": 0.49,
+                        "source_url": "https://polymarket.com/event/foo-market",
+                    },
+                ],
+            },
+        ]
+    }
+    opps = parse_arb_opportunities(payload)
+    assert len(opps) == 2
+    assert opps[0].roi_pct == pytest.approx(5.0)  # sorted desc
+    assert opps[0].is_polymarket_pair is True
+    assert opps[1].is_polymarket_pair is False
+    slug = polymarket_slug_from_leg(opps[1].polymarket_legs[0])
+    assert slug == "btc-100k"
+
+
+def test_fetch_arb_blocked(tmp_path: Path, monkeypatch):
+    class FakeResp:
+        status_code = 403
+        headers = {}
+        text = '{"code":"auth.endpoint_blocked"}'
+
+        @staticmethod
+        def json():
+            return {"success": False, "code": "auth.endpoint_blocked"}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return False
+
+        def get(self, url, params=None, headers=None):
+            return FakeResp()
+
+    monkeypatch.setattr("papertrader.predictionhunt.httpx.Client", FakeClient)
+    cfg = MagicMock()
+    cfg.enabled = True
+    cfg.min_request_interval_seconds = 0.0
+    cfg.max_monthly_requests = 100
+    cfg.max_matched_monthly = 10
+    cfg.max_arb_monthly = 450
+    cfg.cache_ttl_hours = 1
+    cfg.scan_arb = True
+    cfg.arb_min_roi = 0.5
+    cfg.arb_limit = 5
+    cfg.arb_platforms = "polymarket,kalshi"
+    client = PredictionHuntClient(tmp_path, cfg, api_key="pmx_test")
+    opps, blocked = client.fetch_arb_opportunities(use_cache=False)
+    assert opps == []
+    assert blocked == "arb_blocked"

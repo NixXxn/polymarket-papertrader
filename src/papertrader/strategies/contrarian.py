@@ -462,6 +462,17 @@ def analyze_contrarian_event(
                         "days_ahead": days_ahead,
                     },
                 )
+                if not ph_cfg.shadow_only and not ph_supports:
+                    rejects["ph_no_edge"] += 1
+                    continue
+                if (
+                    not ph_cfg.shadow_only
+                    and ph_supports
+                    and ph_edge is not None
+                    and ph_edge > 0
+                ):
+                    # Prefer PH consensus edge when live (not shadow).
+                    edge = max(edge, ph_edge)
 
         if edge < required_edge:
             rejects["low_edge"] += 1

@@ -455,18 +455,27 @@ adaptive_sizing:
   - conviction
 predictionhunt:
   enabled: true
-  shadow_only: true
+  # When false, contrarian/conviction require PH consensus support before buying.
+  shadow_only: false
   min_request_interval_seconds: 1.1
   max_monthly_requests: 950
   max_matched_monthly: 8
+  max_arb_monthly: 450
   cache_ttl_hours: 12
   min_cross_platform_count: 2
   min_dislocation: 0.02
   use_matching_markets: false
+  # Dev/Pro /v2/arb; free tier logs blocked and continues with same-platform arb.
+  scan_arb: true
+  arb_min_roi: 0.5
+  arb_limit: 20
+  arb_platforms: polymarket,kalshi
+  execute_polymarket_arb_legs: true
   strategies:
   - contrarian
   - conviction
   - fadefinder
+  - arbitrage
 fadefinder:
   starting_balance: 500
   poll_interval_seconds: 300

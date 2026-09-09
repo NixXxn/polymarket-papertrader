@@ -375,17 +375,23 @@ class IntelSettings:
 
 @dataclass(frozen=True)
 class PredictionHuntSettings:
-    """PredictionHunt cross-platform edge (free-tier budget aware)."""
+    """PredictionHunt cross-platform edge + arb signals (tier-aware)."""
 
     enabled: bool
     shadow_only: bool
     min_request_interval_seconds: float
     max_monthly_requests: int
     max_matched_monthly: int
+    max_arb_monthly: int
     cache_ttl_hours: float
     min_cross_platform_count: int
     min_dislocation: float
     use_matching_markets: bool
+    scan_arb: bool
+    arb_min_roi: float
+    arb_limit: int
+    arb_platforms: str
+    execute_polymarket_arb_legs: bool
     strategies: tuple[str, ...]
 
 
@@ -651,6 +657,7 @@ def load_settings(
             ),
             max_monthly_requests=int(predictionhunt_raw.get("max_monthly_requests", 950)),
             max_matched_monthly=int(predictionhunt_raw.get("max_matched_monthly", 8)),
+            max_arb_monthly=int(predictionhunt_raw.get("max_arb_monthly", 450)),
             cache_ttl_hours=float(predictionhunt_raw.get("cache_ttl_hours", 12)),
             min_cross_platform_count=int(
                 predictionhunt_raw.get("min_cross_platform_count", 2)
@@ -659,8 +666,18 @@ def load_settings(
             use_matching_markets=bool(
                 predictionhunt_raw.get("use_matching_markets", False)
             ),
+            scan_arb=bool(predictionhunt_raw.get("scan_arb", True)),
+            arb_min_roi=float(predictionhunt_raw.get("arb_min_roi", 0.5)),
+            arb_limit=int(predictionhunt_raw.get("arb_limit", 20)),
+            arb_platforms=str(
+                predictionhunt_raw.get("arb_platforms") or "polymarket,kalshi"
+            ),
+            execute_polymarket_arb_legs=bool(
+                predictionhunt_raw.get("execute_polymarket_arb_legs", True)
+            ),
             strategies=tuple(
-                predictionhunt_raw.get("strategies") or ("contrarian", "conviction")
+                predictionhunt_raw.get("strategies")
+                or ("contrarian", "conviction", "fadefinder", "arbitrage")
             ),
         ),
         safe=SafeSettings(

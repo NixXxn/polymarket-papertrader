@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import logging
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from types import SimpleNamespace
 from typing import Any
 
@@ -23,6 +23,12 @@ from pm_trader.models import Position
 from papertrader.config import Settings
 from papertrader.decision_log import log_decision
 from papertrader.markets import best_ask, best_bid
+from papertrader.predictionhunt import (
+    PredictionHuntClient,
+    append_ph_signal,
+    polymarket_slug_from_leg,
+    predictionhunt_api_key,
+)
 from papertrader.signals import QuantMeta, Signal
 from papertrader.sizing import account_cash, scaled_size
 
@@ -155,6 +161,127 @@ def _log_arb(
         reason=reason,
         **extra,
     )
+
+
+def _scan_predictionhunt_arb(engine: Engine, settings: Settings) -> set[str]:
+    """Pull /v2/arb, log detections, return Polymarket slugs to prioritize."""
+    ph_cfg = settings.predictionhunt
+    if not (
+        ph_cfg.enabled
+        and ph_cfg.scan_arb
+        and "arbitrage" in ph_cfg.strategies
+        and predictionhunt_api_key()
+    ):
+        return set()
+
+    client = PredictionHuntClient(engine.db.data_dir, ph_cfg)
+    opps, blocked = client.fetch_arb_opportunities()
+    if blocked:
+        append_ph_signal(
+            engine.db.data_dir,
+            {
+                "event": "ph_arb_blocked",
+                "strategy": "arbitrage",
+                "reason": blocked,
+            },
+        )
+        _log_arb(
+            engine,
+            decision="skip",
+            reason=f"predictionhunt_arb_{blocked}",
+        )
+        return set()
+
+    preferred: set[str] = set()
+    for opp in opps:
+        pm_legs = [
+            {
+                "side": leg.side,
+                "platform": leg.platform,
+                "market_id": leg.market_id,
+                "price": leg.price,
+                "slug": polymarket_slug_from_leg(leg),
+                "liquidity_usd": leg.liquidity_usd,
+            }
+            for leg in opp.legs
+        ]
+        append_ph_signal(
+            engine.db.data_dir,
+            {
+                "event": "ph_arb",
+                "strategy": "arbitrage",
+                "group_id": opp.group_id,
+                "group_title": opp.group_title,
+                "roi_pct": opp.roi_pct,
+                "total_cost": opp.total_cost,
+                "max_wager_usd": opp.max_wager_usd,
+                "event_type": opp.event_type,
+                "event_date": opp.event_date,
+                "is_polymarket_pair": opp.is_polymarket_pair,
+                "legs": pm_legs,
+            },
+        )
+        if not (ph_cfg.execute_polymarket_arb_legs and opp.is_polymarket_pair):
+            continue
+        if opp.total_cost >= 1.0 - 1e-9:
+            continue
+        for leg in opp.polymarket_legs:
+            slug = polymarket_slug_from_leg(leg)
+            if slug:
+                preferred.add(slug)
+
+    _log_arb(
+        engine,
+        decision="scan",
+        reason=f"predictionhunt arb: {len(opps)} opps / {len(preferred)} pm-pair slugs",
+        ph_arb_count=len(opps),
+        ph_pm_slugs=len(preferred),
+    )
+    return preferred
+
+
+def _markets_from_ph_slugs(
+    engine: Engine,
+    settings: Settings,
+    slugs: set[str],
+) -> list[_ArbMarket]:
+    """Resolve PH-prioritized Polymarket slugs into arb market rows."""
+    cfg = settings.arbitrage
+    out: list[_ArbMarket] = []
+    for slug in slugs:
+        try:
+            market = engine.api.get_market(slug)
+        except Exception:
+            continue
+        if getattr(market, "closed", False):
+            continue
+        pair: tuple[str, str] | None = None
+        for a, b in (("Yes", "No"), ("yes", "no"), ("Up", "Down"), ("up", "down")):
+            try:
+                market.get_token_id(a)
+                market.get_token_id(b)
+                pair = (a, b)
+                break
+            except Exception:
+                continue
+        if pair is None:
+            continue
+        out.append(
+            _ArbMarket(
+                condition_id=str(getattr(market, "condition_id", "") or ""),
+                slug=str(getattr(market, "slug", slug) or slug),
+                question=str(getattr(market, "question", "") or ""),
+                outcome_a=pair[0],
+                outcome_b=pair[1],
+                liquidity=float(getattr(market, "liquidity", 0) or 0),
+                volume_24h=0.0,
+                lp_reward_score=1.0,
+                preferred=True,
+            )
+        )
+        if len(out) >= max(5, cfg.max_open_pairs * 2):
+            break
+    return out
 
 
 def discover_arb_markets(
@@ -319,16 +446,26 @@ def analyze_arbitrage(
         return []
 
     markets = discover_arb_markets(engine, settings)
+    ph_slugs = _scan_predictionhunt_arb(engine, settings)
+    if ph_slugs:
+        existing = {m.slug for m in markets}
+        ph_markets = _markets_from_ph_slugs(engine, settings, ph_slugs - existing)
+        # Prefer PH-flagged markets first.
+        flagged = [replace(m, preferred=True) for m in markets if m.slug in ph_slugs]
+        rest = [m for m in markets if m.slug not in ph_slugs]
+        markets = ph_markets + flagged + rest
     _log_arb(
         engine,
         decision="scan",
         reason=(
             f"arbitrage scan: {len(markets)} binary candidates / "
             f"budget=${pair_budget:.2f} / open_pairs={open_pair_count}"
+            + (f" / ph_slugs={len(ph_slugs)}" if ph_slugs else "")
         ),
         candidates=len(markets),
         open_pairs=open_pair_count,
         pair_budget=pair_budget,
+        ph_slugs=len(ph_slugs),
     )
 
     signals: list[Signal] = []

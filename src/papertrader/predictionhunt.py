@@ -61,6 +61,163 @@ class CrossPlatformBucket:
     source: str  # search | matching-markets
 
 
+@dataclass(frozen=True)
+class ArbLeg:
+    side: str  # yes | no
+    platform: str
+    market_id: str
+    price: float
+    liquidity_usd: float | None = None
+    fee_usd: float | None = None
+    source_url: str | None = None
+
+
+@dataclass(frozen=True)
+class ArbOpportunity:
+    """Cross-platform arb from GET /v2/arb (Dev/Pro tier)."""
+
+    group_id: str
+    group_title: str
+    roi_pct: float
+    total_cost: float
+    max_wager_usd: float | None
+    event_date: str | None
+    event_type: str | None
+    detected_at: str | None
+    legs: tuple[ArbLeg, ...]
+    blocked: bool = False
+
+    @property
+    def polymarket_legs(self) -> tuple[ArbLeg, ...]:
+        return tuple(
+            leg
+            for leg in self.legs
+            if leg.platform in ("polymarket", "polymarket_us")
+        )
+
+    @property
+    def is_polymarket_pair(self) -> bool:
+        pm = self.polymarket_legs
+        sides = {leg.side for leg in pm}
+        return len(pm) >= 2 and "yes" in sides and "no" in sides
+
+
+_SIGNAL_FILE = "predictionhunt_signals.jsonl"
+_BASE_URL_ENV = "PREDICTION_HUNT_API_URL"
+
+
+def predictionhunt_base_url() -> str:
+    raw = os.environ.get(_BASE_URL_ENV, "").strip().rstrip("/")
+    return raw or _BASE_URL
+
+
+def append_ph_signal(data_dir: Path | str, row: dict[str, Any]) -> None:
+    """Append a PH edge/arb detection row for dashboard + ops."""
+    root = root_data_dir(Path(data_dir))
+    path = root / _SIGNAL_FILE
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"ts": datetime.now(timezone.utc).isoformat(), **row}
+    with path.open("a") as f:
+        f.write(json.dumps(payload, separators=(",", ":"), default=str) + "\n")
+    try:
+        lines = path.read_text().splitlines()
+        if len(lines) > 500:
+            path.write_text("\n".join(lines[-500:]) + "\n")
+    except OSError:
+        pass
+
+
+def load_ph_signals(data_dir: Path | str, *, limit: int = 80) -> list[dict[str, Any]]:
+    path = root_data_dir(Path(data_dir)) / _SIGNAL_FILE
+    if not path.is_file():
+        return []
+    rows: list[dict[str, Any]] = []
+    for line in path.read_text().splitlines()[-limit:]:
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            continue
+    rows.reverse()
+    return rows
+
+
+def parse_arb_opportunities(payload: dict[str, Any]) -> list[ArbOpportunity]:
+    """Parse GET /v2/arb JSON into ArbOpportunity rows."""
+    if payload.get("_blocked"):
+        return []
+    rows = payload.get("opportunities") or payload.get("data") or []
+    if not isinstance(rows, list):
+        return []
+    out: list[ArbOpportunity] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        raw_legs = row.get("legs") or []
+        legs: list[ArbLeg] = []
+        if isinstance(raw_legs, list):
+            for leg in raw_legs:
+                if not isinstance(leg, dict):
+                    continue
+                try:
+                    price = float(leg.get("price"))
+                except (TypeError, ValueError):
+                    continue
+                side = str(leg.get("side") or "").lower()
+                if side not in ("yes", "no"):
+                    continue
+                liq = leg.get("liquidity_usd")
+                fee = leg.get("fee_usd")
+                legs.append(
+                    ArbLeg(
+                        side=side,
+                        platform=str(leg.get("platform") or "").lower(),
+                        market_id=str(leg.get("market_id") or leg.get("id") or ""),
+                        price=price,
+                        liquidity_usd=float(liq) if liq is not None else None,
+                        fee_usd=float(fee) if fee is not None else None,
+                        source_url=(
+                            str(leg.get("source_url")) if leg.get("source_url") else None
+                        ),
+                    )
+                )
+        if len(legs) < 2:
+            continue
+        try:
+            roi = float(row.get("roi_pct"))
+            total_cost = float(row.get("total_cost"))
+        except (TypeError, ValueError):
+            continue
+        max_w = row.get("max_wager_usd")
+        out.append(
+            ArbOpportunity(
+                group_id=str(row.get("group_id") or row.get("id") or ""),
+                group_title=str(row.get("group_title") or row.get("title") or ""),
+                roi_pct=roi,
+                total_cost=total_cost,
+                max_wager_usd=float(max_w) if max_w is not None else None,
+                event_date=str(row["event_date"]) if row.get("event_date") else None,
+                event_type=str(row["event_type"]) if row.get("event_type") else None,
+                detected_at=str(row["detected_at"]) if row.get("detected_at") else None,
+                legs=tuple(legs),
+            )
+        )
+    out.sort(key=lambda o: o.roi_pct, reverse=True)
+    return out
+
+
+def polymarket_slug_from_leg(leg: ArbLeg) -> str | None:
+    """Best-effort Polymarket market slug from PH leg metadata."""
+    url = (leg.source_url or "").strip()
+    if url:
+        m = re.search(r"polymarket\.com/(?:event|market)/([a-zA-Z0-9_-]+)", url)
+        if m:
+            return m.group(1)
+    mid = (leg.market_id or "").strip()
+    if mid and re.fullmatch(r"[a-z0-9][a-z0-9_-]{2,}", mid):
+        return mid
+    return None
+
+
 @dataclass
 class _CacheEntry:
     fetched_at: str
@@ -101,9 +258,11 @@ class PredictionHuntQuota:
             "month": now.month,
             "monthly_used": 0,
             "matched_monthly_used": 0,
+            "arb_monthly_used": 0,
             "last_request_ts": 0.0,
             "remaining_month": None,
             "remaining_matched_month": None,
+            "remaining_arb_month": None,
         }
 
     def _roll_month(self) -> None:
@@ -112,6 +271,7 @@ class PredictionHuntQuota:
             self._state["month"] = now_month
             self._state["monthly_used"] = 0
             self._state["matched_monthly_used"] = 0
+            self._state["arb_monthly_used"] = 0
 
     def _save(self) -> None:
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -122,15 +282,20 @@ class PredictionHuntQuota:
         *,
         count: int = 1,
         matched: bool = False,
+        arb: bool = False,
         max_monthly: int,
         max_matched_monthly: int,
+        max_arb_monthly: int = 450,
     ) -> bool:
         self._roll_month()
         monthly = int(self._state.get("monthly_used", 0))
         matched_used = int(self._state.get("matched_monthly_used", 0))
+        arb_used = int(self._state.get("arb_monthly_used", 0))
         if monthly + count > max_monthly:
             return False
         if matched and matched_used + count > max_matched_monthly:
+            return False
+        if arb and arb_used + count > max_arb_monthly:
             return False
         rem = self._state.get("remaining_month")
         if rem is not None and int(rem) < count:
@@ -138,6 +303,10 @@ class PredictionHuntQuota:
         if matched:
             rem_m = self._state.get("remaining_matched_month")
             if rem_m is not None and int(rem_m) < count:
+                return False
+        if arb:
+            rem_a = self._state.get("remaining_arb_month")
+            if rem_a is not None and int(rem_a) < count:
                 return False
         return True
 
@@ -152,6 +321,7 @@ class PredictionHuntQuota:
         *,
         headers: httpx.Headers,
         matched: bool = False,
+        arb: bool = False,
     ) -> None:
         self._roll_month()
         self._state["monthly_used"] = int(self._state.get("monthly_used", 0)) + 1
@@ -159,6 +329,8 @@ class PredictionHuntQuota:
             self._state["matched_monthly_used"] = (
                 int(self._state.get("matched_monthly_used", 0)) + 1
             )
+        if arb:
+            self._state["arb_monthly_used"] = int(self._state.get("arb_monthly_used", 0)) + 1
         self._state["last_request_ts"] = time.monotonic()
         rem = headers.get("X-RateLimit-Remaining-Month")
         if rem is not None:
@@ -174,13 +346,21 @@ class PredictionHuntQuota:
                 self._state["remaining_matched_month"] = int(rem_m)
             except ValueError:
                 pass
+        rem_a = headers.get("X-RateLimit-Remaining-Arb-Month")
+        if rem_a is not None:
+            try:
+                self._state["remaining_arb_month"] = int(rem_a)
+            except ValueError:
+                pass
         self._save()
         log.info(
-            "PredictionHunt quota: monthly %s (rem=%s) matched %s (rem=%s)",
+            "PredictionHunt quota: monthly %s (rem=%s) matched %s (rem=%s) arb %s (rem=%s)",
             self._state["monthly_used"],
             self._state.get("remaining_month"),
             self._state.get("matched_monthly_used"),
             self._state.get("remaining_matched_month"),
+            self._state.get("arb_monthly_used"),
+            self._state.get("remaining_arb_month"),
         )
 
     def snapshot(self) -> dict[str, int | None]:
@@ -188,8 +368,10 @@ class PredictionHuntQuota:
         return {
             "monthly_used": int(self._state.get("monthly_used", 0)),
             "matched_monthly_used": int(self._state.get("matched_monthly_used", 0)),
+            "arb_monthly_used": int(self._state.get("arb_monthly_used", 0)),
             "remaining_month": self._state.get("remaining_month"),
             "remaining_matched_month": self._state.get("remaining_matched_month"),
+            "remaining_arb_month": self._state.get("remaining_arb_month"),
         }
 
 
@@ -643,6 +825,7 @@ class PredictionHuntClient:
         params: dict[str, Any],
         *,
         matched: bool = False,
+        arb: bool = False,
         use_cache: bool = True,
         cache_ttl_hours: float | None = None,
     ) -> dict[str, Any] | None:
@@ -651,10 +834,14 @@ class PredictionHuntClient:
         cfg = self._settings
         if not self._quota.can_spend(
             matched=matched,
+            arb=arb,
             max_monthly=cfg.max_monthly_requests,
             max_matched_monthly=cfg.max_matched_monthly,
+            max_arb_monthly=cfg.max_arb_monthly,
         ):
-            log.warning("PredictionHunt quota exhausted (matched=%s)", matched)
+            log.warning(
+                "PredictionHunt quota exhausted (matched=%s arb=%s)", matched, arb
+            )
             return None
 
         cache_key = f"{path}?{urlencode(sorted((k, str(v)) for k, v in params.items()))}"
@@ -665,7 +852,7 @@ class PredictionHuntClient:
                 return cached
 
         self._quota.wait_for_rate_limit(cfg.min_request_interval_seconds)
-        url = f"{_BASE_URL}{path}"
+        url = f"{predictionhunt_base_url()}{path}"
         try:
             with httpx.Client(timeout=self._timeout, follow_redirects=True) as client:
                 resp = client.get(url, params=params, headers=self._headers())
@@ -690,7 +877,7 @@ class PredictionHuntClient:
             log.warning("PredictionHunt HTTP %s: %s", resp.status_code, resp.text[:200])
             return None
 
-        self._quota.record_request(headers=resp.headers, matched=matched)
+        self._quota.record_request(headers=resp.headers, matched=matched, arb=arb)
         try:
             data = resp.json()
         except json.JSONDecodeError:
@@ -829,6 +1016,38 @@ class PredictionHuntClient:
             use_cache=True,
             cache_ttl_hours=cache_ttl_hours,
         )
+
+    def fetch_arb_opportunities(
+        self,
+        *,
+        min_roi: float | None = None,
+        platforms: str | None = None,
+        limit: int | None = None,
+        use_cache: bool = True,
+    ) -> tuple[list[ArbOpportunity], str | None]:
+        """Live cross-platform arb signals (Dev/Pro). Returns (opps, block_reason)."""
+        cfg = self._settings
+        if not cfg.scan_arb:
+            return [], "scan_arb_disabled"
+        params: dict[str, Any] = {
+            "min_roi": float(min_roi if min_roi is not None else cfg.arb_min_roi),
+            "limit": int(limit if limit is not None else cfg.arb_limit),
+        }
+        plats = platforms if platforms is not None else cfg.arb_platforms
+        if plats:
+            params["platforms"] = plats
+        data = self._get(
+            "/arb",
+            params,
+            arb=True,
+            use_cache=use_cache,
+            cache_ttl_hours=min(1.0, cfg.cache_ttl_hours),
+        )
+        if data is None:
+            return [], None
+        if data.get("_blocked"):
+            return [], "arb_blocked"
+        return parse_arb_opportunities(data), None
 
 
 def cross_platform_no_edge(
