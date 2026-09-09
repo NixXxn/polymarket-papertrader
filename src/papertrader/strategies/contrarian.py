@@ -23,6 +23,7 @@ from papertrader.markets import (
 )
 from papertrader.predictionhunt import (
     PredictionHuntClient,
+    append_ph_signal,
     cross_platform_no_edge,
     predictionhunt_api_key,
 )
@@ -331,7 +332,7 @@ def analyze_contrarian_event(
     if (
         ph_cfg.enabled
         and predictionhunt_api_key()
-        and "contrarian" in ph_cfg.strategies
+        and strategy_name in ph_cfg.strategies
     ):
         ph_client = PredictionHuntClient(engine.db.data_dir, ph_cfg)
 
@@ -445,7 +446,7 @@ def analyze_contrarian_event(
                     min_dislocation=ph_cfg.min_dislocation,
                 )
                 shadow.log_ph_shadow(
-                    strategy="contrarian",
+                    strategy=strategy_name,
                     slug=bucket.market.slug,
                     bucket=bucket.bucket_text,
                     consensus_yes=cross.consensus_yes,
@@ -460,6 +461,25 @@ def analyze_contrarian_event(
                         "group_title": cross.group_title,
                         "yes_ask": round(quote.yes_ask, 4),
                         "days_ahead": days_ahead,
+                    },
+                )
+                append_ph_signal(
+                    engine.db.data_dir,
+                    {
+                        "event": "ph_edge",
+                        "strategy": strategy_name,
+                        "slug": bucket.market.slug,
+                        "bucket": bucket.bucket_text,
+                        "group_title": cross.group_title,
+                        "consensus_yes": cross.consensus_yes,
+                        "polymarket_yes": cross.polymarket_yes_ask,
+                        "dislocation": cross.dislocation,
+                        "ph_edge_no": ph_edge,
+                        "no_ask": fill_no,
+                        "platform_count": cross.platform_count,
+                        "source": cross.source,
+                        "supports_no": ph_supports,
+                        "shadow_only": ph_cfg.shadow_only,
                     },
                 )
                 if not ph_cfg.shadow_only and not ph_supports:

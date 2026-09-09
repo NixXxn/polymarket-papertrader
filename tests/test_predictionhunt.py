@@ -252,6 +252,26 @@ def test_parse_arb_opportunities_and_slug():
     assert slug == "btc-100k"
 
 
+def test_append_and_load_ph_signals(tmp_path: Path):
+    from papertrader.predictionhunt import append_ph_signal, load_ph_signals
+
+    append_ph_signal(
+        tmp_path,
+        {
+            "event": "ph_edge",
+            "strategy": "conviction",
+            "slug": "demo-slug",
+            "ph_edge_no": 0.05,
+            "supports_no": True,
+        },
+    )
+    rows = load_ph_signals(tmp_path, limit=10)
+    assert len(rows) == 1
+    assert rows[0]["event"] == "ph_edge"
+    assert rows[0]["strategy"] == "conviction"
+    assert "ts" in rows[0]
+
+
 def test_fetch_arb_blocked(tmp_path: Path, monkeypatch):
     class FakeResp:
         status_code = 403

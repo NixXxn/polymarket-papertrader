@@ -239,6 +239,10 @@ class PredictionHuntQuota:
     def __init__(self, data_dir: Path | str) -> None:
         self._path = root_data_dir(Path(data_dir)) / _QUOTA_FILE
         self._state = self._load()
+        # Monotonic clocks are not stable across process/boot — keep rate-limit
+        # timing in memory only (never trust persisted last_request_ts).
+        self._last_request_mono: float = 0.0
+        self._state.pop("last_request_ts", None)
 
     def _load(self) -> dict[str, Any]:
         if not self._path.is_file():
@@ -259,7 +263,6 @@ class PredictionHuntQuota:
             "monthly_used": 0,
             "matched_monthly_used": 0,
             "arb_monthly_used": 0,
-            "last_request_ts": 0.0,
             "remaining_month": None,
             "remaining_matched_month": None,
             "remaining_arb_month": None,
@@ -311,9 +314,10 @@ class PredictionHuntQuota:
         return True
 
     def wait_for_rate_limit(self, min_interval: float) -> None:
-        last = float(self._state.get("last_request_ts") or 0.0)
-        elapsed = time.monotonic() - last
-        if elapsed < min_interval:
+        if min_interval <= 0:
+            return
+        elapsed = time.monotonic() - self._last_request_mono
+        if self._last_request_mono > 0 and elapsed < min_interval:
             time.sleep(min_interval - elapsed)
 
     def record_request(
@@ -331,7 +335,7 @@ class PredictionHuntQuota:
             )
         if arb:
             self._state["arb_monthly_used"] = int(self._state.get("arb_monthly_used", 0)) + 1
-        self._state["last_request_ts"] = time.monotonic()
+        self._last_request_mono = time.monotonic()
         rem = headers.get("X-RateLimit-Remaining-Month")
         if rem is not None:
             try:

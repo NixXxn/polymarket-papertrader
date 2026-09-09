@@ -418,6 +418,9 @@ def analyze_arbitrage(
 ) -> list[Signal]:
     """Emit paired YES+NO (or Up+Down) buys when combined ask locks an edge under $1."""
     cfg = settings.arbitrage
+    # Always scan PH arb (logs signals / blocked) even when we cannot open new pairs.
+    ph_slugs = _scan_predictionhunt_arb(engine, settings)
+
     positions = engine.db.get_open_positions()
     pairs = _open_pairs(positions)
     open_pair_count = sum(1 for legs in pairs.values() if len(legs) >= 1)
@@ -428,6 +431,7 @@ def analyze_arbitrage(
             reason="max_open_pairs",
             open_pairs=open_pair_count,
             max_open_pairs=cfg.max_open_pairs,
+            ph_slugs=len(ph_slugs),
         )
         return []
 
@@ -442,11 +446,16 @@ def analyze_arbitrage(
         max_usd=cfg.max_position_usd,
     )
     if pair_budget is None:
-        _log_arb(engine, decision="skip", reason="insufficient_cash", cash=bankroll)
+        _log_arb(
+            engine,
+            decision="skip",
+            reason="insufficient_cash",
+            cash=bankroll,
+            ph_slugs=len(ph_slugs),
+        )
         return []
 
     markets = discover_arb_markets(engine, settings)
-    ph_slugs = _scan_predictionhunt_arb(engine, settings)
     if ph_slugs:
         existing = {m.slug for m in markets}
         ph_markets = _markets_from_ph_slugs(engine, settings, ph_slugs - existing)

@@ -153,9 +153,11 @@ def test_contrarian_buys_no_on_overpriced_tail(monkeypatch, tmp_path):
     settings = load_settings()
     city = _contrarian_city()
     event_date = date(2026, 8, 13)
-    bucket, yes_ask, no_ask = _tail_bucket(city, event_date, yes_ask=0.17, no_ask=0.81)
+    # Tail YES must clear max_yes_ask and look rich vs Shin fair of the event book.
+    bucket, yes_ask, no_ask = _tail_bucket(city, event_date, yes_ask=0.15, no_ask=0.79)
     mid, mid_yes, mid_no = _mid_bucket(city, event_date)
     low, low_yes, low_no = _low_bucket(city, event_date)
+    mid_yes, low_yes = 0.50, 0.60
     engine = MagicMock()
     engine.db.data_dir = tmp_path
     engine.get_account.return_value = SimpleNamespace(cash=500.0)
@@ -276,7 +278,7 @@ def test_contrarian_skips_when_already_in_event(monkeypatch, tmp_path):
     settings = load_settings()
     city = _contrarian_city()
     event_date = date(2026, 8, 13)
-    bucket, yes_ask, no_ask = _tail_bucket(city, event_date, yes_ask=0.17, no_ask=0.81)
+    bucket, yes_ask, no_ask = _tail_bucket(city, event_date, yes_ask=0.14, no_ask=0.79)
     engine = MagicMock()
     engine.db.data_dir = tmp_path
     engine.get_account.return_value = SimpleNamespace(cash=500.0)
