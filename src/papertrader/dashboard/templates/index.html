@@ -83,9 +83,13 @@
   <div class="top">
     <div>
       <h1>Papertrader Dashboard</h1>
-      <div class="sub" id="meta">Safe · Asymmetric · Contrarian · ObieWeather · Arbitrage · Penny · Copy · Esports · Momentum · Meanrev · Volspike · Closingsoon · Btc5m</div>
+      <div class="sub" id="meta">Safe · Asymmetric · Contrarian · ObieWeather · Arbitrage · Penny · Endgame · Copy · Esports · Momentum · Meanrev · Volspike · Closingsoon · Btc5m</div>
     </div>
     <div class="actions">
+      <select id="modeSelect" title="Paper vs Live ledger">
+        <option value="paper">Paper</option>
+        <option value="live">Live</option>
+      </select>
       <input id="search" placeholder="Markt suchen…">
       <select id="filter">
         <option value="all">Alle Strategien</option>
@@ -96,6 +100,7 @@
         <option value="obieweather">ObieWeather</option>
         <option value="arbitrage">Arbitrage</option>
         <option value="penny">Penny</option>
+        <option value="endgame">Endgame</option>
         <option value="copy">Copy (legacy)</option>
         <option value="esports">Esports</option>
         <option value="momentum">Momentum</option>
@@ -231,7 +236,8 @@
   let allTrades = [];
   let allPositions = [];
   let allActivity = [];
-  let strategyLabels = { obieweather: 'ObieWeather', penny: 'Penny' };
+  let strategyLabels = { obieweather: 'ObieWeather', penny: 'Penny', endgame: 'Endgame' };
+  let dashMode = localStorage.getItem('pmDashMode') || 'paper';
 
   const money = n => new Intl.NumberFormat('de-DE', {style:'currency', currency:'USD'}).format(Number(n||0));
   const pct = n => `${Number(n||0).toLocaleString('de-DE', {maximumFractionDigits:2})}%`;
@@ -607,7 +613,9 @@
     status.classList.remove('error');
     status.textContent = 'Lade…';
     try {
-      const r = await fetch('/api/dashboard', {cache:'no-store'});
+      const modeSel = document.getElementById('modeSelect');
+      if (modeSel) modeSel.value = dashMode;
+      const r = await fetch(`/api/dashboard?mode=${encodeURIComponent(dashMode)}`, {cache:'no-store'});
       const data = await readJsonOrThrow(r);
       if (data.strategy_labels) strategyLabels = { ...strategyLabels, ...data.strategy_labels };
       renderPortfolio(data.portfolio, data);
@@ -638,6 +646,11 @@
     renderActivity(allActivity, window._liveSync || {}, window._mode || 'paper');
   });
   document.getElementById('refresh').addEventListener('click', load);
+  document.getElementById('modeSelect').addEventListener('change', (e) => {
+    dashMode = e.target.value === 'live' ? 'live' : 'paper';
+    localStorage.setItem('pmDashMode', dashMode);
+    load();
+  });
   document.getElementById('budgetInput').addEventListener('input', () => {
     document.getElementById('budgetInput').dataset.touched = '1';
   });

@@ -429,6 +429,21 @@ penny:
   - los-angeles
   - london
   - munich
+# landighertz-style: sports/esports ending soon, buy 97–99¢ locks with full cash
+endgame:
+  starting_balance: 1000
+  min_minutes: 0
+  max_minutes: 15
+  price_min: 0.97
+  price_max: 0.99
+  min_liquidity: 200
+  min_ask_size: 5
+  use_full_capital: true
+  position_usd: 1000
+  max_position_usd: 5000
+  max_open_positions: 1
+  stop_bid: 0.80
+  poll_interval_seconds: 20
 intel:
   enabled: true
   shadow_only: false

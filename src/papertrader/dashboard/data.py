@@ -31,13 +31,14 @@ from papertrader.trade_log import (
 )
 
 
-STRATEGIES = ("safe", "asymmetric", "contrarian", "conviction", "obieweather", "copy", "esports", "momentum", "meanrev", "volspike", "closingsoon", "btc5m", "arbitrage", "penny")
+STRATEGIES = ("safe", "asymmetric", "contrarian", "conviction", "obieweather", "copy", "esports", "momentum", "meanrev", "volspike", "closingsoon", "btc5m", "arbitrage", "penny", "endgame")
 
 STRATEGY_LABELS: dict[str, str] = {
     "obieweather": "ObieWeather",
     "arbitrage": "Arbitrage",
     "btc5m": "BTC 5m",
     "penny": "Penny",
+    "endgame": "Endgame",
 }
 
 _RESET_STATS_FILES = (
@@ -68,7 +69,8 @@ def _resolve_dashboard(
     settings = load_settings()
     resolved = resolve_mode(
         settings_mode=settings.mode,
-        cli_mode=mode,
+        # Dashboard defaults to paper books so .env LIVE does not zero out cards.
+        cli_mode=mode or "paper",
         confirm_live=False,
         data_dir=data_dir or data_dir_from_env(),
         clob_host=settings.live.clob_host,

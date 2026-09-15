@@ -575,6 +575,7 @@ def scan_once(
     btc5m_engine: Engine | None = None,
     arbitrage_engine: Engine | None = None,
     penny_engine: Engine | None = None,
+    endgame_engine: Engine | None = None,
     dry_run: bool,
     today: date | None = None,
     live: LiveTrader | None = None,
@@ -608,6 +609,8 @@ def scan_once(
         live_engines.append(("momentum", momentum_engine))
     if penny_engine is not None:
         live_engines.append(("penny", penny_engine))
+    if endgame_engine is not None:
+        live_engines.append(("endgame", endgame_engine))
     if live is not None and live_engines:
         _sync_live_engines(live, live_engines)
 
@@ -628,10 +631,35 @@ def scan_once(
             btc5m_engine,
             arbitrage_engine,
             penny_engine,
+            endgame_engine,
         )
         if e is not None
     ]
     _purge_logs(purge_engines)
+
+    # Endgame first: 15-minute sports locks must not wait behind weather scans.
+    if endgame_engine:
+        try:
+            from papertrader.strategies.endgame import analyze_endgame, endgame_exits
+
+            if live is None:
+                counts.resolved += _resolve(endgame_engine)
+            for sig in endgame_exits(endgame_engine, settings):
+                if execute_signal(endgame_engine, sig, dry_run, live=live, ctx=ctx, strategy="endgame"):
+                    emitted.append(sig)
+                    counts.orders += 1
+            for sig in analyze_endgame(endgame_engine, settings):
+                if execute_signal(endgame_engine, sig, dry_run, live=live, ctx=ctx, strategy="endgame"):
+                    emitted.append(sig)
+                    counts.orders += 1
+        except Exception as e:
+            log.exception("endgame scan failed: %s", e)
+            log_decision(
+                endgame_engine.db.data_dir,
+                decision="error",
+                reason=str(e),
+                strategy="endgame",
+            )
 
     if safe_engine:
         if live is None:
@@ -1186,6 +1214,7 @@ def scan_once(
             btc5m_engine,
             arbitrage_engine,
             penny_engine,
+            endgame_engine,
         )
         if e is not None
     ]
@@ -1224,6 +1253,7 @@ def run_loop(
     btc5m_engine: Engine | None = None,
     arbitrage_engine: Engine | None = None,
     penny_engine: Engine | None = None,
+    endgame_engine: Engine | None = None,
     dry_run: bool,
     once: bool,
     live: LiveTrader | None = None,
@@ -1259,6 +1289,8 @@ def run_loop(
         named_engines.append(("arbitrage", arbitrage_engine))
     if penny_engine is not None:
         named_engines.append(("penny", penny_engine))
+    if endgame_engine is not None:
+        named_engines.append(("endgame", endgame_engine))
     poll_seconds = (
         settings.copy.poll_interval_seconds
         if copy_engine is not None
@@ -1271,6 +1303,8 @@ def run_loop(
     if btc5m_engine is not None:
         # 5m windows need faster scans than weather strategies.
         poll_seconds = min(poll_seconds, 15)
+    if endgame_engine is not None:
+        poll_seconds = min(poll_seconds, settings.endgame.poll_interval_seconds)
     last = ""
     try:
         ctx = ExecutionContext()
@@ -1291,6 +1325,7 @@ def run_loop(
             btc5m_engine=btc5m_engine,
             arbitrage_engine=arbitrage_engine,
             penny_engine=penny_engine,
+            endgame_engine=endgame_engine,
             dry_run=dry_run,
             live=live,
             ctx=ctx,
@@ -1319,6 +1354,7 @@ def run_loop(
                 btc5m_engine=btc5m_engine,
                 arbitrage_engine=arbitrage_engine,
                 penny_engine=penny_engine,
+                endgame_engine=endgame_engine,
                 dry_run=dry_run,
                 live=live,
                 ctx=ctx,

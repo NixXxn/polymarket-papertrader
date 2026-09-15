@@ -343,6 +343,25 @@ class PennySettings:
 
 
 @dataclass(frozen=True)
+class EndgameSettings:
+    """Sports/esports near-expiry favorites (landighertz-style lock buys)."""
+
+    min_minutes: float
+    max_minutes: float
+    price_min: float
+    price_max: float
+    min_liquidity: float
+    min_ask_size: float
+    use_full_capital: bool
+    position_usd: float
+    max_position_usd: float
+    max_open_positions: int
+    stop_bid: float
+    poll_interval_seconds: int
+    starting_balance: float | None
+
+
+@dataclass(frozen=True)
 class CopySettings:
     username: str
     wallet: str
@@ -465,6 +484,7 @@ class Settings:
     btc5m: Btc5mSettings
     arbitrage: ArbitrageSettings
     penny: PennySettings
+    endgame: EndgameSettings
     edge: EdgeSettings
     copy: CopySettings
     cities: dict[str, City] = field(default_factory=dict)
@@ -602,6 +622,7 @@ def load_settings(
     btc5m_raw = raw.get("btc5m") or {}
     arbitrage_raw = raw.get("arbitrage") or {}
     penny_raw = raw.get("penny") or {}
+    endgame_raw = raw.get("endgame") or {}
     live_raw = raw.get("live") or {}
     intel_raw = raw.get("intel") or {}
     adaptive_raw = raw.get("adaptive_sizing") or {}
@@ -1043,6 +1064,25 @@ def load_settings(
                 else None
             ),
             cities=tuple(penny_raw.get("cities") or ()),
+        ),
+        endgame=EndgameSettings(
+            min_minutes=float(endgame_raw.get("min_minutes", 0.0)),
+            max_minutes=float(endgame_raw.get("max_minutes", 15.0)),
+            price_min=float(endgame_raw.get("price_min", 0.97)),
+            price_max=float(endgame_raw.get("price_max", 0.99)),
+            min_liquidity=float(endgame_raw.get("min_liquidity", 200.0)),
+            min_ask_size=float(endgame_raw.get("min_ask_size", 5.0)),
+            use_full_capital=bool(endgame_raw.get("use_full_capital", True)),
+            position_usd=float(endgame_raw.get("position_usd", 500.0)),
+            max_position_usd=float(endgame_raw.get("max_position_usd", 5000.0)),
+            max_open_positions=int(endgame_raw.get("max_open_positions", 1)),
+            stop_bid=float(endgame_raw.get("stop_bid", 0.80)),
+            poll_interval_seconds=int(endgame_raw.get("poll_interval_seconds", 20)),
+            starting_balance=(
+                float(endgame_raw["starting_balance"])
+                if endgame_raw.get("starting_balance") is not None
+                else None
+            ),
         ),
         edge=EdgeSettings(
             min_ask=float(edge_raw.get("min_ask", 0.45)),
