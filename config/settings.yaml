@@ -433,8 +433,10 @@ penny:
 endgame:
   starting_balance: 1000
   min_minutes: 0
-  max_minutes: 15
-  price_min: 0.97
+  max_minutes: 30
+  # Wider scan so we can log nearby sports even when none are inside the trade window.
+  look_ahead_minutes: 360
+  price_min: 0.96
   price_max: 0.99
   min_liquidity: 200
   min_ask_size: 5
@@ -442,7 +444,9 @@ endgame:
   position_usd: 1000
   max_position_usd: 5000
   max_open_positions: 1
+  sell_limit: 0.99
   stop_bid: 0.80
+  paper_fill_at_limit: true
   poll_interval_seconds: 20
 intel:
   enabled: true

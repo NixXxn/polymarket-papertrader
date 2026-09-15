@@ -348,6 +348,7 @@ class EndgameSettings:
 
     min_minutes: float
     max_minutes: float
+    look_ahead_minutes: float
     price_min: float
     price_max: float
     min_liquidity: float
@@ -356,7 +357,9 @@ class EndgameSettings:
     position_usd: float
     max_position_usd: float
     max_open_positions: int
+    sell_limit: float
     stop_bid: float
+    paper_fill_at_limit: bool
     poll_interval_seconds: int
     starting_balance: float | None
 
@@ -1067,8 +1070,9 @@ def load_settings(
         ),
         endgame=EndgameSettings(
             min_minutes=float(endgame_raw.get("min_minutes", 0.0)),
-            max_minutes=float(endgame_raw.get("max_minutes", 15.0)),
-            price_min=float(endgame_raw.get("price_min", 0.97)),
+            max_minutes=float(endgame_raw.get("max_minutes", 30.0)),
+            look_ahead_minutes=float(endgame_raw.get("look_ahead_minutes", 360.0)),
+            price_min=float(endgame_raw.get("price_min", 0.96)),
             price_max=float(endgame_raw.get("price_max", 0.99)),
             min_liquidity=float(endgame_raw.get("min_liquidity", 200.0)),
             min_ask_size=float(endgame_raw.get("min_ask_size", 5.0)),
@@ -1076,7 +1080,9 @@ def load_settings(
             position_usd=float(endgame_raw.get("position_usd", 500.0)),
             max_position_usd=float(endgame_raw.get("max_position_usd", 5000.0)),
             max_open_positions=int(endgame_raw.get("max_open_positions", 1)),
+            sell_limit=float(endgame_raw.get("sell_limit", 0.99)),
             stop_bid=float(endgame_raw.get("stop_bid", 0.80)),
+            paper_fill_at_limit=bool(endgame_raw.get("paper_fill_at_limit", True)),
             poll_interval_seconds=int(endgame_raw.get("poll_interval_seconds", 20)),
             starting_balance=(
                 float(endgame_raw["starting_balance"])

@@ -25,6 +25,7 @@ from papertrader.trade_log import append_activity, append_skipped
 from papertrader.esports_state import EsportsExitStore
 from papertrader.momentum_state import MomentumExitStore
 from papertrader.penny_state import PennyExitStore
+from papertrader.endgame_state import EndgameExitStore
 from papertrader.strategies.esports import analyze_esports_candidate, esports_exits
 from papertrader.strategies.penny import analyze_penny_event, penny_exits
 from papertrader.strategies.momentum import (
@@ -136,6 +137,35 @@ def _mark_penny_take_profit(engine: Engine, signal: Signal) -> None:
     if not condition_id:
         return
     PennyExitStore(engine.db.data_dir).mark_take_profit(
+        condition_id,
+        signal.outcome,
+        market_slug=signal.slug,
+        take_profit_price=float(signal.limit_price),
+    )
+
+
+def _rollback_endgame_take_profit(
+    engine: Engine, signal: Signal, ctx: ExecutionContext | None = None
+) -> None:
+    if not signal.endgame_take_profit:
+        return
+    condition_id = signal.market_condition_id
+    if not condition_id:
+        try:
+            market = (ctx or ExecutionContext()).get_market(engine, signal.slug)
+            condition_id = market.condition_id
+        except Exception:
+            return
+    EndgameExitStore(engine.db.data_dir).unmark_take_profit(condition_id, signal.outcome)
+
+
+def _mark_endgame_take_profit(engine: Engine, signal: Signal) -> None:
+    if not signal.endgame_take_profit or signal.limit_price is None:
+        return
+    condition_id = signal.market_condition_id
+    if not condition_id:
+        return
+    EndgameExitStore(engine.db.data_dir).mark_take_profit(
         condition_id,
         signal.outcome,
         market_slug=signal.slug,
@@ -343,6 +373,8 @@ def execute_signal(
                 _mark_momentum_take_profit(engine, signal)
             if filled and signal.penny_take_profit:
                 _mark_penny_take_profit(engine, signal)
+            if filled and signal.endgame_take_profit:
+                _mark_endgame_take_profit(engine, signal)
             if filled:
                 log_decision(
                     engine.db.data_dir,
@@ -372,6 +404,8 @@ def execute_signal(
                 _mark_momentum_take_profit(engine, signal)
             if signal.penny_take_profit and signal.action == "sell":
                 _mark_penny_take_profit(engine, signal)
+            if signal.endgame_take_profit and signal.action == "sell":
+                _mark_endgame_take_profit(engine, signal)
             if signal.action == "buy":
                 amount = float(signal.amount_usd or 0)
                 if amount <= 0:
@@ -482,6 +516,7 @@ def execute_signal(
             _rollback_esports_take_profit(engine, signal, ctx=ctx)
             _rollback_momentum_take_profit(engine, signal, ctx=ctx)
             _rollback_penny_take_profit(engine, signal, ctx=ctx)
+            _rollback_endgame_take_profit(engine, signal, ctx=ctx)
             append_skipped(engine.db.data_dir, strategy=strategy, signal=signal, error=str(e))
             append_activity(
                 engine.db.data_dir,
@@ -643,15 +678,47 @@ def scan_once(
             from papertrader.strategies.endgame import analyze_endgame, endgame_exits
 
             if live is None:
+                try:
+                    endgame_engine.check_orders()
+                except Exception as e:
+                    log.debug("check_orders: %s", e)
                 counts.resolved += _resolve(endgame_engine)
-            for sig in endgame_exits(endgame_engine, settings):
-                if execute_signal(endgame_engine, sig, dry_run, live=live, ctx=ctx, strategy="endgame"):
+            positions = endgame_engine.db.get_open_positions()
+            for sig in endgame_exits(endgame_engine, settings, positions):
+                filled = execute_signal(
+                    endgame_engine, sig, dry_run, live=live, ctx=ctx, strategy="endgame"
+                )
+                emitted.append(sig)
+                if filled:
+                    counts.orders_placed += 1
+                    counts.fills += 1
+                    counts.risk_exits += 1
+            any_buy_fill = False
+            for sig in analyze_endgame(
+                endgame_engine,
+                settings,
+                paper_mode=live is None and not dry_run,
+            ):
+                filled = execute_signal(
+                    endgame_engine, sig, dry_run, live=live, ctx=ctx, strategy="endgame"
+                )
+                emitted.append(sig)
+                counts.orders_placed += 1
+                if filled:
+                    counts.fills += 1
+                    any_buy_fill = True
+            # Immediately rest take-profit sell after same-scan buys.
+            if any_buy_fill:
+                positions = endgame_engine.db.get_open_positions()
+                for sig in endgame_exits(endgame_engine, settings, positions):
+                    filled = execute_signal(
+                        endgame_engine, sig, dry_run, live=live, ctx=ctx, strategy="endgame"
+                    )
                     emitted.append(sig)
-                    counts.orders += 1
-            for sig in analyze_endgame(endgame_engine, settings):
-                if execute_signal(endgame_engine, sig, dry_run, live=live, ctx=ctx, strategy="endgame"):
-                    emitted.append(sig)
-                    counts.orders += 1
+                    if filled:
+                        counts.orders_placed += 1
+                        counts.fills += 1
+                        counts.risk_exits += 1
         except Exception as e:
             log.exception("endgame scan failed: %s", e)
             log_decision(

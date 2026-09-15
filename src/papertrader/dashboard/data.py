@@ -55,6 +55,7 @@ _RESET_STATS_FILES = (
     "esports_exit_state.json",
     "momentum_exit_state.json",
     "penny_exit_state.json",
+    "endgame_exit_state.json",
     "predictionhunt_signals.jsonl",
     "copy/copy_events.jsonl",
     "copy/copied_trades.json",
