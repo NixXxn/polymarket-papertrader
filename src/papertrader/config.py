@@ -1121,7 +1121,7 @@ def load_settings(
             max_minutes=float(endgame_raw.get("max_minutes", 30.0)),
             look_ahead_minutes=float(endgame_raw.get("look_ahead_minutes", 360.0)),
             price_min=float(endgame_raw.get("price_min", 0.96)),
-            price_max=float(endgame_raw.get("price_max", 0.99)),
+            price_max=float(endgame_raw.get("price_max", 0.999)),
             min_liquidity=float(endgame_raw.get("min_liquidity", 200.0)),
             min_ask_size=float(endgame_raw.get("min_ask_size", 5.0)),
             use_full_capital=bool(endgame_raw.get("use_full_capital", True)),

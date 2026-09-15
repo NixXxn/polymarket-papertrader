@@ -463,7 +463,8 @@ weatherlock:
   - cape-town
   - tokyo
   - sydney
-# landighertz-style: sports/esports ending soon, buy 97–99¢ locks with full cash
+# landighertz-style: sports/esports ending soon, buy 96–99.9¢ locks with full cash
+# Mid may print 1.00 on locks; strategy uses mid>=price_min as signal and buys ask<=price_max (<1.00).
 endgame:
   starting_balance: 1000
   min_minutes: 0
@@ -471,13 +472,14 @@ endgame:
   # Wider scan so we can log nearby sports even when none are inside the trade window.
   look_ahead_minutes: 360
   price_min: 0.96
-  price_max: 0.99
+  price_max: 0.999
   min_liquidity: 200
   min_ask_size: 5
   use_full_capital: true
   position_usd: 1000
   max_position_usd: 5000
   max_open_positions: 1
+  # Only used when entry is strictly below this; at/above → hold to resolution.
   sell_limit: 0.99
   stop_bid: 0.80
   paper_fill_at_limit: true

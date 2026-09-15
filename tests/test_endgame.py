@@ -49,6 +49,7 @@ def test_analyze_endgame_buys_limit_full_cash(monkeypatch, tmp_path):
     settings = load_settings()
     assert settings.endgame.use_full_capital is True
     assert settings.endgame.price_min == 0.96
+    assert settings.endgame.price_max == 0.999
     assert settings.endgame.max_minutes == 30
     assert settings.endgame.sell_limit == 0.99
 
@@ -127,6 +128,78 @@ def test_analyze_endgame_logs_outside_window_sports(monkeypatch, tmp_path):
     assert "outside_15m_trade_window" in scan["reason"] or "outside_" in scan["reason"]
 
 
+def test_analyze_endgame_accepts_mid_one_with_ask_in_band(monkeypatch, tmp_path):
+    """Locked mids often print 1.00; still buy when ask is inside the band."""
+    settings = load_settings()
+    now = datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc)
+    end = (now + timedelta(minutes=8)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    market_row = {
+        "slug": "cs2-lock-demo-2026-09-15",
+        "question": "CS2: Lock vs Demo",
+        "endDate": end,
+        "conditionId": "0xlock",
+        "liquidityNum": 5000,
+        "outcomes": '["Yes","No"]',
+        "outcomePrices": '["1.0","0.0"]',
+        "tags": [{"label": "Esports"}],
+    }
+    engine = MagicMock()
+    engine.db.data_dir = tmp_path
+    engine.db.get_open_positions.return_value = []
+    engine.get_account.return_value = SimpleNamespace(cash=1000.0)
+    engine.api._gamma_get.return_value = [market_row]
+    market_obj = MagicMock()
+    market_obj.get_token_id.return_value = "tok-yes"
+    market_obj.condition_id = "0xlock"
+    engine.api.get_market.return_value = market_obj
+    engine.api.get_order_book.return_value = MagicMock()
+    monkeypatch.setattr(
+        "papertrader.strategies.endgame.best_ask",
+        lambda _book: (0.997, 500.0),
+    )
+    sigs = analyze_endgame(engine, settings, now=now, paper_mode=True)
+    assert len(sigs) == 1
+    assert sigs[0].limit_price == 0.997
+
+
+def test_analyze_endgame_rejects_ask_at_parity(monkeypatch, tmp_path):
+    settings = load_settings()
+    now = datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc)
+    end = (now + timedelta(minutes=8)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    market_row = {
+        "slug": "cs2-parity-demo-2026-09-15",
+        "question": "CS2: Parity vs Demo",
+        "endDate": end,
+        "conditionId": "0xpar",
+        "liquidityNum": 5000,
+        "outcomes": '["Yes","No"]',
+        "outcomePrices": '["1.0","0.0"]',
+        "tags": [{"label": "Esports"}],
+    }
+    engine = MagicMock()
+    engine.db.data_dir = tmp_path
+    engine.db.get_open_positions.return_value = []
+    engine.get_account.return_value = SimpleNamespace(cash=1000.0)
+    engine.api._gamma_get.return_value = [market_row]
+    market_obj = MagicMock()
+    market_obj.get_token_id.return_value = "tok-yes"
+    market_obj.condition_id = "0xpar"
+    engine.api.get_market.return_value = market_obj
+    engine.api.get_order_book.return_value = MagicMock()
+    monkeypatch.setattr(
+        "papertrader.strategies.endgame.best_ask",
+        lambda _book: (1.0, 500.0),
+    )
+    logged = []
+    monkeypatch.setattr(
+        "papertrader.strategies.endgame.log_decision",
+        lambda data_dir, **kwargs: logged.append(kwargs),
+    )
+    assert analyze_endgame(engine, settings, now=now, paper_mode=True) == []
+    scan = next(r for r in logged if r.get("decision") == "scan")
+    assert scan["rejects"]["ask_out_of_band"] == 1
+
+
 def test_endgame_exits_place_take_profit(tmp_path):
     settings = load_settings()
     engine = MagicMock()
@@ -148,3 +221,20 @@ def test_endgame_exits_place_take_profit(tmp_path):
     assert sigs[0].order_type == "limit"
     assert sigs[0].limit_price == settings.endgame.sell_limit
     assert sigs[0].endgame_take_profit is True
+
+
+def test_endgame_exits_skip_tp_when_entry_at_or_above_sell_limit(tmp_path):
+    settings = load_settings()
+    engine = MagicMock()
+    engine.db.data_dir = tmp_path
+    pos = SimpleNamespace(
+        shares=100.0,
+        is_resolved=False,
+        market_slug="cs2-lock",
+        outcome="morrow",
+        market_condition_id="0xdef",
+        avg_entry_price=0.999,
+    )
+    engine.api.get_market.side_effect = Exception("no book")
+    store = EndgameExitStore(tmp_path)
+    assert endgame_exits(engine, settings, [pos], exit_store=store) == []

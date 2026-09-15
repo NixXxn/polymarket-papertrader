@@ -100,7 +100,8 @@ def log_decision(
         "source": "decision",
     }
     if city:
-        row["city"] = city
+        # Strategies sometimes pass City objects; JSONL needs a string slug.
+        row["city"] = getattr(city, "slug", None) or str(city)
     if event_date:
         row["event_date"] = event_date
     if slug:

@@ -65,7 +65,7 @@ def analyze_penny_event(
             engine,
             decision="skip",
             reason="max_open_positions",
-            city=city,
+            city=city.slug,
             event_date=str(event_date),
             open_positions=len(open_positions),
         )
@@ -77,7 +77,7 @@ def analyze_penny_event(
             engine,
             decision="skip",
             reason="low_event_volume",
-            city=city,
+            city=city.slug,
             event_date=str(event_date),
             volume=event_volume,
         )
@@ -141,7 +141,7 @@ def analyze_penny_event(
             engine,
             decision="buy",
             reason=reason,
-            city=city,
+            city=city.slug,
             event_date=str(event_date),
             slug=slug,
             action="buy",
