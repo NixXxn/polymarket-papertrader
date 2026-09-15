@@ -343,6 +343,27 @@ class PennySettings:
 
 
 @dataclass(frozen=True)
+class WeatherlockSettings:
+    """Buy near-certain weather NO at 96–98¢; rest a 99¢ sell immediately after fill."""
+
+    buy_min: float
+    buy_max: float
+    sell_limit: float
+    min_ask_size: float
+    min_event_volume: float
+    min_days_ahead: int
+    max_days_ahead: int
+    position_usd: float
+    max_position_usd: float
+    max_open_positions: int
+    max_open_per_event: int
+    paper_fill_at_limit: bool
+    include_lowest: bool
+    starting_balance: float | None
+    cities: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class EndgameSettings:
     """Sports/esports near-expiry favorites (landighertz-style lock buys)."""
 
@@ -487,6 +508,7 @@ class Settings:
     btc5m: Btc5mSettings
     arbitrage: ArbitrageSettings
     penny: PennySettings
+    weatherlock: WeatherlockSettings
     endgame: EndgameSettings
     edge: EdgeSettings
     copy: CopySettings
@@ -625,6 +647,7 @@ def load_settings(
     btc5m_raw = raw.get("btc5m") or {}
     arbitrage_raw = raw.get("arbitrage") or {}
     penny_raw = raw.get("penny") or {}
+    weatherlock_raw = raw.get("weatherlock") or {}
     endgame_raw = raw.get("endgame") or {}
     live_raw = raw.get("live") or {}
     intel_raw = raw.get("intel") or {}
@@ -1067,6 +1090,31 @@ def load_settings(
                 else None
             ),
             cities=tuple(penny_raw.get("cities") or ()),
+        ),
+        weatherlock=WeatherlockSettings(
+            buy_min=float(weatherlock_raw.get("buy_min", 0.96)),
+            buy_max=float(weatherlock_raw.get("buy_max", 0.98)),
+            sell_limit=float(weatherlock_raw.get("sell_limit", 0.99)),
+            min_ask_size=float(weatherlock_raw.get("min_ask_size", 1.0)),
+            min_event_volume=float(
+                weatherlock_raw.get(
+                    "min_event_volume", raw.get("min_event_volume", 100)
+                )
+            ),
+            min_days_ahead=int(weatherlock_raw.get("min_days_ahead", 0)),
+            max_days_ahead=int(weatherlock_raw.get("max_days_ahead", 2)),
+            position_usd=float(weatherlock_raw.get("position_usd", 25.0)),
+            max_position_usd=float(weatherlock_raw.get("max_position_usd", 100.0)),
+            max_open_positions=int(weatherlock_raw.get("max_open_positions", 20)),
+            max_open_per_event=int(weatherlock_raw.get("max_open_per_event", 4)),
+            paper_fill_at_limit=bool(weatherlock_raw.get("paper_fill_at_limit", True)),
+            include_lowest=bool(weatherlock_raw.get("include_lowest", True)),
+            starting_balance=(
+                float(weatherlock_raw["starting_balance"])
+                if weatherlock_raw.get("starting_balance") is not None
+                else None
+            ),
+            cities=tuple(weatherlock_raw.get("cities") or ()),
         ),
         endgame=EndgameSettings(
             min_minutes=float(endgame_raw.get("min_minutes", 0.0)),

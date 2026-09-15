@@ -24,9 +24,12 @@ class BucketMarket:
     event_volume: float
 
 
-def temperature_event_slug(city_slug: str, event_date: date) -> str:
+def temperature_event_slug(
+    city_slug: str, event_date: date, *, kind: str = "highest"
+) -> str:
     month = calendar.month_name[event_date.month].lower()
-    return f"highest-temperature-in-{city_slug}-on-{month}-{event_date.day}-{event_date.year}"
+    prefix = "lowest-temperature" if kind == "lowest" else "highest-temperature"
+    return f"{prefix}-in-{city_slug}-on-{month}-{event_date.day}-{event_date.year}"
 
 
 def city_from_market_slug(market_slug: str, cities: dict[str, City]) -> City | None:
@@ -34,6 +37,8 @@ def city_from_market_slug(market_slug: str, cities: dict[str, City]) -> City | N
         if f"in-{city.slug}-on-" in market_slug:
             return city
         if market_slug.startswith(f"highest-temperature-in-{city.slug}"):
+            return city
+        if market_slug.startswith(f"lowest-temperature-in-{city.slug}"):
             return city
     return None
 
@@ -126,43 +131,51 @@ def discover_events(
     settings: Settings,
     today: date | None = None,
     now: datetime | None = None,
+    *,
+    kinds: tuple[str, ...] = ("highest",),
 ) -> list[tuple[str, date, City, list[BucketMarket], float]]:
-    """Return (event_slug, date, city, buckets, event_volume) for live temperature events."""
+    """Return (event_slug, date, city, buckets, event_volume) for live temperature events.
+
+    ``kinds`` selects highest and/or lowest temperature event slug patterns.
+    """
     now = now or datetime.now(timezone.utc)
     found: list[tuple[str, date, City, list[BucketMarket], float]] = []
     for city in cities:
         anchor = today or city_local_today(city, now)
         for event_date in event_dates(settings.horizon_days, anchor):
-            slug = temperature_event_slug(city.slug, event_date)
-            event = fetch_event(engine, slug)
-            if not event:
-                continue
-            volume = float(event.get("volume") or event.get("volume24hr") or 0 or 0)
-            raw_markets = event.get("markets") or []
-            buckets: list[BucketMarket] = []
-            for row in raw_markets:
-                if row.get("closed") or row.get("active") is False:
+            for kind in kinds:
+                slug = temperature_event_slug(city.slug, event_date, kind=kind)
+                event = fetch_event(engine, slug)
+                if not event:
                     continue
-                market = _market_from_event_row(row)
-                if market is None or market.closed:
-                    continue
-                title = row.get("groupItemTitle") or market.question
-                rng = parse_temperature_range(title) or parse_temperature_range(market.question)
-                if rng is None:
-                    continue
-                buckets.append(
-                    BucketMarket(
-                        event_slug=slug,
-                        event_date=event_date,
-                        city=city,
-                        market=market,
-                        bucket_text=str(title),
-                        rng=rng,
-                        event_volume=volume,
+                volume = float(event.get("volume") or event.get("volume24hr") or 0 or 0)
+                raw_markets = event.get("markets") or []
+                buckets: list[BucketMarket] = []
+                for row in raw_markets:
+                    if row.get("closed") or row.get("active") is False:
+                        continue
+                    market = _market_from_event_row(row)
+                    if market is None or market.closed:
+                        continue
+                    title = row.get("groupItemTitle") or market.question
+                    rng = parse_temperature_range(title) or parse_temperature_range(
+                        market.question
                     )
-                )
-            if buckets:
-                found.append((slug, event_date, city, buckets, volume))
+                    if rng is None:
+                        continue
+                    buckets.append(
+                        BucketMarket(
+                            event_slug=slug,
+                            event_date=event_date,
+                            city=city,
+                            market=market,
+                            bucket_text=str(title),
+                            rng=rng,
+                            event_volume=volume,
+                        )
+                    )
+                if buckets:
+                    found.append((slug, event_date, city, buckets, volume))
     return found
 
 

@@ -26,8 +26,10 @@ from papertrader.esports_state import EsportsExitStore
 from papertrader.momentum_state import MomentumExitStore
 from papertrader.penny_state import PennyExitStore
 from papertrader.endgame_state import EndgameExitStore
+from papertrader.weatherlock_state import WeatherlockExitStore
 from papertrader.strategies.esports import analyze_esports_candidate, esports_exits
 from papertrader.strategies.penny import analyze_penny_event, penny_exits
+from papertrader.strategies.weatherlock import analyze_weatherlock_event, weatherlock_exits
 from papertrader.strategies.momentum import (
     TokenWatch,
     analyze_momentum_entry,
@@ -166,6 +168,35 @@ def _mark_endgame_take_profit(engine: Engine, signal: Signal) -> None:
     if not condition_id:
         return
     EndgameExitStore(engine.db.data_dir).mark_take_profit(
+        condition_id,
+        signal.outcome,
+        market_slug=signal.slug,
+        take_profit_price=float(signal.limit_price),
+    )
+
+
+def _rollback_weatherlock_take_profit(
+    engine: Engine, signal: Signal, ctx: ExecutionContext | None = None
+) -> None:
+    if not signal.weatherlock_take_profit:
+        return
+    condition_id = signal.market_condition_id
+    if not condition_id:
+        try:
+            market = (ctx or ExecutionContext()).get_market(engine, signal.slug)
+            condition_id = market.condition_id
+        except Exception:
+            return
+    WeatherlockExitStore(engine.db.data_dir).unmark_take_profit(condition_id, signal.outcome)
+
+
+def _mark_weatherlock_take_profit(engine: Engine, signal: Signal) -> None:
+    if not signal.weatherlock_take_profit or signal.limit_price is None:
+        return
+    condition_id = signal.market_condition_id
+    if not condition_id:
+        return
+    WeatherlockExitStore(engine.db.data_dir).mark_take_profit(
         condition_id,
         signal.outcome,
         market_slug=signal.slug,
@@ -375,6 +406,8 @@ def execute_signal(
                 _mark_penny_take_profit(engine, signal)
             if filled and signal.endgame_take_profit:
                 _mark_endgame_take_profit(engine, signal)
+            if filled and signal.weatherlock_take_profit:
+                _mark_weatherlock_take_profit(engine, signal)
             if filled:
                 log_decision(
                     engine.db.data_dir,
@@ -406,6 +439,8 @@ def execute_signal(
                 _mark_penny_take_profit(engine, signal)
             if signal.endgame_take_profit and signal.action == "sell":
                 _mark_endgame_take_profit(engine, signal)
+            if signal.weatherlock_take_profit and signal.action == "sell":
+                _mark_weatherlock_take_profit(engine, signal)
             if signal.action == "buy":
                 amount = float(signal.amount_usd or 0)
                 if amount <= 0:
@@ -517,6 +552,7 @@ def execute_signal(
             _rollback_momentum_take_profit(engine, signal, ctx=ctx)
             _rollback_penny_take_profit(engine, signal, ctx=ctx)
             _rollback_endgame_take_profit(engine, signal, ctx=ctx)
+            _rollback_weatherlock_take_profit(engine, signal, ctx=ctx)
             append_skipped(engine.db.data_dir, strategy=strategy, signal=signal, error=str(e))
             append_activity(
                 engine.db.data_dir,
@@ -610,6 +646,7 @@ def scan_once(
     btc5m_engine: Engine | None = None,
     arbitrage_engine: Engine | None = None,
     penny_engine: Engine | None = None,
+    weatherlock_engine: Engine | None = None,
     endgame_engine: Engine | None = None,
     dry_run: bool,
     today: date | None = None,
@@ -644,6 +681,8 @@ def scan_once(
         live_engines.append(("momentum", momentum_engine))
     if penny_engine is not None:
         live_engines.append(("penny", penny_engine))
+    if weatherlock_engine is not None:
+        live_engines.append(("weatherlock", weatherlock_engine))
     if endgame_engine is not None:
         live_engines.append(("endgame", endgame_engine))
     if live is not None and live_engines:
@@ -666,6 +705,7 @@ def scan_once(
             btc5m_engine,
             arbitrage_engine,
             penny_engine,
+            weatherlock_engine,
             endgame_engine,
         )
         if e is not None
@@ -1264,6 +1304,95 @@ def scan_once(
                 message=str(e),
             )
 
+    if weatherlock_engine:
+        try:
+            if live is None:
+                try:
+                    weatherlock_engine.check_orders()
+                except Exception as e:
+                    log.debug("check_orders: %s", e)
+                counts.resolved += _resolve(weatherlock_engine)
+            positions = weatherlock_engine.db.get_open_positions()
+            for sig in weatherlock_exits(weatherlock_engine, settings, positions):
+                filled = execute_signal(
+                    weatherlock_engine,
+                    sig,
+                    dry_run,
+                    live=live,
+                    ctx=ctx,
+                    strategy="weatherlock",
+                )
+                emitted.append(sig)
+                if filled:
+                    counts.risk_exits += 1
+                    counts.fills += 1
+            cities = settings.cities_for("weatherlock")
+            if settings.weatherlock.cities:
+                cities = [
+                    settings.cities[s]
+                    for s in settings.weatherlock.cities
+                    if s in settings.cities
+                ]
+            kinds: tuple[str, ...] = ("highest",)
+            if settings.weatherlock.include_lowest:
+                kinds = ("highest", "lowest")
+            events = discover_events(
+                weatherlock_engine, cities, settings, now=now, kinds=kinds
+            )
+            positions = weatherlock_engine.db.get_open_positions()
+            any_buy_fill = False
+            for _event_slug, event_date, city, buckets, _volume in events:
+                sigs = analyze_weatherlock_event(
+                    weatherlock_engine,
+                    city,
+                    event_date,
+                    buckets,
+                    settings,
+                    positions,
+                    today=city_local_today(city, now),
+                    paper_mode=live is None and not dry_run,
+                )
+                for sig in sigs:
+                    filled = execute_signal(
+                        weatherlock_engine,
+                        sig,
+                        dry_run,
+                        live=live,
+                        ctx=ctx,
+                        strategy="weatherlock",
+                    )
+                    emitted.append(sig)
+                    counts.orders_placed += 1
+                    if filled:
+                        counts.fills += 1
+                        any_buy_fill = True
+                        positions = weatherlock_engine.db.get_open_positions()
+            # Immediately rest 99¢ sells after any same-scan fills.
+            if any_buy_fill:
+                positions = weatherlock_engine.db.get_open_positions()
+                for sig in weatherlock_exits(weatherlock_engine, settings, positions):
+                    filled = execute_signal(
+                        weatherlock_engine,
+                        sig,
+                        dry_run,
+                        live=live,
+                        ctx=ctx,
+                        strategy="weatherlock",
+                    )
+                    emitted.append(sig)
+                    if filled:
+                        counts.risk_exits += 1
+                        counts.fills += 1
+        except Exception as e:
+            log.exception("weatherlock scan failed: %s", e)
+            append_activity(
+                weatherlock_engine.db.data_dir,
+                level="error",
+                event="scan_failed",
+                strategy="weatherlock",
+                message=str(e),
+            )
+
     engines = [
         e
         for e in (
@@ -1281,6 +1410,7 @@ def scan_once(
             btc5m_engine,
             arbitrage_engine,
             penny_engine,
+            weatherlock_engine,
             endgame_engine,
         )
         if e is not None
@@ -1320,6 +1450,7 @@ def run_loop(
     btc5m_engine: Engine | None = None,
     arbitrage_engine: Engine | None = None,
     penny_engine: Engine | None = None,
+    weatherlock_engine: Engine | None = None,
     endgame_engine: Engine | None = None,
     dry_run: bool,
     once: bool,
@@ -1356,6 +1487,8 @@ def run_loop(
         named_engines.append(("arbitrage", arbitrage_engine))
     if penny_engine is not None:
         named_engines.append(("penny", penny_engine))
+    if weatherlock_engine is not None:
+        named_engines.append(("weatherlock", weatherlock_engine))
     if endgame_engine is not None:
         named_engines.append(("endgame", endgame_engine))
     poll_seconds = (
@@ -1392,6 +1525,7 @@ def run_loop(
             btc5m_engine=btc5m_engine,
             arbitrage_engine=arbitrage_engine,
             penny_engine=penny_engine,
+            weatherlock_engine=weatherlock_engine,
             endgame_engine=endgame_engine,
             dry_run=dry_run,
             live=live,
@@ -1421,6 +1555,7 @@ def run_loop(
                 btc5m_engine=btc5m_engine,
                 arbitrage_engine=arbitrage_engine,
                 penny_engine=penny_engine,
+                weatherlock_engine=weatherlock_engine,
                 endgame_engine=endgame_engine,
                 dry_run=dry_run,
                 live=live,

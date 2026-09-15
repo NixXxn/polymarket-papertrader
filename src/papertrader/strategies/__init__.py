@@ -9,6 +9,7 @@ from papertrader.strategies.obieweather import analyze_obieweather_event, obiewe
 from papertrader.strategies.penny import analyze_penny_event, penny_exits
 from papertrader.strategies.safe import analyze_safe_event, safe_exits
 from papertrader.strategies.volspike import analyze_volspike, volspike_exits
+from papertrader.strategies.weatherlock import analyze_weatherlock_event, weatherlock_exits
 
 __all__ = [
     "analyze_safe_event",
@@ -33,4 +34,6 @@ __all__ = [
     "arbitrage_exits",
     "analyze_penny_event",
     "penny_exits",
+    "analyze_weatherlock_event",
+    "weatherlock_exits",
 ]

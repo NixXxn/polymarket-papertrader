@@ -429,6 +429,40 @@ penny:
   - los-angeles
   - london
   - munich
+# Buy near-certain weather NO (high/low temp buckets) at 96–98¢; flip at 99¢
+weatherlock:
+  starting_balance: 500
+  buy_min: 0.96
+  buy_max: 0.98
+  sell_limit: 0.99
+  min_ask_size: 1
+  min_event_volume: 100
+  min_days_ahead: 0
+  max_days_ahead: 2
+  position_usd: 25
+  max_position_usd: 100
+  max_open_positions: 20
+  max_open_per_event: 4
+  paper_fill_at_limit: true
+  include_lowest: true
+  cities:
+  - miami
+  - atlanta
+  - dallas
+  - houston
+  - austin
+  - nyc
+  - chicago
+  - denver
+  - phoenix
+  - los-angeles
+  - london
+  - wellington
+  - munich
+  - karachi
+  - cape-town
+  - tokyo
+  - sydney
 # landighertz-style: sports/esports ending soon, buy 97–99¢ locks with full cash
 endgame:
   starting_balance: 1000
