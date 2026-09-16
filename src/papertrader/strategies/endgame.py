@@ -1,9 +1,4 @@
-"""Endgame lock: buy near-certain sports/esports favorites in the last minutes.
-
-Inspired by landighertz-style flow: when a match outcome is essentially decided
-and the market is about to resolve, buy the favorite in the high-90¢ band with
-full strategy cash, then immediately rest a take-profit sell limit.
-"""
+"""Endgame: buy sports/esports Yes/No favorites at 89–95¢ near expiry, TP +4¢."""
 
 from __future__ import annotations
 
@@ -179,6 +174,27 @@ def _is_noisy_prop(slug: str, question: str) -> bool:
     return any(m in blob for m in _PROP_MARKERS)
 
 
+def _is_yes_no_market(market: dict[str, Any]) -> bool:
+    """True only for binary Yes/No markets (not team-name moneylines)."""
+    labels = [str(o).strip().lower() for o in _parse_json_list(market.get("outcomes"))]
+    if len(labels) == 2 and set(labels) == {"yes", "no"}:
+        return True
+    tokens = market.get("tokens") or []
+    if isinstance(tokens, list) and len(tokens) == 2:
+        tok_labels = {
+            str(t.get("outcome") or "").strip().lower()
+            for t in tokens
+            if isinstance(t, dict)
+        }
+        return tok_labels == {"yes", "no"}
+    return False
+
+
+def _take_profit_price(entry: float, offset: float, *, cap: float = 0.99) -> float:
+    """Limit sell at entry+offset, never above cap."""
+    return round(min(float(entry) + float(offset), float(cap)), 4)
+
+
 def _fetch_markets_ending(
     engine: Engine,
     *,
@@ -266,6 +282,7 @@ def analyze_endgame(
         "crypto_updown": 0,
         "not_sports": 0,
         "prop": 0,
+        "not_yes_no": 0,
         "no_price": 0,
         "not_lock": 0,
         "outside_trade_window": 0,
@@ -309,6 +326,9 @@ def analyze_endgame(
                     }
                 )
                 continue
+            if cfg.yes_no_only and not _is_yes_no_market(m):
+                rejects["not_yes_no"] += 1
+                continue
             if not slug or slug in open_slugs:
                 rejects["already_open"] += 1
                 continue
@@ -325,21 +345,22 @@ def analyze_endgame(
                 )
                 continue
             side, mid = max(priced, key=lambda row: row[1])
-            # Mid often prints 1.00 on locks while the book still offers <1.00.
-            # Treat mid as a lock *signal* (lower-bound only); enforce the buy
-            # band on the live ask below so we never pay full parity.
-            mid_looks_locked = mid >= cfg.price_min
+            # Prefer Yes/No labels; skip if favorite is somehow not yes/no.
+            if cfg.yes_no_only and side.strip().lower() not in {"yes", "no"}:
+                rejects["not_yes_no"] += 1
+                continue
+            in_band = bool(cfg.price_min <= mid <= cfg.price_max)
             sports_row = {
                 "slug": slug,
                 "minutes_left": round(minutes_left, 1),
                 "side": side,
                 "mid": round(mid, 3),
                 "in_trade_window": bool(cfg.min_minutes <= minutes_left <= cfg.max_minutes),
-                "in_price_band": bool(mid_looks_locked),
+                "in_price_band": in_band,
             }
             sports_seen.append(sports_row)
 
-            if not mid_looks_locked:
+            if not in_band:
                 rejects["not_lock"] += 1
                 near_misses.append({**sports_row, "fail": "not_lock"})
                 continue
@@ -400,7 +421,7 @@ def analyze_endgame(
                 },
             )
             continue
-        # Never buy at 1.00 (zero edge to resolution); cap at price_max.
+        # Never buy at/above 1.00; enforce the configured ask band.
         if ask >= 1.0 - 1e-12 or not (cfg.price_min <= ask <= cfg.price_max):
             rejects["ask_out_of_band"] += 1
             near_misses.insert(
@@ -437,10 +458,12 @@ def analyze_endgame(
             continue
 
         limit_px = min(float(ask), float(cfg.price_max))
+        tp_px = _take_profit_price(limit_px, cfg.take_profit_offset)
         fill_now = bool(paper_mode and cfg.paper_fill_at_limit)
         reason = (
-            f"endgame {minutes_left:.1f}m sports lock limit@{limit_px:.2f} "
-            f"ask={ask:.2f} → TP@{cfg.sell_limit:.2f} full_cap={cfg.use_full_capital}"
+            f"endgame {minutes_left:.1f}m yes/no @{limit_px:.2f} "
+            f"ask={ask:.2f} → TP@{tp_px:.2f} (+{cfg.take_profit_offset:.2f}) "
+            f"full_cap={cfg.use_full_capital}"
         )
         signals.append(
             Signal(
@@ -466,7 +489,8 @@ def analyze_endgame(
             amount_usd=size,
             ask=ask,
             limit_price=limit_px,
-            sell_limit=cfg.sell_limit,
+            take_profit_price=tp_px,
+            take_profit_offset=cfg.take_profit_offset,
             cash=cash,
             use_full_capital=cfg.use_full_capital,
             paper_fill_at_limit=fill_now,
@@ -481,26 +505,26 @@ def analyze_endgame(
         locks_in_window = [s for s in in_window if s.get("in_price_band")]
         if not sports_seen:
             no_trade_why = (
-                f"no_sports_in_{look_ahead:.0f}m_look_ahead "
-                f"(scanned={len(data)} crypto_updown={rejects['crypto_updown']} "
+                f"no_yes_no_sports_in_{look_ahead:.0f}m_look_ahead "
+                f"(scanned={len(data)} not_yes_no={rejects['not_yes_no']} "
                 f"not_sports={rejects['not_sports']})"
             )
         elif locks_in_window and (rejects["book"] or rejects["ask_out_of_band"] or rejects["tiny_size"]):
             sample = locks_in_window[0]
             if rejects["ask_out_of_band"]:
                 no_trade_why = (
-                    f"lock_mids_found_but_ask_outside_{cfg.price_min:.2f}-{cfg.price_max:.3f} "
-                    f"(or ask>=1.00; sample={sample['slug']} mid={sample['mid']})"
+                    f"mids_in_band_but_ask_outside_{cfg.price_min:.2f}-{cfg.price_max:.2f} "
+                    f"(sample={sample['slug']} mid={sample['mid']})"
                 )
             else:
                 no_trade_why = (
-                    f"lock_in_window_but_book_unavailable "
+                    f"in_band_but_book_unavailable "
                     f"(sample={sample['slug']} mid={sample['mid']} min={sample['minutes_left']})"
                 )
         elif in_window and not locks_in_window:
             sample = in_window[0]
             no_trade_why = (
-                f"sports_in_window_but_mid_below_{cfg.price_min:.2f} "
+                f"sports_in_window_but_mid_outside_{cfg.price_min:.2f}-{cfg.price_max:.2f} "
                 f"(sample={sample['slug']} mid={sample['mid']} min={sample['minutes_left']})"
             )
         elif rejects["outside_trade_window"] and not locks_in_window:
@@ -599,14 +623,12 @@ def endgame_exits(
         if store.take_profit_placed(pos.market_condition_id, pos.outcome):
             continue
 
-        # Locks bought at/above sell_limit have no TP edge — hold to $1 resolution.
-        if float(pos.avg_entry_price) >= float(cfg.sell_limit) - 1e-12:
+        tp = _take_profit_price(pos.avg_entry_price, cfg.take_profit_offset)
+        if tp <= float(pos.avg_entry_price) + 1e-12:
             continue
-
-        tp = float(cfg.sell_limit)
         reason = (
             f"endgame TP limit @{tp:.2f} after entry@{pos.avg_entry_price:.3f} "
-            f"({pos.shares:.1f} sh)"
+            f"(+{cfg.take_profit_offset:.2f}, {pos.shares:.1f} sh)"
         )
         log_decision(
             engine.db.data_dir,

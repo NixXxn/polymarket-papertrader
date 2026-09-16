@@ -344,11 +344,12 @@ class PennySettings:
 
 @dataclass(frozen=True)
 class WeatherlockSettings:
-    """Buy near-certain weather NO at 96–98¢; rest a 99¢ sell immediately after fill."""
+    """Buy weather NO with enough edge that ~90% WR can still be +EV."""
 
     buy_min: float
     buy_max: float
     sell_limit: float
+    take_profit_offset: float
     min_ask_size: float
     min_event_volume: float
     min_days_ahead: int
@@ -365,7 +366,7 @@ class WeatherlockSettings:
 
 @dataclass(frozen=True)
 class EndgameSettings:
-    """Sports/esports near-expiry favorites (landighertz-style lock buys)."""
+    """Sports Yes/No near-expiry: buy 89–95¢, rest TP at entry+offset."""
 
     min_minutes: float
     max_minutes: float
@@ -378,11 +379,12 @@ class EndgameSettings:
     position_usd: float
     max_position_usd: float
     max_open_positions: int
-    sell_limit: float
+    take_profit_offset: float
     stop_bid: float
     paper_fill_at_limit: bool
     poll_interval_seconds: int
     starting_balance: float | None
+    yes_no_only: bool
 
 
 @dataclass(frozen=True)
@@ -1092,9 +1094,10 @@ def load_settings(
             cities=tuple(penny_raw.get("cities") or ()),
         ),
         weatherlock=WeatherlockSettings(
-            buy_min=float(weatherlock_raw.get("buy_min", 0.96)),
-            buy_max=float(weatherlock_raw.get("buy_max", 0.98)),
+            buy_min=float(weatherlock_raw.get("buy_min", 0.88)),
+            buy_max=float(weatherlock_raw.get("buy_max", 0.92)),
             sell_limit=float(weatherlock_raw.get("sell_limit", 0.99)),
+            take_profit_offset=float(weatherlock_raw.get("take_profit_offset", 0.06)),
             min_ask_size=float(weatherlock_raw.get("min_ask_size", 1.0)),
             min_event_volume=float(
                 weatherlock_raw.get(
@@ -1120,16 +1123,16 @@ def load_settings(
             min_minutes=float(endgame_raw.get("min_minutes", 0.0)),
             max_minutes=float(endgame_raw.get("max_minutes", 30.0)),
             look_ahead_minutes=float(endgame_raw.get("look_ahead_minutes", 360.0)),
-            price_min=float(endgame_raw.get("price_min", 0.96)),
-            price_max=float(endgame_raw.get("price_max", 0.999)),
+            price_min=float(endgame_raw.get("price_min", 0.89)),
+            price_max=float(endgame_raw.get("price_max", 0.95)),
             min_liquidity=float(endgame_raw.get("min_liquidity", 200.0)),
             min_ask_size=float(endgame_raw.get("min_ask_size", 5.0)),
             use_full_capital=bool(endgame_raw.get("use_full_capital", True)),
             position_usd=float(endgame_raw.get("position_usd", 500.0)),
             max_position_usd=float(endgame_raw.get("max_position_usd", 5000.0)),
             max_open_positions=int(endgame_raw.get("max_open_positions", 1)),
-            sell_limit=float(endgame_raw.get("sell_limit", 0.99)),
-            stop_bid=float(endgame_raw.get("stop_bid", 0.80)),
+            take_profit_offset=float(endgame_raw.get("take_profit_offset", 0.04)),
+            stop_bid=float(endgame_raw.get("stop_bid", 0.70)),
             paper_fill_at_limit=bool(endgame_raw.get("paper_fill_at_limit", True)),
             poll_interval_seconds=int(endgame_raw.get("poll_interval_seconds", 20)),
             starting_balance=(
@@ -1137,6 +1140,7 @@ def load_settings(
                 if endgame_raw.get("starting_balance") is not None
                 else None
             ),
+            yes_no_only=bool(endgame_raw.get("yes_no_only", True)),
         ),
         edge=EdgeSettings(
             min_ask=float(edge_raw.get("min_ask", 0.45)),

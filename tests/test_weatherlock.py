@@ -13,9 +13,10 @@ from papertrader.weatherlock_state import WeatherlockExitStore
 
 def test_weatherlock_settings_defaults():
     settings = load_settings()
-    assert settings.weatherlock.buy_min == 0.96
-    assert settings.weatherlock.buy_max == 0.98
+    assert settings.weatherlock.buy_min == 0.88
+    assert settings.weatherlock.buy_max == 0.92
     assert settings.weatherlock.sell_limit == 0.99
+    assert settings.weatherlock.take_profit_offset == 0.06
     assert settings.weatherlock.starting_balance == 500
     assert settings.weatherlock.include_lowest is True
     assert "nyc" in settings.weatherlock.cities
@@ -42,7 +43,7 @@ def test_weatherlock_exits_places_take_profit(tmp_path):
     pos = SimpleNamespace(
         shares=25.0,
         is_resolved=False,
-        avg_entry_price=0.97,
+        avg_entry_price=0.90,
         market_condition_id="cond-wl-1",
         outcome="no",
         market_slug="highest-temperature-in-denver-on-september-15-2026-78f",
@@ -53,16 +54,35 @@ def test_weatherlock_exits_places_take_profit(tmp_path):
     assert isinstance(sig, Signal)
     assert sig.action == "sell"
     assert sig.order_type == "limit"
-    assert sig.limit_price == 0.99
+    assert sig.limit_price == 0.96  # 0.90 + 0.06
     assert sig.outcome == "no"
     assert sig.weatherlock_take_profit is True
 
     store = WeatherlockExitStore(engine.db.data_dir)
     store.mark_take_profit(
-        "cond-wl-1", "no", market_slug=pos.market_slug, take_profit_price=0.99
+        "cond-wl-1", "no", market_slug=pos.market_slug, take_profit_price=0.96
     )
     assert store.take_profit_placed("cond-wl-1", "no")
     assert weatherlock_exits(engine, settings, [pos], exit_store=store) == []
+
+
+def test_weatherlock_exits_caps_at_sell_limit(tmp_path):
+    settings = load_settings()
+    engine = MagicMock()
+    engine.db.data_dir = tmp_path / "weatherlock"
+    engine.db.data_dir.mkdir()
+    pos = SimpleNamespace(
+        shares=25.0,
+        is_resolved=False,
+        avg_entry_price=0.95,
+        market_condition_id="cond-wl-2",
+        outcome="no",
+        market_slug="highest-temperature-in-denver-on-september-15-2026-80f",
+    )
+    # 0.95 + 0.06 = 1.01 → capped at sell_limit 0.99
+    sigs = weatherlock_exits(engine, settings, [pos])
+    assert len(sigs) == 1
+    assert sigs[0].limit_price == 0.99
 
 
 def test_analyze_weatherlock_buys_no_in_band(monkeypatch, tmp_path):
@@ -77,7 +97,7 @@ def test_analyze_weatherlock_buys_no_in_band(monkeypatch, tmp_path):
     market.condition_id = "cond-nyc"
     market.get_token_id.return_value = "token-no"
 
-    book = SimpleNamespace(asks=[SimpleNamespace(price=0.97, size=50.0)], bids=[])
+    book = SimpleNamespace(asks=[SimpleNamespace(price=0.90, size=50.0)], bids=[])
     engine.api.get_order_book.return_value = book
 
     city = settings.cities["nyc"]
@@ -92,7 +112,7 @@ def test_analyze_weatherlock_buys_no_in_band(monkeypatch, tmp_path):
 
     monkeypatch.setattr(
         "papertrader.strategies.weatherlock.best_ask",
-        lambda _book: (0.97, 50.0),
+        lambda _book: (0.90, 50.0),
     )
     sigs = analyze_weatherlock_event(
         engine,
@@ -109,7 +129,7 @@ def test_analyze_weatherlock_buys_no_in_band(monkeypatch, tmp_path):
     assert sig.action == "buy"
     assert sig.outcome == "no"
     assert sig.order_type == "limit"
-    assert sig.limit_price == 0.97
+    assert sig.limit_price == 0.90
     assert sig.paper_fill_at_limit is True
     market.get_token_id.assert_called_with("no")
 
@@ -138,7 +158,7 @@ def test_analyze_weatherlock_skips_outside_band(monkeypatch, tmp_path):
     )
     monkeypatch.setattr(
         "papertrader.strategies.weatherlock.best_ask",
-        lambda _book: (0.90, 50.0),
+        lambda _book: (0.97, 50.0),
     )
     assert (
         analyze_weatherlock_event(

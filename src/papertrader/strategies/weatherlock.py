@@ -1,4 +1,4 @@
-"""Weatherlock: buy near-certain weather NO at 96–98¢, rest a 99¢ sell after fill."""
+"""Weatherlock: buy weather NO with real edge, rest TP at entry+offset (cap sell_limit)."""
 
 from __future__ import annotations
 
@@ -15,6 +15,10 @@ from papertrader.signals import Signal
 from papertrader.weatherlock_state import WeatherlockExitStore
 
 log = logging.getLogger(__name__)
+
+
+def _take_profit_price(entry: float, offset: float, sell_limit: float) -> float:
+    return round(min(float(entry) + float(offset), float(sell_limit)), 4)
 
 
 def _city_allowed(city: City, settings: Settings) -> bool:
@@ -129,6 +133,7 @@ def analyze_weatherlock_event(
             continue
 
         limit_px = min(float(ask), float(cfg.buy_max))
+        tp_px = _take_profit_price(limit_px, cfg.take_profit_offset, cfg.sell_limit)
         fill_now = bool(
             paper_mode
             and cfg.paper_fill_at_limit
@@ -136,7 +141,8 @@ def analyze_weatherlock_event(
         )
         reason = (
             f"weatherlock NO buy@{limit_px:.2f} ask={ask:.3f} "
-            f"d+{days_ahead} → TP@{cfg.sell_limit:.2f} ({bucket.bucket_text})"
+            f"d+{days_ahead} → TP@{tp_px:.2f} (+{cfg.take_profit_offset:.2f}) "
+            f"({bucket.bucket_text})"
         )
         _log_weatherlock(
             engine,
@@ -151,6 +157,8 @@ def analyze_weatherlock_event(
             buy_min=cfg.buy_min,
             buy_max=cfg.buy_max,
             sell_limit=cfg.sell_limit,
+            take_profit_price=tp_px,
+            take_profit_offset=cfg.take_profit_offset,
         )
         signals.append(
             Signal(
@@ -181,7 +189,7 @@ def weatherlock_exits(
     *,
     exit_store: WeatherlockExitStore | None = None,
 ) -> list[Signal]:
-    """Immediately after a fill, rest a sell limit at sell_limit (default 99¢)."""
+    """Immediately after a fill, rest a sell limit at entry+offset (capped)."""
     cfg = settings.weatherlock
     store = exit_store or WeatherlockExitStore(engine.db.data_dir)
     store.prune_closed(open_positions)
@@ -193,10 +201,14 @@ def weatherlock_exits(
         if store.take_profit_placed(pos.market_condition_id, pos.outcome):
             continue
 
-        tp = float(cfg.sell_limit)
+        tp = _take_profit_price(
+            pos.avg_entry_price, cfg.take_profit_offset, cfg.sell_limit
+        )
+        if tp <= float(pos.avg_entry_price) + 1e-12:
+            continue
         reason = (
             f"weatherlock TP limit @{tp:.2f} after entry@{pos.avg_entry_price:.3f} "
-            f"({pos.shares:.1f} sh)"
+            f"(+{cfg.take_profit_offset:.2f}, {pos.shares:.1f} sh)"
         )
         _log_weatherlock(
             engine,

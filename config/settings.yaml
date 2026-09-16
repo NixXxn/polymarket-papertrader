@@ -429,12 +429,14 @@ penny:
   - los-angeles
   - london
   - munich
-# Buy near-certain weather NO (high/low temp buckets) at 96–98¢; flip at 99¢
+# Buy weather NO with real edge (not 1–3¢ scalp). At ~90% WR you need ~10¢+
+# average win to cover a full loss — buy 88–92¢, TP at entry+6¢ (cap 99¢).
 weatherlock:
   starting_balance: 500
-  buy_min: 0.96
-  buy_max: 0.98
+  buy_min: 0.88
+  buy_max: 0.92
   sell_limit: 0.99
+  take_profit_offset: 0.06
   min_ask_size: 1
   min_event_volume: 100
   min_days_ahead: 0
@@ -463,25 +465,23 @@ weatherlock:
   - cape-town
   - tokyo
   - sydney
-# landighertz-style: sports/esports ending soon, buy 96–99.9¢ locks with full cash
-# Mid may print 1.00 on locks; strategy uses mid>=price_min as signal and buys ask<=price_max (<1.00).
+# Sports/esports Yes/No only: buy 89–95¢ in last 30m, rest TP at entry+4¢.
 endgame:
   starting_balance: 1000
   min_minutes: 0
   max_minutes: 30
-  # Wider scan so we can log nearby sports even when none are inside the trade window.
   look_ahead_minutes: 360
-  price_min: 0.96
-  price_max: 0.999
+  price_min: 0.89
+  price_max: 0.95
   min_liquidity: 200
   min_ask_size: 5
   use_full_capital: true
   position_usd: 1000
   max_position_usd: 5000
   max_open_positions: 1
-  # Only used when entry is strictly below this; at/above → hold to resolution.
-  sell_limit: 0.99
-  stop_bid: 0.80
+  take_profit_offset: 0.04
+  stop_bid: 0.70
+  yes_no_only: true
   paper_fill_at_limit: true
   poll_interval_seconds: 20
 intel:
