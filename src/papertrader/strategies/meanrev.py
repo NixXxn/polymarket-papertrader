@@ -203,7 +203,7 @@ def discover_general_markets(
     limit: int = 200,
 ) -> list[_MarketSnapshot]:
     """Fetch active Yes/No markets from Gamma (volume-ranked)."""
-    cfg = settings.meanrev
+    cfg = settings.volspike
     min_liq = float(min_liquidity if min_liquidity is not None else cfg.min_liquidity)
     pmin = float(price_min if price_min is not None else cfg.price_min)
     pmax = float(price_max if price_max is not None else cfg.price_max)

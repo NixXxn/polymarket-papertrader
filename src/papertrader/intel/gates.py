@@ -69,7 +69,7 @@ def evaluate_entry_gate(
     size_mult = 1.0
 
     if applies and enabled:
-        scanners = {"meanrev", "volspike", "closingsoon"}
+        scanners = {"volspike"}
         # Hard block elevated narrative/geopolitics/elections/sports for scanners.
         if strategy in scanners and risk.score >= block_score:
             allow = False
@@ -97,17 +97,6 @@ def evaluate_entry_gate(
             else:
                 size_mult = size_down
                 reason = "intel_caution_size_down"
-
-        # BTC 5m: death-cross → trade smaller; hard-block only on extreme fear.
-        if strategy == "btc5m" and allow:
-            death = snap.btc_death_cross if snap is not None else None
-            min_fg = int(getattr(cfg, "btc_min_fear_greed", 45))
-            if fear is not None and fear <= min_fg:
-                allow = False
-                reason = f"intel_btc_extreme_fear fg={fear}"
-            elif death is True:
-                size_mult = min(size_mult, size_down)
-                reason = f"intel_btc_death_cross_size_down fg={fear}"
 
     # Shadow mode: never block, only annotate.
     if shadow and not allow:

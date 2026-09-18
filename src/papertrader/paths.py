@@ -27,7 +27,6 @@ def root_data_dir(path: Path | str) -> Path:
         "edge",
         "esports",
         "momentum",
-        "meanrev",
         "volspike",
         "arbitrage",
         "weatherlock",

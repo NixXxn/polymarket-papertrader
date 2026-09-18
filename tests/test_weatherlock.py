@@ -14,9 +14,10 @@ from papertrader.weatherlock_state import WeatherlockExitStore
 def test_weatherlock_settings_defaults():
     settings = load_settings()
     assert settings.weatherlock.buy_min == 0.88
-    assert settings.weatherlock.buy_max == 0.92
+    assert settings.weatherlock.buy_max == 0.91
     assert settings.weatherlock.sell_limit == 0.99
-    assert settings.weatherlock.take_profit_offset == 0.06
+    assert settings.weatherlock.take_profit_offset == 0.07
+    assert settings.weatherlock.stop_bid == 0.72
     assert settings.weatherlock.starting_balance == 500
     assert settings.weatherlock.include_lowest is True
     assert "nyc" in settings.weatherlock.cities
@@ -54,13 +55,13 @@ def test_weatherlock_exits_places_take_profit(tmp_path):
     assert isinstance(sig, Signal)
     assert sig.action == "sell"
     assert sig.order_type == "limit"
-    assert sig.limit_price == 0.96  # 0.90 + 0.06
+    assert sig.limit_price == 0.97  # 0.90 + 0.07
     assert sig.outcome == "no"
     assert sig.weatherlock_take_profit is True
 
     store = WeatherlockExitStore(engine.db.data_dir)
     store.mark_take_profit(
-        "cond-wl-1", "no", market_slug=pos.market_slug, take_profit_price=0.96
+        "cond-wl-1", "no", market_slug=pos.market_slug, take_profit_price=0.97
     )
     assert store.take_profit_placed("cond-wl-1", "no")
     assert weatherlock_exits(engine, settings, [pos], exit_store=store) == []
@@ -172,3 +173,32 @@ def test_analyze_weatherlock_skips_outside_band(monkeypatch, tmp_path):
         )
         == []
     )
+
+
+def test_weatherlock_stop_exits_on_collapsed_bid(monkeypatch, tmp_path):
+    settings = load_settings()
+    engine = MagicMock()
+    engine.db.data_dir = tmp_path / "weatherlock"
+    engine.db.data_dir.mkdir()
+    market = MagicMock()
+    market.get_token_id.return_value = "token-no"
+    engine.api.get_market.return_value = market
+    engine.api.get_order_book.return_value = SimpleNamespace(bids=[], asks=[])
+
+    pos = SimpleNamespace(
+        shares=25.0,
+        is_resolved=False,
+        avg_entry_price=0.90,
+        market_condition_id="cond-wl-sl",
+        outcome="no",
+        market_slug="highest-temperature-in-denver-on-september-15-2026-78f",
+    )
+    monkeypatch.setattr(
+        "papertrader.strategies.weatherlock.best_bid",
+        lambda _book: (0.70, 10.0),
+    )
+    sigs = weatherlock_exits(engine, settings, [pos])
+    assert len(sigs) == 1
+    assert sigs[0].action == "sell"
+    assert sigs[0].order_type == "fak"
+    assert "SL" in (sigs[0].reason or "")

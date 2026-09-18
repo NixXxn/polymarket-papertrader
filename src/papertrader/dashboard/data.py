@@ -31,7 +31,7 @@ from papertrader.trade_log import (
 )
 
 
-STRATEGIES = ("asymmetric", "contrarian", "conviction", "copy", "esports", "momentum", "meanrev", "volspike", "arbitrage", "weatherlock", "endgame")
+STRATEGIES = ("asymmetric", "contrarian", "conviction", "copy", "esports", "momentum", "volspike", "arbitrage", "weatherlock", "endgame")
 
 STRATEGY_LABELS: dict[str, str] = {
     "arbitrage": "Arbitrage",
@@ -285,14 +285,69 @@ def _copy_meta(data_dir: Path, settings: Any) -> dict[str, Any]:
             pass
     username = getattr(settings.copy, "username", "") if settings.copy else ""
     wallet = getattr(settings.copy, "wallet", "") if settings.copy else ""
+    from papertrader.copy_wallets import list_copy_wallets
+
+    wallets = list_copy_wallets(data_dir, settings)
     return {
         "username": username,
         "wallet": wallet,
+        "wallets": wallets,
         "seen_trades": seen,
         "scale": scale,
         "active": _engine_exists(data_dir, "copy"),
         "latency": copy_latency_stats(data_dir),
     }
+
+
+def list_dashboard_copy_wallets(
+    *,
+    data_dir: Path | None = None,
+    mode: str | None = None,
+) -> dict[str, Any]:
+    settings, resolved = _resolve_dashboard(data_dir, mode)
+    wallets = list_copy_wallets_for_dashboard(resolved.data_dir, settings)
+    return {"ok": True, "wallets": wallets, "data_dir": str(resolved.data_dir)}
+
+
+def add_dashboard_copy_wallet(
+    *,
+    address: str,
+    label: str = "",
+    data_dir: Path | None = None,
+    mode: str | None = None,
+) -> dict[str, Any]:
+    from papertrader.copy_wallets import add_copy_wallet, list_copy_wallets
+
+    settings, resolved = _resolve_dashboard(data_dir, mode)
+    row = add_copy_wallet(resolved.data_dir, address, label=label)
+    return {
+        "ok": True,
+        "wallet": row,
+        "wallets": list_copy_wallets(resolved.data_dir, settings),
+    }
+
+
+def remove_dashboard_copy_wallet(
+    *,
+    address: str,
+    data_dir: Path | None = None,
+    mode: str | None = None,
+) -> dict[str, Any]:
+    from papertrader.copy_wallets import list_copy_wallets, remove_copy_wallet
+
+    settings, resolved = _resolve_dashboard(data_dir, mode)
+    removed = remove_copy_wallet(resolved.data_dir, address)
+    return {
+        "ok": True,
+        "removed": removed,
+        "wallets": list_copy_wallets(resolved.data_dir, settings),
+    }
+
+
+def list_copy_wallets_for_dashboard(data_dir: Path, settings: Any) -> list[dict[str, str]]:
+    from papertrader.copy_wallets import list_copy_wallets
+
+    return list_copy_wallets(data_dir, settings)
 
 
 def fetch_dashboard(

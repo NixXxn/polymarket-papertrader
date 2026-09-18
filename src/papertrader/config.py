@@ -168,6 +168,7 @@ class MomentumSettings:
     entry_trigger_price: float
     take_profit_price: float | None
     stop_loss_price: float | None
+    max_entry_price: float
     order_size_shares: float
     use_share_sizing: bool
     position_usd: float
@@ -177,23 +178,6 @@ class MomentumSettings:
     entry_price_buffer: float
     exit_slippage_buffer: float
     cities: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class MeanReversionSettings:
-    min_liquidity: float
-    price_min: float
-    price_max: float
-    rolling_window: int
-    min_z_score: float
-    min_edge: float
-    min_confidence: float
-    kelly_fraction: float
-    max_position_usd: float
-    max_open_positions: int
-    position_usd: float
-    stop_loss_pct: float
-    take_profit_pct: float
 
 
 @dataclass(frozen=True)
@@ -211,6 +195,7 @@ class VolumeSpikeSettings:
     position_usd: float
     stop_loss_pct: float
     take_profit_pct: float
+    allow_cold_start: bool
 
 
 @dataclass(frozen=True)
@@ -255,6 +240,7 @@ class WeatherlockSettings:
     buy_max: float
     sell_limit: float
     take_profit_offset: float
+    stop_bid: float | None
     min_ask_size: float
     min_event_volume: float
     min_days_ahead: int
@@ -296,6 +282,7 @@ class EndgameSettings:
 class CopySettings:
     username: str
     wallet: str
+    wallets: tuple[str, ...] = ()
     scale: float | None = None
     poll_interval_ms: int = 250
     recent_limit: int = 50
@@ -407,7 +394,6 @@ class Settings:
     conviction: ContrarianSettings
     esports: EsportsSettings
     momentum: MomentumSettings
-    meanrev: MeanReversionSettings
     volspike: VolumeSpikeSettings
     arbitrage: ArbitrageSettings
     weatherlock: WeatherlockSettings
@@ -541,7 +527,6 @@ def load_settings(
     oddspapi_raw = esports_raw.get("oddspapi") or {}
     momentum_raw = raw.get("momentum") or {}
     copy_raw = raw.get("copy") or {}
-    meanrev_raw = raw.get("meanrev") or {}
     volspike_raw = raw.get("volspike") or {}
     arbitrage_raw = raw.get("arbitrage") or {}
     weatherlock_raw = raw.get("weatherlock") or {}
@@ -577,7 +562,7 @@ def load_settings(
             block_event_score=int(intel_raw.get("block_event_score", 65)),
             caution_size_mult=float(intel_raw.get("caution_size_mult", 0.40)),
             btc_min_fear_greed=int(intel_raw.get("btc_min_fear_greed", 45)),
-            strategies=tuple(intel_raw.get("strategies") or ("meanrev", "volspike")),
+            strategies=tuple(intel_raw.get("strategies") or ("volspike",)),
         ),
         adaptive_sizing=AdaptiveSizingSettings(
             enabled=bool(adaptive_raw.get("enabled", True)),
@@ -784,6 +769,7 @@ def load_settings(
                 if momentum_raw.get("stop_loss_price") is not None
                 else None
             ),
+            max_entry_price=float(momentum_raw.get("max_entry_price", 0.97)),
             order_size_shares=float(momentum_raw.get("order_size_shares", 50.0)),
             use_share_sizing=bool(momentum_raw.get("use_share_sizing", True)),
             position_usd=float(momentum_raw.get("position_usd", 50)),
@@ -795,21 +781,6 @@ def load_settings(
             entry_price_buffer=float(momentum_raw.get("entry_price_buffer", 0.01)),
             exit_slippage_buffer=float(momentum_raw.get("exit_slippage_buffer", 0.01)),
             cities=tuple(momentum_raw.get("cities") or ("nyc", "miami", "atlanta")),
-        ),
-        meanrev=MeanReversionSettings(
-            min_liquidity=float(meanrev_raw.get("min_liquidity", 5000)),
-            price_min=float(meanrev_raw.get("price_min", 0.05)),
-            price_max=float(meanrev_raw.get("price_max", 0.95)),
-            rolling_window=int(meanrev_raw.get("rolling_window", 168)),
-            min_z_score=float(meanrev_raw.get("min_z_score", 2.0)),
-            min_edge=float(meanrev_raw.get("min_edge", 0.05)),
-            min_confidence=float(meanrev_raw.get("min_confidence", 0.55)),
-            kelly_fraction=float(meanrev_raw.get("kelly_fraction", 0.25)),
-            max_position_usd=float(meanrev_raw.get("max_position_usd", 25)),
-            max_open_positions=int(meanrev_raw.get("max_open_positions", 10)),
-            position_usd=float(meanrev_raw.get("position_usd", 10)),
-            stop_loss_pct=float(meanrev_raw.get("stop_loss_pct", 0.20)),
-            take_profit_pct=float(meanrev_raw.get("take_profit_pct", 0.15)),
         ),
         volspike=VolumeSpikeSettings(
             min_liquidity=float(volspike_raw.get("min_liquidity", 5000)),
@@ -825,6 +796,7 @@ def load_settings(
             position_usd=float(volspike_raw.get("position_usd", 10)),
             stop_loss_pct=float(volspike_raw.get("stop_loss_pct", 0.20)),
             take_profit_pct=float(volspike_raw.get("take_profit_pct", 0.15)),
+            allow_cold_start=bool(volspike_raw.get("allow_cold_start", False)),
         ),
         arbitrage=ArbitrageSettings(
             max_pair_cost=float(arbitrage_raw.get("max_pair_cost", 0.97)),
@@ -866,6 +838,11 @@ def load_settings(
             buy_max=float(weatherlock_raw.get("buy_max", 0.92)),
             sell_limit=float(weatherlock_raw.get("sell_limit", 0.99)),
             take_profit_offset=float(weatherlock_raw.get("take_profit_offset", 0.06)),
+            stop_bid=(
+                float(weatherlock_raw["stop_bid"])
+                if weatherlock_raw.get("stop_bid") is not None
+                else None
+            ),
             min_ask_size=float(weatherlock_raw.get("min_ask_size", 1.0)),
             min_event_volume=float(
                 weatherlock_raw.get(
@@ -933,6 +910,11 @@ def load_settings(
         copy=CopySettings(
             username=str(copy_raw.get("username") or "0x.aljjj").lstrip("@"),
             wallet=str(copy_raw.get("wallet") or "").lower(),
+            wallets=tuple(
+                str(w).lower()
+                for w in (copy_raw.get("wallets") or [])
+                if str(w).strip()
+            ),
             scale=float(copy_raw["scale"]) if copy_raw.get("scale") is not None else None,
             poll_interval_ms=int(copy_raw.get("poll_interval_ms") or 250),
             recent_limit=int(copy_raw.get("recent_limit") or 50),

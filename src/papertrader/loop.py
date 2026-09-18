@@ -635,7 +635,6 @@ def scan_once(
     copy_engine: Engine | None = None,
     esports_engine: Engine | None = None,
     momentum_engine: Engine | None = None,
-    meanrev_engine: Engine | None = None,
     volspike_engine: Engine | None = None,
     arbitrage_engine: Engine | None = None,
     weatherlock_engine: Engine | None = None,
@@ -683,7 +682,6 @@ def scan_once(
             copy_engine,
             esports_engine,
             momentum_engine,
-            meanrev_engine,
             volspike_engine,
             arbitrage_engine,
             weatherlock_engine,
@@ -981,30 +979,6 @@ def scan_once(
         counts.resolved += momentum_counts.resolved
         counts.risk_exits += momentum_counts.risk_exits
 
-    if meanrev_engine:
-        try:
-            from papertrader.strategies.meanrev import analyze_meanrev, meanrev_exits
-            if live is None:
-                counts.resolved += _resolve(meanrev_engine)
-            for sig in meanrev_exits(meanrev_engine, settings):
-                if execute_signal(meanrev_engine, sig, dry_run, live=live, ctx=ctx, strategy="meanrev"):
-                    counts.risk_exits += 1
-                emitted.append(sig)
-            for sig in analyze_meanrev(meanrev_engine, settings):
-                if execute_signal(meanrev_engine, sig, dry_run, live=live, ctx=ctx, strategy="meanrev"):
-                    counts.fills += 1
-                counts.orders_placed += 1
-                emitted.append(sig)
-        except Exception as e:
-            log.exception("meanrev scan failed: %s", e)
-            append_activity(
-                meanrev_engine.db.data_dir,
-                level="error",
-                event="scan_failed",
-                strategy="meanrev",
-                message=str(e),
-            )
-
     if volspike_engine:
         try:
             from papertrader.strategies.volspike import analyze_volspike, volspike_exits
@@ -1163,7 +1137,6 @@ def scan_once(
             copy_engine,
             esports_engine,
             momentum_engine,
-            meanrev_engine,
             volspike_engine,
             arbitrage_engine,
             weatherlock_engine,
@@ -1198,7 +1171,6 @@ def run_loop(
     copy_engine: Engine | None = None,
     esports_engine: Engine | None = None,
     momentum_engine: Engine | None = None,
-    meanrev_engine: Engine | None = None,
     volspike_engine: Engine | None = None,
     arbitrage_engine: Engine | None = None,
     weatherlock_engine: Engine | None = None,
@@ -1222,8 +1194,6 @@ def run_loop(
         named_engines.append(("esports", esports_engine))
     if momentum_engine is not None:
         named_engines.append(("momentum", momentum_engine))
-    if meanrev_engine is not None:
-        named_engines.append(("meanrev", meanrev_engine))
     if volspike_engine is not None:
         named_engines.append(("volspike", volspike_engine))
     if arbitrage_engine is not None:
@@ -1255,7 +1225,6 @@ def run_loop(
             copy_engine=copy_engine,
             esports_engine=esports_engine,
             momentum_engine=momentum_engine,
-            meanrev_engine=meanrev_engine,
             volspike_engine=volspike_engine,
             arbitrage_engine=arbitrage_engine,
             weatherlock_engine=weatherlock_engine,
@@ -1280,7 +1249,6 @@ def run_loop(
                 copy_engine=copy_engine,
                 esports_engine=esports_engine,
                 momentum_engine=momentum_engine,
-                meanrev_engine=meanrev_engine,
                 volspike_engine=volspike_engine,
                 arbitrage_engine=arbitrage_engine,
                 weatherlock_engine=weatherlock_engine,

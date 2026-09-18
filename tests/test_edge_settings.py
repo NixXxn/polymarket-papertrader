@@ -10,8 +10,7 @@ def test_conviction_is_d0_only():
     assert s.conviction.starting_balance == 2500
 
 
-def test_momentum_meanrev_volspike_enabled():
+def test_momentum_volspike_enabled():
     s = load_settings()
     assert s.momentum.max_open_positions >= 1
-    assert s.meanrev.max_open_positions >= 1
     assert s.volspike.max_open_positions >= 1

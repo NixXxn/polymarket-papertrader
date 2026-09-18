@@ -29,7 +29,6 @@ class VolRegimeStore:
             "esports",
             "fadefinder",
             "momentum",
-            "meanrev",
             "volspike",
             "arbitrage",
             "weatherlock",

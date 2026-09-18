@@ -113,8 +113,11 @@ def analyze_volspike(
             continue
         _tracker.update(m.condition_id, price=m.yes_price, volume=m.volume_24h)
         spike = _tracker.spike_score(m.condition_id, spike_threshold=cfg.spike_threshold)
-        # Cold-start: follow high-volume markets with a clear directional skew.
+        # Optional cold-start: follow high-volume markets with a clear directional skew.
+        # Default off — fabricated spikes were a major −EV source vs real burst entries.
         if spike is None:
+            if not cfg.allow_cold_start:
+                continue
             skew = abs(m.yes_price - 0.5)
             if m.volume_24h < 5_000 or skew < 0.12:
                 continue
@@ -123,10 +126,11 @@ def analyze_volspike(
             continue
 
         # Follow clear favorites so Kelly/sizing stays positive.
-        if m.yes_price >= 0.55:
+        min_fav = max(0.55, float(cfg.min_confidence))
+        if m.yes_price >= min_fav:
             side = m.yes_outcome
             price = m.yes_price
-        elif m.no_price >= 0.55:
+        elif m.no_price >= min_fav:
             side = m.no_outcome
             price = m.no_price
         else:

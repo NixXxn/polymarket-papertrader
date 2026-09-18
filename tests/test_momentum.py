@@ -70,7 +70,16 @@ def test_parse_market_message_handles_list_payload():
 
 def test_momentum_entry_triggers_at_threshold(tmp_path):
     base = load_settings()
-    settings = replace(base, momentum=replace(base.momentum, max_open_positions=5))
+    settings = replace(
+        base,
+        momentum=replace(
+            base.momentum,
+            max_open_positions=5,
+            entry_trigger_price=0.90,
+            max_entry_price=0.97,
+            take_profit_price=0.99,
+        ),
+    )
     engine = MagicMock()
     engine.db.data_dir = tmp_path
     engine.get_account.return_value = SimpleNamespace(cash=500.0)
@@ -107,11 +116,11 @@ def test_momentum_take_profit_exit(tmp_path):
         avg_entry_price=0.91,
         is_resolved=False,
     )
-    tick = MarketTick(token_id="token-yes", best_bid=0.985, best_ask=0.99, last_price=0.985)
+    tick = MarketTick(token_id="token-yes", best_bid=0.99, best_ask=0.995, last_price=0.99)
     signals = momentum_exits(engine, watch, tick, settings, [pos])
     assert len(signals) == 1
     assert signals[0].action == "sell"
-    assert signals[0].limit_price == 0.98
+    assert signals[0].limit_price == 0.99
     assert signals[0].momentum_take_profit is True
 
 

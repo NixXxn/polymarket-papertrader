@@ -152,7 +152,9 @@ conviction:
   - denver
   - london
 copy:
+  # Primary leader wallet (also editable via dashboard → copy/wallets.json).
   wallet: '0x09b045baad1fbe115c70785635a261411774a3b6'
+  wallets: []
   scale: 0.1
   poll_interval_ms: 250
   recent_limit: 50
@@ -217,21 +219,24 @@ esports:
     require_match: true
     max_tournaments_per_sport: 10
     base_url: https://api.oddspapi.io/v4
+# High-WR scalp: tiny TP vs full wipe was −EV (avg win ~$1.3, avg loss ~$23).
+# Stronger entry, wider TP, hard SL, and skip fills with no upside room.
 momentum:
   ws_url: wss://ws-subscriptions-clob.polymarket.com/ws/market
   use_websocket: true
   poll_interval_seconds: 5
   mode: ANY_BUCKET
   specific_token_id: ''
-  entry_trigger_price: 0.92
-  take_profit_price: 0.95
-  stop_loss_price: null
-  order_size_shares: 30.0
+  entry_trigger_price: 0.94
+  take_profit_price: 0.99
+  stop_loss_price: 0.78
+  max_entry_price: 0.96
+  order_size_shares: 25.0
   use_share_sizing: true
-  position_usd: 30
-  max_position_usd: 50
+  position_usd: 25
+  max_position_usd: 40
   max_open_positions: 2
-  min_event_volume: 200
+  min_event_volume: 300
   entry_price_buffer: 0.01
   exit_slippage_buffer: 0.01
   cities:
@@ -241,34 +246,23 @@ momentum:
   - chicago
   - dallas
   - houston
-meanrev:
-  min_liquidity: 3000
-  price_min: 0.15
-  price_max: 0.85
-  rolling_window: 24
-  min_z_score: 1.5
-  min_edge: 0.04
-  min_confidence: 0.6
-  kelly_fraction: 0.18
-  max_position_usd: 45
-  max_open_positions: 4
-  position_usd: 28
-  stop_loss_pct: 0.15
-  take_profit_pct: 0.08
+# Prior TP 8% / SL 18% needed ~69% WR to break even; ledger ~59% WR.
+# Prefer real spikes on stronger favorites; cut losers faster than winners run.
 volspike:
-  min_liquidity: 2500
-  price_min: 0.2
-  price_max: 0.9
+  min_liquidity: 3500
+  price_min: 0.45
+  price_max: 0.88
   volume_history_len: 12
-  spike_threshold: 3.0
-  min_edge: 0.028
-  min_confidence: 0.55
-  kelly_fraction: 0.18
-  max_position_usd: 50
-  max_open_positions: 5
-  position_usd: 28
-  stop_loss_pct: 0.18
-  take_profit_pct: 0.08
+  spike_threshold: 3.5
+  min_edge: 0.035
+  min_confidence: 0.65
+  kelly_fraction: 0.15
+  max_position_usd: 40
+  max_open_positions: 3
+  position_usd: 22
+  stop_loss_pct: 0.10
+  take_profit_pct: 0.14
+  allow_cold_start: false
 arbitrage:
   starting_balance: 1000
   max_pair_cost: 0.94
@@ -301,22 +295,23 @@ arbitrage:
   rebalance_move: 0.04
   rebalance_fraction: 0.1
   rebalance_min_lead: 0.55
-# Buy weather NO with real edge (not 1–3¢ scalp). At ~90% WR you need ~10¢+
-# average win to cover a full loss — buy 88–92¢, TP at entry+6¢ (cap 99¢).
+# Buy weather NO with real edge. Prior 96–98¢ fills won ~2¢ then wiped −$25
+# on the rare miss (~93% WR still −EV). Stay 88–91¢, TP +7¢, stop before wipe.
 weatherlock:
   starting_balance: 500
   buy_min: 0.88
-  buy_max: 0.92
+  buy_max: 0.91
   sell_limit: 0.99
-  take_profit_offset: 0.06
+  take_profit_offset: 0.07
+  stop_bid: 0.72
   min_ask_size: 1
-  min_event_volume: 100
+  min_event_volume: 150
   min_days_ahead: 0
   max_days_ahead: 2
-  position_usd: 25
-  max_position_usd: 100
-  max_open_positions: 20
-  max_open_per_event: 4
+  position_usd: 20
+  max_position_usd: 60
+  max_open_positions: 8
+  max_open_per_event: 2
   paper_fill_at_limit: true
   include_lowest: true
   cities:
@@ -365,7 +360,6 @@ intel:
   caution_size_mult: 0.55
   btc_min_fear_greed: 45
   strategies:
-  - meanrev
   - volspike
 adaptive_sizing:
   enabled: true

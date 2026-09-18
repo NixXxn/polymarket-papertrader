@@ -146,6 +146,31 @@ def analyze_momentum_entry(
         round(max(tick.best_ask or trigger, tick.last_price or trigger) + cfg.entry_price_buffer, 2),
         0.99,
     )
+    # Skip entries with no room to TP (or already through the stop band).
+    if fill_price > cfg.max_entry_price:
+        _log_momentum(
+            engine,
+            decision="skip",
+            reason="above_max_entry",
+            city=watch.city,
+            event_date=watch.event_date,
+            slug=watch.bucket.market.slug,
+            fill_price=fill_price,
+            max_entry_price=cfg.max_entry_price,
+        )
+        return None
+    if cfg.take_profit_price is not None and fill_price >= cfg.take_profit_price - 1e-9:
+        _log_momentum(
+            engine,
+            decision="skip",
+            reason="no_tp_room",
+            city=watch.city,
+            event_date=watch.event_date,
+            slug=watch.bucket.market.slug,
+            fill_price=fill_price,
+            take_profit_price=cfg.take_profit_price,
+        )
+        return None
     if cfg.use_share_sizing:
         stake = round(cfg.order_size_shares * fill_price, 2)
         if stake < settings.min_position_usd:

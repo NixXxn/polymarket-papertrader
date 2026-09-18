@@ -12,6 +12,7 @@ from typing import Any, Callable
 from pm_trader.engine import Engine
 
 from papertrader.config import Settings
+from papertrader.copy_wallets import list_copy_wallets
 from papertrader.signals import Signal
 from papertrader.trade_log import append_copy_event, append_skipped
 from papertrader.weather import WeatherHttp
@@ -100,8 +101,11 @@ def save_state(engine: Engine, state: dict[str, Any]) -> None:
 
 
 def resolve_wallet(http: WeatherHttp, settings: Settings) -> str | None:
+    """Resolve a single primary wallet (settings.wallet or profile scrape)."""
     if settings.copy.wallet:
         return settings.copy.wallet.lower()
+    if settings.copy.wallets:
+        return str(settings.copy.wallets[0]).lower()
     username = settings.copy.username.lstrip("@")
     try:
         resp = http.client.get(f"https://polymarket.com/@{username}")
@@ -111,6 +115,36 @@ def resolve_wallet(http: WeatherHttp, settings: Settings) -> str | None:
         return None
     m = PROFILE_RE.search(resp.text)
     return m.group(1).lower() if m else None
+
+
+def resolve_wallets(
+    http: WeatherHttp,
+    settings: Settings,
+    *,
+    data_dir: Path | None = None,
+) -> list[str]:
+    """All leader wallets: settings + dashboard wallets.json (+ profile fallback)."""
+    root = Path(data_dir) if data_dir is not None else None
+    if root is None:
+        # Caller usually has an engine; fall back to settings-only.
+        wallets = []
+        if settings.copy.wallet:
+            wallets.append(settings.copy.wallet.lower())
+        for w in settings.copy.wallets:
+            ww = str(w).lower()
+            if ww and ww not in wallets:
+                wallets.append(ww)
+        if wallets:
+            return wallets
+        primary = resolve_wallet(http, settings)
+        return [primary] if primary else []
+
+    rows = list_copy_wallets(root, settings)
+    wallets = [r["address"] for r in rows]
+    if wallets:
+        return wallets
+    primary = resolve_wallet(http, settings)
+    return [primary] if primary else []
 
 
 def fetch_recent_trades(
@@ -478,64 +512,96 @@ def sync_copy_trades(
     *,
     recent_limit: int | None = None,
 ) -> tuple[int, list[Signal]]:
-    wallet = resolve_wallet(http, settings)
-    if not wallet:
-        log.warning("copy: could not resolve wallet for @%s", settings.copy.username)
+    data_dir = Path(engine.db.data_dir)
+    wallets = resolve_wallets(http, settings, data_dir=data_dir)
+    if not wallets:
+        log.warning("copy: no leader wallets configured")
         return 0, []
+
     limit = recent_limit if recent_limit is not None else settings.copy.recent_limit
-    try:
-        trades = fetch_recent_trades(http, wallet, limit=limit)
-    except Exception as e:
-        log.warning("copy: trade fetch failed: %s", e)
-        return 0, []
     state = load_state(engine)
     seen = set(state.get("seen") or [])
     last_leader_ts = int(state.get("last_leader_ts") or 0)
-    if state.get("live_seeded") and not state.get("last_leader_ts") and trades:
-        last_leader_ts = max(t.timestamp for t in trades)
-        state["last_leader_ts"] = last_leader_ts
-        save_state(engine, state)
-    scale = _resolve_scale(settings, state, trades)
-    if live and not state.get("live_seeded"):
-        _fast_live_seed(http, wallet, state, recent_limit=limit)
-        save_state(engine, state)
-        log.warning(
-            "copy live: fast-seeded from last %s trades (ts>=%s); only new prints will be copied",
-            limit,
-            state.get("last_leader_ts", 0),
-        )
-        return 0, []
-    pending = _pending_trades(trades, seen, last_leader_ts)
+    scale = _resolve_scale(settings, state, [])
     signals: list[Signal] = []
-    if dry_run:
-        for t in pending:
-            log.info(
-                "DRY-RUN copy %s %s usd=%.4f — %s",
-                t.side,
-                t.slug,
-                t.notional * scale,
-                t.title,
-            )
-        if pending:
-            state["last_leader_ts"] = max(last_leader_ts, max(t.timestamp for t in pending))
-            state["seen"] = list(seen)
+    considered = 0
+
+    for wallet in wallets:
+        try:
+            trades = fetch_recent_trades(http, wallet, limit=limit)
+        except Exception as e:
+            log.warning("copy: trade fetch failed for %s: %s", wallet[:10], e)
+            continue
+        if state.get("live_seeded") and not state.get("last_leader_ts") and trades:
+            last_leader_ts = max(t.timestamp for t in trades)
+            state["last_leader_ts"] = last_leader_ts
             save_state(engine, state)
-        return len(pending), []
-    for t in pending:
-        sig = _process_pending_trade(
-            engine,
-            t,
-            scale,
-            dry_run=dry_run,
-            live=live,
-            execute=execute,
-            seen=seen,
-        )
-        if sig:
-            signals.append(sig)
-        last_leader_ts = max(last_leader_ts, t.timestamp)
-    if pending:
+        # Recompute scale once we have trades if auto-scale.
+        if settings.copy.scale is None and trades:
+            scale = _resolve_scale(settings, state, trades)
+        elif settings.copy.scale is not None:
+            scale = _resolve_scale(settings, state, trades)
+        if live and not state.get("live_seeded"):
+            _fast_live_seed(http, wallet, state, recent_limit=limit)
+            # Seed remaining wallets into the same seen set.
+            for extra in wallets:
+                if extra == wallet:
+                    continue
+                try:
+                    more = fetch_recent_trades(http, extra, limit=limit)
+                except Exception:
+                    continue
+                seen_extra = set(state.get("seen") or [])
+                seen_extra.update(t.tx_id for t in more)
+                state["seen"] = list(seen_extra)
+                if more:
+                    state["last_leader_ts"] = max(
+                        int(state.get("last_leader_ts") or 0),
+                        max(t.timestamp for t in more),
+                    )
+            save_state(engine, state)
+            log.warning(
+                "copy live: fast-seeded %s wallet(s) from last %s trades each; "
+                "only new prints will be copied",
+                len(wallets),
+                limit,
+            )
+            return 0, []
+        pending = _pending_trades(trades, seen, last_leader_ts)
+        considered += len(pending)
+        if dry_run:
+            for t in pending:
+                log.info(
+                    "DRY-RUN copy %s %s usd=%.4f wallet=%s — %s",
+                    t.side,
+                    t.slug,
+                    t.notional * scale,
+                    wallet[:10],
+                    t.title,
+                )
+            if pending:
+                last_leader_ts = max(last_leader_ts, max(t.timestamp for t in pending))
+            continue
+        for t in pending:
+            sig = _process_pending_trade(
+                engine,
+                t,
+                scale,
+                dry_run=dry_run,
+                live=live,
+                execute=execute,
+                seen=seen,
+            )
+            if sig:
+                if len(wallets) > 1:
+                    tip = wallet[:8]
+                    if tip not in (sig.reason or ""):
+                        sig.reason = f"{sig.reason} [{tip}]"
+                signals.append(sig)
+            last_leader_ts = max(last_leader_ts, t.timestamp)
+
+    if considered or state.get("scale") is not None:
         state["last_leader_ts"] = last_leader_ts
         state["seen"] = list(seen)
         save_state(engine, state)
-    return len(pending), signals
+    return considered, signals

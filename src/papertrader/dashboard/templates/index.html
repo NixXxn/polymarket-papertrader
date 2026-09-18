@@ -48,7 +48,6 @@
     .strategy-esports { color:#34d399; }
     .strategy-fadefinder { color:#f97316; }
     .strategy-momentum { color:#fbbf24; }
-    .strategy-meanrev { color:#38bdf8; }
     .strategy-volspike { color:#fb923c; }
     .strategy-conviction { color:#e879f9; }
     .strategy-arbitrage { color:#4ade80; }
@@ -79,7 +78,7 @@
   <div class="top">
     <div>
       <h1>Papertrader Dashboard</h1>
-      <div class="sub" id="meta">Asymmetric · Contrarian · Conviction · Arbitrage · Weatherlock · Endgame · Copy · Esports · Momentum · Meanrev · Volspike</div>
+      <div class="sub" id="meta">Asymmetric · Contrarian · Conviction · Arbitrage · Weatherlock · Endgame · Copy · Esports · Momentum · Volspike</div>
     </div>
     <div class="actions">
       <select id="modeSelect" title="Paper vs Live ledger">
@@ -95,10 +94,9 @@
         <option value="arbitrage">Arbitrage</option>
         <option value="weatherlock">Weatherlock</option>
         <option value="endgame">Endgame</option>
-        <option value="copy">Copy (legacy)</option>
+        <option value="copy">Copy</option>
         <option value="esports">Esports</option>
         <option value="momentum">Momentum</option>
-        <option value="meanrev">Meanrev</option>
         <option value="volspike">Volspike</option>
       </select>
       <label class="muted" for="budgetInput" style="font-size:12px">Budget $</label>
@@ -120,9 +118,21 @@
 
   <div class="section grid grid-4" id="strategyCards"></div>
 
-  <div class="section card" id="copySection" hidden>
-    <h2>Copy Trader (Legacy)</h2>
+  <div class="section card" id="copySection">
+    <h2>Copy Trader</h2>
     <div class="pill-row" id="copyPills"></div>
+    <div style="margin-top:12px">
+      <div class="mini" style="margin-bottom:6px">Leader-Wallets (Settings + Dashboard)</div>
+      <div id="copyWalletList" class="pill-row"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;align-items:center">
+        <input id="copyWalletInput" type="text" placeholder="0x… wallet address"
+          style="flex:1;min-width:220px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:transparent;color:inherit" />
+        <input id="copyWalletLabel" type="text" placeholder="label (optional)"
+          style="width:140px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:transparent;color:inherit" />
+        <button id="copyWalletAddBtn" type="button">Add wallet</button>
+      </div>
+      <div class="mini" style="margin-top:6px">Runs as a separate process: <code>papertrader run --strategy copy</code>. New wallets are picked up on the next poll.</div>
+    </div>
   </div>
 
   <div class="section card" id="phSection" hidden>
@@ -353,18 +363,74 @@
 
   function renderCopy(copy) {
     const sec = document.getElementById('copySection');
-    if (!copy.active && !copy.seen_trades) { sec.hidden = true; return; }
     sec.hidden = false;
     const lat = copy.latency || {};
     const latPill = lat.count
       ? `<span class="pill">Ø Latenz ${ms(lat.avg_ms)} (p50 ${ms(lat.p50_ms)}, p95 ${ms(lat.p95_ms)})</span>`
       : '';
     document.getElementById('copyPills').innerHTML = `
+      <span class="pill">${copy.active ? 'engine aktiv' : 'engine idle'}</span>
       <span class="pill">@${esc(copy.username || '–')}</span>
-      <span class="pill">${esc(copy.wallet || 'kein Wallet')}</span>
-      <span class="pill">${copy.seen_trades} gesehene Leader-Trades</span>
+      <span class="pill">${copy.seen_trades || 0} gesehene Leader-Trades</span>
       <span class="pill">Scale ${copy.scale != null ? Number(copy.scale).toFixed(4) : '–'}</span>
       ${latPill}`;
+    const wallets = copy.wallets || [];
+    const list = document.getElementById('copyWalletList');
+    if (!wallets.length) {
+      list.innerHTML = `<span class="pill muted">keine Wallets</span>`;
+    } else {
+      list.innerHTML = wallets.map(w => {
+        const short = (w.address || '').slice(0, 6) + '…' + (w.address || '').slice(-4);
+        const label = w.label ? ` ${esc(w.label)}` : '';
+        const src = w.source === 'settings' ? 'settings' : 'dashboard';
+        const canRemove = w.source === 'dashboard';
+        return `<span class="pill" title="${esc(w.address)}">${esc(short)}${label}
+          <span class="muted">· ${esc(src)}</span>
+          ${canRemove ? `<button type="button" data-wallet="${esc(w.address)}" class="copy-wallet-remove" style="margin-left:6px">×</button>` : ''}
+        </span>`;
+      }).join('');
+      list.querySelectorAll('.copy-wallet-remove').forEach(btn => {
+        btn.addEventListener('click', () => removeCopyWallet(btn.dataset.wallet));
+      });
+    }
+  }
+
+  async function addCopyWallet() {
+    const address = document.getElementById('copyWalletInput').value.trim();
+    const label = document.getElementById('copyWalletLabel').value.trim();
+    if (!address) { alert('Wallet address required'); return; }
+    const btn = document.getElementById('copyWalletAddBtn');
+    btn.disabled = true;
+    try {
+      const r = await fetch('/api/copy/wallets', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({address, label}),
+      });
+      await readJsonOrThrow(r);
+      document.getElementById('copyWalletInput').value = '';
+      document.getElementById('copyWalletLabel').value = '';
+      await load();
+    } catch (e) {
+      alert(`Fehler: ${e.message}`);
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  async function removeCopyWallet(address) {
+    if (!address) return;
+    try {
+      const r = await fetch('/api/copy/wallets', {
+        method: 'DELETE',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({address}),
+      });
+      await readJsonOrThrow(r);
+      await load();
+    } catch (e) {
+      alert(`Fehler: ${e.message}`);
+    }
   }
 
   function renderPredictionHunt(ph) {
@@ -638,6 +704,10 @@
     renderActivity(allActivity, window._liveSync || {}, window._mode || 'paper');
   });
   document.getElementById('refresh').addEventListener('click', load);
+  document.getElementById('copyWalletAddBtn').addEventListener('click', addCopyWallet);
+  document.getElementById('copyWalletInput').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') addCopyWallet();
+  });
   document.getElementById('modeSelect').addEventListener('change', (e) => {
     dashMode = e.target.value === 'live' ? 'live' : 'paper';
     localStorage.setItem('pmDashMode', dashMode);

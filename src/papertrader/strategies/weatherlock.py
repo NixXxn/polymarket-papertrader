@@ -10,7 +10,7 @@ from pm_trader.models import Position
 
 from papertrader.config import City, Settings
 from papertrader.decision_log import log_decision
-from papertrader.markets import BucketMarket, best_ask, city_local_today
+from papertrader.markets import BucketMarket, best_ask, best_bid, city_local_today
 from papertrader.signals import Signal
 from papertrader.weatherlock_state import WeatherlockExitStore
 
@@ -129,11 +129,17 @@ def analyze_weatherlock_event(
             continue
 
         amount = min(cfg.position_usd, cfg.max_position_usd, cash)
+        # Size down near the top of the band — less edge to sell_limit, same wipe risk.
+        band = max(1e-6, float(cfg.buy_max) - float(cfg.buy_min))
+        edge_frac = max(0.0, min(1.0, (float(cfg.buy_max) - float(ask)) / band))
+        amount = round(amount * (0.55 + 0.45 * edge_frac), 2)
         if amount < settings.min_position_usd:
             continue
 
         limit_px = min(float(ask), float(cfg.buy_max))
         tp_px = _take_profit_price(limit_px, cfg.take_profit_offset, cfg.sell_limit)
+        if tp_px <= limit_px + 1e-12:
+            continue
         fill_now = bool(
             paper_mode
             and cfg.paper_fill_at_limit
@@ -189,7 +195,7 @@ def weatherlock_exits(
     *,
     exit_store: WeatherlockExitStore | None = None,
 ) -> list[Signal]:
-    """Immediately after a fill, rest a sell limit at entry+offset (capped)."""
+    """Rest TP after fill; FAK-stop if bid collapses before resolution wipe."""
     cfg = settings.weatherlock
     store = exit_store or WeatherlockExitStore(engine.db.data_dir)
     store.prune_closed(open_positions)
@@ -198,6 +204,49 @@ def weatherlock_exits(
     for pos in open_positions:
         if pos.shares <= 0 or pos.is_resolved:
             continue
+
+        if cfg.stop_bid is not None:
+            try:
+                market = engine.api.get_market(pos.market_slug)
+                token = market.get_token_id(pos.outcome)
+                book = engine.api.get_order_book(token)
+                bid, _ = best_bid(book)
+            except Exception:
+                bid = None
+            if bid is not None and float(bid) <= float(cfg.stop_bid):
+                exit_px = max(round(float(bid) - 0.01, 2), 0.01)
+                reason = (
+                    f"weatherlock SL bid={bid:.3f} <= {cfg.stop_bid:.3f} "
+                    f"exit@{exit_px:.3f} (entry={pos.avg_entry_price:.3f})"
+                )
+                store.clear(pos.market_condition_id, pos.outcome)
+                _log_weatherlock(
+                    engine,
+                    decision="sell",
+                    reason=reason,
+                    slug=pos.market_slug,
+                    outcome=pos.outcome,
+                    action="sell",
+                    shares=pos.shares,
+                    bid=bid,
+                    stop_bid=cfg.stop_bid,
+                    entry=pos.avg_entry_price,
+                )
+                signals.append(
+                    Signal(
+                        action="sell",
+                        slug=pos.market_slug,
+                        outcome=pos.outcome,
+                        shares=pos.shares,
+                        reason=reason,
+                        order_type="fak",
+                        limit_price=None,
+                        market_condition_id=pos.market_condition_id,
+                        event_slug=pos.market_slug,
+                    )
+                )
+                continue
+
         if store.take_profit_placed(pos.market_condition_id, pos.outcome):
             continue
 

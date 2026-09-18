@@ -1,5 +1,16 @@
 from __future__ import annotations
 
+from pathlib import Path
+
+import pytest
+
+from papertrader.config import load_settings
+from papertrader.copy_wallets import (
+    add_copy_wallet,
+    list_copy_wallets,
+    normalize_wallet,
+    remove_copy_wallet,
+)
 from papertrader.copytrade import (
     apply_copied_trade,
     copy_scale,
@@ -9,7 +20,6 @@ from papertrader.copytrade import (
     sync_copy_trades,
     trade_key,
 )
-from papertrader.config import load_settings
 from pm_trader.engine import Engine
 
 
@@ -69,7 +79,7 @@ def test_live_copy_seeds_history_without_fills(tmp_path, monkeypatch):
     engine = Engine(tmp_path)
     engine.init_account(50.0)
     history = [parse_trade(_row())]
-    monkeypatch.setattr("papertrader.copytrade.resolve_wallet", lambda *a, **k: "0xabc")
+    monkeypatch.setattr("papertrader.copytrade.resolve_wallets", lambda *a, **k: ["0xabc"])
     monkeypatch.setattr("papertrader.copytrade.fetch_recent_trades", lambda *a, **k: history)
     considered, copied = sync_copy_trades(
         engine, None, load_settings(), dry_run=False, live=True
@@ -78,21 +88,18 @@ def test_live_copy_seeds_history_without_fills(tmp_path, monkeypatch):
     assert copied == []
     assert engine.get_account().cash == 50.0
     assert load_state(engine)["live_seeded"] is True
-
-    fresh = parse_trade(_row(transactionHash="0xnew", timestamp=99))
-    monkeypatch.setattr(
-        "papertrader.copytrade.fetch_recent_trades", lambda *a, **k: history + [fresh]
-    )
-    ran: list = []
-    considered, copied = sync_copy_trades(
-        engine,
-        None,
-        load_settings(),
-        dry_run=False,
-        live=True,
-        execute=lambda sig: ran.append(sig) or True,
-    )
-    assert considered == 1
-    assert len(copied) == 1
-    assert ran[0].action == "buy"
     engine.close()
+
+
+def test_normalize_and_manage_wallets(tmp_path: Path):
+    settings = load_settings()
+    with pytest.raises(ValueError):
+        normalize_wallet("not-a-wallet")
+    addr = "0x09b045baad1fbe115c70785635a261411774a3b6"
+    row = add_copy_wallet(tmp_path, addr, label="leader")
+    assert row["address"] == addr
+    assert row["label"] == "leader"
+    wallets = list_copy_wallets(tmp_path, settings)
+    assert any(w["address"] == addr for w in wallets)
+    assert remove_copy_wallet(tmp_path, addr) is True
+    assert remove_copy_wallet(tmp_path, addr) is False

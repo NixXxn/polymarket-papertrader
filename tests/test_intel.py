@@ -76,7 +76,7 @@ def test_macro_verdict_mapping():
     assert _macro_verdict(20, True) == "RISK_OFF"
 
 
-def test_gate_blocks_high_risk_meanrev(tmp_path: Path, monkeypatch):
+def test_gate_blocks_high_risk_volspike(tmp_path: Path, monkeypatch):
     settings = load_settings()
     cfg = replace(settings.intel, enabled=True, shadow_only=False, block_event_score=65)
     _patch_intel_snapshot(
@@ -92,7 +92,7 @@ def test_gate_blocks_high_risk_meanrev(tmp_path: Path, monkeypatch):
     )
 
     gate = evaluate_entry_gate(
-        strategy="meanrev",
+        strategy="volspike",
         slug="nato-x-russia-military-clash-by-december-31-2026",
         question="clash?",
         data_dir=tmp_path,
@@ -117,7 +117,7 @@ def test_gate_blocks_sports_under_score(tmp_path: Path, monkeypatch):
         ),
     )
     gate = evaluate_entry_gate(
-        strategy="meanrev",
+        strategy="volspike",
         slug="lal-bar-bil-2026-08-27-bar",
         question="Barcelona vs Bilbao",
         data_dir=tmp_path,
@@ -142,7 +142,7 @@ def test_gate_caution_blocks_election(tmp_path: Path, monkeypatch):
         ),
     )
     gate = evaluate_entry_gate(
-        strategy="meanrev",
+        strategy="volspike",
         slug="will-michael-birch-win-the-2026-greater-wellington-regional-council-by-election",
         data_dir=tmp_path,
         cfg=cfg,
@@ -171,7 +171,7 @@ def test_gate_caution_sizes_down_general(tmp_path: Path, monkeypatch):
         ),
     )
     gate = evaluate_entry_gate(
-        strategy="meanrev",
+        strategy="volspike",
         slug="will-some-generic-event-happen-in-2026",
         data_dir=tmp_path,
         cfg=cfg,
@@ -197,7 +197,7 @@ def test_gate_shadow_does_not_block(tmp_path: Path, monkeypatch):
     )
 
     gate = evaluate_entry_gate(
-        strategy="meanrev",
+        strategy="volspike",
         slug="nato-x-russia-military-clash",
         data_dir=tmp_path,
         cfg=cfg,
@@ -207,6 +207,7 @@ def test_gate_shadow_does_not_block(tmp_path: Path, monkeypatch):
 
 
 def test_btc_gate_sizes_down_on_death_cross(tmp_path: Path, monkeypatch):
+    """BTC death-cross sizing was btc5m-only; with that strategy gone, CAUTION still sizes down."""
     settings = load_settings()
     cfg = replace(
         settings.intel,
@@ -228,14 +229,14 @@ def test_btc_gate_sizes_down_on_death_cross(tmp_path: Path, monkeypatch):
     )
 
     gate = evaluate_entry_gate(
-        strategy="btc5m",
-        slug="btc-updown-5m",
+        strategy="volspike",
+        slug="some-clean-general-market",
         data_dir=tmp_path,
         cfg=cfg,
     )
     assert gate.allow is True
     assert gate.size_mult == 0.40
-    assert "death_cross_size_down" in gate.reason
+    assert "caution_size_down" in gate.reason
 
 
 def test_should_force_exit_toxic():
@@ -258,6 +259,6 @@ def test_event_risk_helper():
 def test_load_settings_includes_intel():
     s = load_settings()
     assert s.intel.enabled is True
-    assert "meanrev" in s.intel.strategies
+    assert "volspike" in s.intel.strategies
     assert s.intel.block_event_score <= 65
     assert s.intel.btc_min_fear_greed >= 45

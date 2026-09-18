@@ -12,6 +12,9 @@ from papertrader.dashboard.data import (
     reset_all_statistics,
     reset_strategy_budgets,
     set_strategy_budget,
+    list_dashboard_copy_wallets,
+    add_dashboard_copy_wallet,
+    remove_dashboard_copy_wallet,
 )
 from papertrader.mode import load_dotenv_file
 
@@ -141,6 +144,75 @@ def set_strategy_budget_api():
         )
         return jsonify(payload)
     except (TypeError, ValueError) as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/copy/wallets", methods=["GET"])
+@requires_auth
+def copy_wallets_list_api():
+    try:
+        mode = request.args.get("mode")
+        data_dir = request.args.get("data_dir")
+        from pathlib import Path as P
+
+        payload = list_dashboard_copy_wallets(
+            data_dir=P(data_dir) if data_dir else None,
+            mode=mode,
+        )
+        return jsonify(payload)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/copy/wallets", methods=["POST"])
+@requires_auth
+def copy_wallets_add_api():
+    try:
+        body = request.get_json(silent=True) or {}
+        address = str(body.get("address") or body.get("wallet") or "").strip()
+        label = str(body.get("label") or "").strip()
+        if not address:
+            return jsonify({"ok": False, "error": "address is required"}), 400
+        mode = request.args.get("mode") or body.get("mode")
+        data_dir = request.args.get("data_dir") or body.get("data_dir")
+        from pathlib import Path as P
+
+        payload = add_dashboard_copy_wallet(
+            address=address,
+            label=label,
+            data_dir=P(data_dir) if data_dir else None,
+            mode=mode,
+        )
+        return jsonify(payload)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@app.route("/api/copy/wallets", methods=["DELETE"])
+@requires_auth
+def copy_wallets_remove_api():
+    try:
+        body = request.get_json(silent=True) or {}
+        address = str(
+            body.get("address") or body.get("wallet") or request.args.get("address") or ""
+        ).strip()
+        if not address:
+            return jsonify({"ok": False, "error": "address is required"}), 400
+        mode = request.args.get("mode") or body.get("mode")
+        data_dir = request.args.get("data_dir") or body.get("data_dir")
+        from pathlib import Path as P
+
+        payload = remove_dashboard_copy_wallet(
+            address=address,
+            data_dir=P(data_dir) if data_dir else None,
+            mode=mode,
+        )
+        return jsonify(payload)
+    except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
