@@ -47,7 +47,6 @@ def test_scan_once_merges_esports_counts(monkeypatch):
     _, counts = scan_once(
         settings=settings,
         http=MagicMock(),
-        safe_engine=None,
         esports_engine=esports_engine,
         dry_run=True,
     )

@@ -1,4 +1,4 @@
-"""Endgame: buy sports/esports Yes/No favorites at 89–95¢ near expiry, TP +4¢."""
+"""Endgame: buy sports/esports Yes/No favorites ≥85¢ near expiry, TP @98¢."""
 
 from __future__ import annotations
 
@@ -190,11 +190,6 @@ def _is_yes_no_market(market: dict[str, Any]) -> bool:
     return False
 
 
-def _take_profit_price(entry: float, offset: float, *, cap: float = 0.99) -> float:
-    """Limit sell at entry+offset, never above cap."""
-    return round(min(float(entry) + float(offset), float(cap)), 4)
-
-
 def _fetch_markets_ending(
     engine: Engine,
     *,
@@ -349,6 +344,7 @@ def analyze_endgame(
             if cfg.yes_no_only and side.strip().lower() not in {"yes", "no"}:
                 rejects["not_yes_no"] += 1
                 continue
+            # Buy when favorite is ≥ price_min (85¢+) and still below sell_limit.
             in_band = bool(cfg.price_min <= mid <= cfg.price_max)
             sports_row = {
                 "slug": slug,
@@ -421,8 +417,12 @@ def analyze_endgame(
                 },
             )
             continue
-        # Never buy at/above 1.00; enforce the configured ask band.
-        if ask >= 1.0 - 1e-12 or not (cfg.price_min <= ask <= cfg.price_max):
+        # Never buy at/above sell_limit or parity; enforce ask in [price_min, price_max].
+        if (
+            ask >= float(cfg.sell_limit) - 1e-12
+            or ask >= 1.0 - 1e-12
+            or not (cfg.price_min <= ask <= cfg.price_max)
+        ):
             rejects["ask_out_of_band"] += 1
             near_misses.insert(
                 0,
@@ -458,12 +458,11 @@ def analyze_endgame(
             continue
 
         limit_px = min(float(ask), float(cfg.price_max))
-        tp_px = _take_profit_price(limit_px, cfg.take_profit_offset)
+        tp_px = float(cfg.sell_limit)
         fill_now = bool(paper_mode and cfg.paper_fill_at_limit)
         reason = (
             f"endgame {minutes_left:.1f}m yes/no @{limit_px:.2f} "
-            f"ask={ask:.2f} → TP@{tp_px:.2f} (+{cfg.take_profit_offset:.2f}) "
-            f"full_cap={cfg.use_full_capital}"
+            f"ask={ask:.2f} → TP@{tp_px:.2f} full_cap={cfg.use_full_capital}"
         )
         signals.append(
             Signal(
@@ -490,7 +489,7 @@ def analyze_endgame(
             ask=ask,
             limit_price=limit_px,
             take_profit_price=tp_px,
-            take_profit_offset=cfg.take_profit_offset,
+            sell_limit=cfg.sell_limit,
             cash=cash,
             use_full_capital=cfg.use_full_capital,
             paper_fill_at_limit=fill_now,
@@ -623,12 +622,12 @@ def endgame_exits(
         if store.take_profit_placed(pos.market_condition_id, pos.outcome):
             continue
 
-        tp = _take_profit_price(pos.avg_entry_price, cfg.take_profit_offset)
+        tp = float(cfg.sell_limit)
         if tp <= float(pos.avg_entry_price) + 1e-12:
             continue
         reason = (
             f"endgame TP limit @{tp:.2f} after entry@{pos.avg_entry_price:.3f} "
-            f"(+{cfg.take_profit_offset:.2f}, {pos.shares:.1f} sh)"
+            f"({pos.shares:.1f} sh)"
         )
         log_decision(
             engine.db.data_dir,

@@ -1,15 +1,13 @@
-# Resolution airports, not city-center centroids.
-# Polymarket daily highs typically resolve against these METAR stations.
 cities:
   miami:
     name: Miami
     slug: miami
     station: KMIA
     lat: 25.7959
-    lon: -80.2870
+    lon: -80.287
     tz: America/New_York
     country: US
-    strategies: [safe, obieweather]
+    strategies: []
     position_usd: 5
   atlanta:
     name: Atlanta
@@ -19,7 +17,7 @@ cities:
     lon: -84.4277
     tz: America/New_York
     country: US
-    strategies: [safe, obieweather]
+    strategies: []
     position_usd: 4
   dallas:
     name: Dallas
@@ -29,7 +27,8 @@ cities:
     lon: -96.8518
     tz: America/Chicago
     country: US
-    strategies: [safe, asymmetric, obieweather]
+    strategies:
+    - asymmetric
     position_usd: 2
   houston:
     name: Houston
@@ -39,7 +38,8 @@ cities:
     lon: -95.2789
     tz: America/Chicago
     country: US
-    strategies: [safe, asymmetric]
+    strategies:
+    - asymmetric
     position_usd: 2
   austin:
     name: Austin
@@ -49,17 +49,19 @@ cities:
     lon: -97.6699
     tz: America/Chicago
     country: US
-    strategies: [safe, asymmetric]
+    strategies:
+    - asymmetric
     position_usd: 2
   nyc:
     name: New York City
     slug: nyc
     station: KLGA
     lat: 40.7769
-    lon: -73.8740
+    lon: -73.874
     tz: America/New_York
     country: US
-    strategies: [safe, asymmetric]
+    strategies:
+    - asymmetric
     position_usd: 2
   chicago:
     name: Chicago
@@ -69,7 +71,8 @@ cities:
     lon: -87.9073
     tz: America/Chicago
     country: US
-    strategies: [safe, asymmetric]
+    strategies:
+    - asymmetric
     position_usd: 2
   los-angeles:
     name: Los Angeles
@@ -79,7 +82,8 @@ cities:
     lon: -118.4081
     tz: America/Los_Angeles
     country: US
-    strategies: [safe, asymmetric, obieweather]
+    strategies:
+    - asymmetric
     position_usd: 2
   denver:
     name: Denver
@@ -89,7 +93,8 @@ cities:
     lon: -104.6737
     tz: America/Denver
     country: US
-    strategies: [safe, asymmetric]
+    strategies:
+    - asymmetric
     position_usd: 2
   phoenix:
     name: Phoenix
@@ -99,17 +104,19 @@ cities:
     lon: -112.0116
     tz: America/Phoenix
     country: US
-    strategies: [safe, asymmetric]
+    strategies:
+    - asymmetric
     position_usd: 2
   london:
     name: London
     slug: london
     station: EGLL
-    lat: 51.4700
+    lat: 51.47
     lon: -0.4543
     tz: Europe/London
     country: GB
-    strategies: [asymmetric]
+    strategies:
+    - asymmetric
     position_usd: 2
   wellington:
     name: Wellington
@@ -119,7 +126,8 @@ cities:
     lon: 174.8053
     tz: Pacific/Auckland
     country: NZ
-    strategies: [asymmetric]
+    strategies:
+    - asymmetric
     position_usd: 2
   cape-town:
     name: Cape Town
@@ -129,7 +137,8 @@ cities:
     lon: 18.6017
     tz: Africa/Johannesburg
     country: ZA
-    strategies: [asymmetric, obieweather]
+    strategies:
+    - asymmetric
     position_usd: 2
   munich:
     name: Munich
@@ -139,7 +148,8 @@ cities:
     lon: 11.7861
     tz: Europe/Berlin
     country: DE
-    strategies: [asymmetric]
+    strategies:
+    - asymmetric
     position_usd: 2
   guangzhou:
     name: Guangzhou
@@ -149,7 +159,8 @@ cities:
     lon: 113.2988
     tz: Asia/Shanghai
     country: CN
-    strategies: [asymmetric]
+    strategies:
+    - asymmetric
     position_usd: 2
   warsaw:
     name: Warsaw
@@ -159,7 +170,8 @@ cities:
     lon: 20.9671
     tz: Europe/Warsaw
     country: PL
-    strategies: [asymmetric]
+    strategies:
+    - asymmetric
     position_usd: 2
   karachi:
     name: Karachi
@@ -169,7 +181,8 @@ cities:
     lon: 67.1608
     tz: Asia/Karachi
     country: PK
-    strategies: [asymmetric]
+    strategies:
+    - asymmetric
     position_usd: 2
   beijing:
     name: Beijing
@@ -179,7 +192,8 @@ cities:
     lon: 116.6031
     tz: Asia/Shanghai
     country: CN
-    strategies: [asymmetric]
+    strategies:
+    - asymmetric
     position_usd: 2
   wuhan:
     name: Wuhan
@@ -189,7 +203,8 @@ cities:
     lon: 114.2081
     tz: Asia/Shanghai
     country: CN
-    strategies: [asymmetric]
+    strategies:
+    - asymmetric
     position_usd: 2
   seoul:
     name: Seoul
@@ -199,7 +214,8 @@ cities:
     lon: 126.4407
     tz: Asia/Seoul
     country: KR
-    strategies: [asymmetric]
+    strategies:
+    - asymmetric
     position_usd: 2
   shanghai:
     name: Shanghai
@@ -209,7 +225,8 @@ cities:
     lon: 121.3363
     tz: Asia/Shanghai
     country: CN
-    strategies: [asymmetric]
+    strategies:
+    - asymmetric
     position_usd: 2
   tokyo:
     name: Tokyo
@@ -219,7 +236,8 @@ cities:
     lon: 139.7798
     tz: Asia/Tokyo
     country: JP
-    strategies: [asymmetric]
+    strategies:
+    - asymmetric
     position_usd: 2
   busan:
     name: Busan
@@ -229,7 +247,8 @@ cities:
     lon: 128.9382
     tz: Asia/Seoul
     country: KR
-    strategies: [asymmetric]
+    strategies:
+    - asymmetric
     position_usd: 2
   chongqing:
     name: Chongqing
@@ -239,7 +258,8 @@ cities:
     lon: 106.6417
     tz: Asia/Shanghai
     country: CN
-    strategies: [asymmetric]
+    strategies:
+    - asymmetric
     position_usd: 2
   manila:
     name: Manila
@@ -249,7 +269,8 @@ cities:
     lon: 121.0198
     tz: Asia/Manila
     country: PH
-    strategies: [asymmetric]
+    strategies:
+    - asymmetric
     position_usd: 2
   vienna:
     name: Vienna
@@ -259,7 +280,8 @@ cities:
     lon: 16.5697
     tz: Europe/Vienna
     country: AT
-    strategies: [asymmetric]
+    strategies:
+    - asymmetric
     position_usd: 2
   san-diego:
     name: San Diego
@@ -269,7 +291,7 @@ cities:
     lon: -117.1933
     tz: America/Los_Angeles
     country: US
-    strategies: [obieweather]
+    strategies: []
     position_usd: 2
   honolulu:
     name: Honolulu
@@ -279,7 +301,7 @@ cities:
     lon: -157.9225
     tz: Pacific/Honolulu
     country: US
-    strategies: [obieweather]
+    strategies: []
     position_usd: 2
   charleston:
     name: Charleston
@@ -289,7 +311,7 @@ cities:
     lon: -80.0405
     tz: America/New_York
     country: US
-    strategies: [obieweather]
+    strategies: []
     position_usd: 2
   tampa:
     name: Tampa
@@ -299,7 +321,7 @@ cities:
     lon: -82.5332
     tz: America/New_York
     country: US
-    strategies: [obieweather]
+    strategies: []
     position_usd: 2
   las-palmas:
     name: Las Palmas
@@ -309,7 +331,7 @@ cities:
     lon: -15.3866
     tz: Atlantic/Canary
     country: ES
-    strategies: [obieweather]
+    strategies: []
     position_usd: 2
   santa-cruz-de-tenerife:
     name: Santa Cruz de Tenerife
@@ -319,7 +341,7 @@ cities:
     lon: -16.3415
     tz: Atlantic/Canary
     country: ES
-    strategies: [obieweather]
+    strategies: []
     position_usd: 2
   medellin:
     name: Medellín
@@ -329,7 +351,7 @@ cities:
     lon: -75.4231
     tz: America/Bogota
     country: CO
-    strategies: [obieweather]
+    strategies: []
     position_usd: 2
   kunming:
     name: Kunming
@@ -339,7 +361,7 @@ cities:
     lon: 102.9292
     tz: Asia/Shanghai
     country: CN
-    strategies: [obieweather]
+    strategies: []
     position_usd: 2
   sydney:
     name: Sydney
@@ -349,7 +371,7 @@ cities:
     lon: 151.1772
     tz: Australia/Sydney
     country: AU
-    strategies: [obieweather]
+    strategies: []
     position_usd: 2
   buenos-aires:
     name: Buenos Aires
@@ -359,7 +381,7 @@ cities:
     lon: -58.5358
     tz: America/Argentina/Buenos_Aires
     country: AR
-    strategies: [obieweather]
+    strategies: []
     position_usd: 2
   vina-del-mar:
     name: Viña del Mar
@@ -369,7 +391,7 @@ cities:
     lon: -71.5575
     tz: America/Santiago
     country: CL
-    strategies: [obieweather]
+    strategies: []
     position_usd: 2
   florianopolis:
     name: Florianópolis
@@ -379,7 +401,7 @@ cities:
     lon: -48.5477
     tz: America/Sao_Paulo
     country: BR
-    strategies: [obieweather]
+    strategies: []
     position_usd: 2
   nice:
     name: Nice
@@ -389,7 +411,7 @@ cities:
     lon: 7.2159
     tz: Europe/Paris
     country: FR
-    strategies: [obieweather]
+    strategies: []
     position_usd: 2
   nairobi:
     name: Nairobi
@@ -399,7 +421,7 @@ cities:
     lon: 36.9278
     tz: Africa/Nairobi
     country: KE
-    strategies: [obieweather]
+    strategies: []
     position_usd: 2
   arequipa:
     name: Arequipa
@@ -409,5 +431,5 @@ cities:
     lon: -71.5831
     tz: America/Lima
     country: PE
-    strategies: [obieweather]
+    strategies: []
     position_usd: 2

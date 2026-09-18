@@ -31,13 +31,10 @@ from papertrader.trade_log import (
 )
 
 
-STRATEGIES = ("safe", "asymmetric", "contrarian", "conviction", "obieweather", "copy", "esports", "momentum", "meanrev", "volspike", "closingsoon", "btc5m", "arbitrage", "penny", "weatherlock", "endgame")
+STRATEGIES = ("asymmetric", "contrarian", "conviction", "copy", "esports", "momentum", "meanrev", "volspike", "arbitrage", "weatherlock", "endgame")
 
 STRATEGY_LABELS: dict[str, str] = {
-    "obieweather": "ObieWeather",
     "arbitrage": "Arbitrage",
-    "btc5m": "BTC 5m",
-    "penny": "Penny",
     "weatherlock": "Weatherlock",
     "endgame": "Endgame",
 }
@@ -122,10 +119,9 @@ def set_strategy_budget(
     if balance <= 0:
         raise ValueError("balance must be positive")
     settings, resolved = _resolve_dashboard(data_dir, mode)
-    if strategy == "safe":
-        settings_balance = float(getattr(settings.safe, "starting_balance", 0) or settings.starting_balance)
-    else:
-        settings_balance = settings.starting_balance
+    block = getattr(settings, strategy, None)
+    sb = getattr(block, "starting_balance", None) if block is not None else None
+    settings_balance = float(sb) if sb else settings.starting_balance
     # Always reset the selected strategy ledger to make the new budget effective immediately.
     engine = make_engine(strategy, resolved.data_dir, balance, reset=True)
     try:
@@ -189,12 +185,9 @@ def open_engines(data_dir: Path, settings: Any) -> list[tuple[str, Engine]]:
     """Open every configured strategy ledger (creates paper account on first view)."""
     pairs: list[tuple[str, Engine]] = []
     for name in STRATEGIES:
-        if name == "safe":
-            balance = float(getattr(settings.safe, "starting_balance", 0) or settings.starting_balance)
-        else:
-            block = getattr(settings, name, None)
-            sb = getattr(block, "starting_balance", None) if block is not None else None
-            balance = float(sb) if sb else settings.starting_balance
+        block = getattr(settings, name, None)
+        sb = getattr(block, "starting_balance", None) if block is not None else None
+        balance = float(sb) if sb else settings.starting_balance
         pairs.append((name, make_engine(name, data_dir, balance)))
     return pairs
 

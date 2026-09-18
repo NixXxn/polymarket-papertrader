@@ -24,20 +24,6 @@ class City:
 
 
 @dataclass(frozen=True)
-class SafeSettings:
-    cities: tuple[str, ...]
-    min_ask: float
-    max_ask: float
-    max_open_positions: int
-    min_sell_bid: float
-    starting_balance: float | None
-    min_edge: float
-    min_edge_high: float
-    min_edge_low: float
-    position_usd: dict[str, float]
-
-
-@dataclass(frozen=True)
 class EdgeSettings:
     min_ask: float
     max_ask: float
@@ -153,33 +139,6 @@ class ContrarianSettings:
 
 
 @dataclass(frozen=True)
-class ObieWeatherSettings:
-    """Ladder: 3–4 cheap YES legs across forecast range; one win covers losses."""
-
-    min_yes_ask: float
-    max_yes_ask: float
-    min_yes_bets_per_event: int
-    max_yes_bets_per_event: int
-    max_event_usd: float
-    target_event_usd: float
-    max_ladder_price_sum: float
-    max_event_fraction: float
-    min_model_prob: float
-    min_ensemble_prob_sum: float
-    maker_tick: float
-    strict_limit: bool
-    paper_fak_at_ask: bool
-    min_event_volume: float
-    min_ensemble_members: int
-    max_open_positions: int
-    max_open_per_event: int
-    min_days_ahead: int
-    max_days_ahead: int
-    starting_balance: float | None
-    cities: tuple[str, ...]
-
-
-@dataclass(frozen=True)
 class EsportsSettings:
     horizon_hours: float
     poll_interval_seconds: int
@@ -255,40 +214,6 @@ class VolumeSpikeSettings:
 
 
 @dataclass(frozen=True)
-class ClosingSoonSettings:
-    min_liquidity: float
-    min_hours: float
-    max_hours: float
-    price_min: float
-    price_max: float
-    min_direction: float
-    min_edge: float
-    min_confidence: float
-    kelly_fraction: float
-    max_position_usd: float
-    max_open_positions: int
-    position_usd: float
-    stop_loss_pct: float
-    weather_only: bool
-
-
-@dataclass(frozen=True)
-class Btc5mSettings:
-    min_confirm_bps: float
-    min_entry_seconds_left: float
-    max_entry_seconds_left: float
-    min_ask: float
-    max_ask: float
-    min_edge: float
-    min_liquidity: float
-    look_ahead_windows: int
-    position_usd: float
-    max_position_usd: float
-    max_open_positions: int
-    stop_loss_pct: float
-
-
-@dataclass(frozen=True)
 class ArbitrageSettings:
     """Two-leg spread capture: buy both sides when combined cost < $1."""
 
@@ -323,26 +248,6 @@ class ArbitrageSettings:
 
 
 @dataclass(frozen=True)
-class PennySettings:
-    """Bid 1¢ on near-term weather YES; rest a 3¢ sell immediately after fill."""
-
-    buy_limit: float
-    sell_limit: float
-    max_ask_to_bid: float
-    min_ask_size: float
-    min_event_volume: float
-    min_days_ahead: int
-    max_days_ahead: int
-    position_usd: float
-    max_position_usd: float
-    max_open_positions: int
-    max_open_per_event: int
-    paper_fill_at_limit: bool
-    starting_balance: float | None
-    cities: tuple[str, ...]
-
-
-@dataclass(frozen=True)
 class WeatherlockSettings:
     """Buy weather NO with enough edge that ~90% WR can still be +EV."""
 
@@ -366,7 +271,7 @@ class WeatherlockSettings:
 
 @dataclass(frozen=True)
 class EndgameSettings:
-    """Sports Yes/No near-expiry: buy 89–95¢, rest TP at entry+offset."""
+    """Sports Yes/No near-expiry: buy ≥85¢ in last minutes, rest TP @98¢."""
 
     min_minutes: float
     max_minutes: float
@@ -379,7 +284,7 @@ class EndgameSettings:
     position_usd: float
     max_position_usd: float
     max_open_positions: int
-    take_profit_offset: float
+    sell_limit: float
     stop_bid: float
     paper_fill_at_limit: bool
     poll_interval_seconds: int
@@ -497,19 +402,14 @@ class Settings:
     adaptive_sizing: AdaptiveSizingSettings
     predictionhunt: PredictionHuntSettings
     fadefinder: FadeFinderSettings
-    safe: SafeSettings
     asymmetric: AsymmetricSettings
     contrarian: ContrarianSettings
     conviction: ContrarianSettings
-    obieweather: ObieWeatherSettings
     esports: EsportsSettings
     momentum: MomentumSettings
     meanrev: MeanReversionSettings
     volspike: VolumeSpikeSettings
-    closingsoon: ClosingSoonSettings
-    btc5m: Btc5mSettings
     arbitrage: ArbitrageSettings
-    penny: PennySettings
     weatherlock: WeatherlockSettings
     endgame: EndgameSettings
     edge: EdgeSettings
@@ -632,12 +532,10 @@ def load_settings(
         )
     from papertrader.mode import PAPER, normalize_mode
 
-    safe_raw = raw["safe"]
     asymmetric_raw = raw["asymmetric"]
     edge_raw = raw.get("edge") or {}
     contrarian_raw = raw.get("contrarian") or {}
     conviction_raw = raw.get("conviction") or {}
-    obieweather_raw = raw.get("obieweather") or {}
     esports_raw = raw.get("esports") or {}
     fadefinder_raw = raw.get("fadefinder") or {}
     oddspapi_raw = esports_raw.get("oddspapi") or {}
@@ -645,10 +543,7 @@ def load_settings(
     copy_raw = raw.get("copy") or {}
     meanrev_raw = raw.get("meanrev") or {}
     volspike_raw = raw.get("volspike") or {}
-    closingsoon_raw = raw.get("closingsoon") or {}
-    btc5m_raw = raw.get("btc5m") or {}
     arbitrage_raw = raw.get("arbitrage") or {}
-    penny_raw = raw.get("penny") or {}
     weatherlock_raw = raw.get("weatherlock") or {}
     endgame_raw = raw.get("endgame") or {}
     live_raw = raw.get("live") or {}
@@ -682,10 +577,7 @@ def load_settings(
             block_event_score=int(intel_raw.get("block_event_score", 65)),
             caution_size_mult=float(intel_raw.get("caution_size_mult", 0.40)),
             btc_min_fear_greed=int(intel_raw.get("btc_min_fear_greed", 45)),
-            strategies=tuple(
-                intel_raw.get("strategies")
-                or ("meanrev", "volspike", "closingsoon", "btc5m")
-            ),
+            strategies=tuple(intel_raw.get("strategies") or ("meanrev", "volspike")),
         ),
         adaptive_sizing=AdaptiveSizingSettings(
             enabled=bool(adaptive_raw.get("enabled", True)),
@@ -728,22 +620,6 @@ def load_settings(
                 predictionhunt_raw.get("strategies")
                 or ("contrarian", "conviction", "fadefinder", "arbitrage")
             ),
-        ),
-        safe=SafeSettings(
-            cities=tuple(safe_raw["cities"]),
-            min_ask=float(safe_raw.get("min_ask", 0.0)),
-            max_ask=float(safe_raw["max_ask"]),
-            max_open_positions=int(safe_raw["max_open_positions"]),
-            min_sell_bid=float(safe_raw["min_sell_bid"]),
-            starting_balance=(
-                float(safe_raw["starting_balance"])
-                if safe_raw.get("starting_balance") is not None
-                else None
-            ),
-            min_edge=float(safe_raw["min_edge"]),
-            min_edge_high=float(safe_raw["min_edge_high"]),
-            min_edge_low=float(safe_raw["min_edge_low"]),
-            position_usd={k: float(v) for k, v in safe_raw["position_usd"].items()},
         ),
         asymmetric=AsymmetricSettings(
             min_ask=float(asymmetric_raw["min_ask"]),
@@ -800,62 +676,6 @@ def load_settings(
                 "min_ensemble_members": 10,
                 "max_open_per_city": 1,
             },
-        ),
-        obieweather=ObieWeatherSettings(
-            min_yes_ask=float(obieweather_raw.get("min_yes_ask", 0.03)),
-            max_yes_ask=float(obieweather_raw.get("max_yes_ask", 0.40)),
-            min_yes_bets_per_event=int(obieweather_raw.get("min_yes_bets_per_event", 3)),
-            max_yes_bets_per_event=int(obieweather_raw.get("max_yes_bets_per_event", 4)),
-            max_event_usd=float(obieweather_raw.get("max_event_usd", 4.0)),
-            target_event_usd=float(obieweather_raw.get("target_event_usd", 0.60)),
-            max_ladder_price_sum=float(
-                obieweather_raw.get("max_ladder_price_sum")
-                or obieweather_raw.get("target_event_usd", 0.60)
-            ),
-            max_event_fraction=float(obieweather_raw.get("max_event_fraction", 0.02)),
-            min_model_prob=float(obieweather_raw.get("min_model_prob", 0.05)),
-            min_ensemble_prob_sum=float(obieweather_raw.get("min_ensemble_prob_sum", 0.28)),
-            maker_tick=float(obieweather_raw.get("maker_tick", 0.01)),
-            strict_limit=bool(obieweather_raw.get("strict_limit", True)),
-            paper_fak_at_ask=bool(obieweather_raw.get("paper_fak_at_ask", False)),
-            min_event_volume=float(
-                obieweather_raw.get("min_event_volume", raw.get("min_event_volume", 150))
-            ),
-            min_ensemble_members=int(obieweather_raw.get("min_ensemble_members", 8)),
-            max_open_positions=int(obieweather_raw.get("max_open_positions", 40)),
-            max_open_per_event=int(obieweather_raw.get("max_open_per_event", 4)),
-            min_days_ahead=int(obieweather_raw.get("min_days_ahead", 0)),
-            max_days_ahead=int(obieweather_raw.get("max_days_ahead", 2)),
-            starting_balance=(
-                float(obieweather_raw["starting_balance"])
-                if obieweather_raw.get("starting_balance") is not None
-                else None
-            ),
-            cities=tuple(
-                obieweather_raw.get("cities")
-                or (
-                    "san-diego",
-                    "los-angeles",
-                    "honolulu",
-                    "miami",
-                    "atlanta",
-                    "dallas",
-                    "charleston",
-                    "tampa",
-                    "las-palmas",
-                    "santa-cruz-de-tenerife",
-                    "medellin",
-                    "kunming",
-                    "cape-town",
-                    "sydney",
-                    "buenos-aires",
-                    "vina-del-mar",
-                    "florianopolis",
-                    "nice",
-                    "nairobi",
-                    "arequipa",
-                )
-            ),
         ),
         esports=EsportsSettings(
             horizon_hours=float(esports_raw.get("horizon_hours", 6)),
@@ -1006,36 +826,6 @@ def load_settings(
             stop_loss_pct=float(volspike_raw.get("stop_loss_pct", 0.20)),
             take_profit_pct=float(volspike_raw.get("take_profit_pct", 0.15)),
         ),
-        closingsoon=ClosingSoonSettings(
-            min_liquidity=float(closingsoon_raw.get("min_liquidity", 5000)),
-            min_hours=float(closingsoon_raw.get("min_hours", 6)),
-            max_hours=float(closingsoon_raw.get("max_hours", 48)),
-            price_min=float(closingsoon_raw.get("price_min", 0.15)),
-            price_max=float(closingsoon_raw.get("price_max", 0.85)),
-            min_direction=float(closingsoon_raw.get("min_direction", 0.15)),
-            min_edge=float(closingsoon_raw.get("min_edge", 0.05)),
-            min_confidence=float(closingsoon_raw.get("min_confidence", 0.55)),
-            kelly_fraction=float(closingsoon_raw.get("kelly_fraction", 0.25)),
-            max_position_usd=float(closingsoon_raw.get("max_position_usd", 25)),
-            max_open_positions=int(closingsoon_raw.get("max_open_positions", 10)),
-            position_usd=float(closingsoon_raw.get("position_usd", 10)),
-            stop_loss_pct=float(closingsoon_raw.get("stop_loss_pct", 0.20)),
-            weather_only=bool(closingsoon_raw.get("weather_only", False)),
-        ),
-        btc5m=Btc5mSettings(
-            min_confirm_bps=float(btc5m_raw.get("min_confirm_bps", 8.0)),
-            min_entry_seconds_left=float(btc5m_raw.get("min_entry_seconds_left", 12.0)),
-            max_entry_seconds_left=float(btc5m_raw.get("max_entry_seconds_left", 120.0)),
-            min_ask=float(btc5m_raw.get("min_ask", 0.58)),
-            max_ask=float(btc5m_raw.get("max_ask", 0.92)),
-            min_edge=float(btc5m_raw.get("min_edge", 0.04)),
-            min_liquidity=float(btc5m_raw.get("min_liquidity", 500.0)),
-            look_ahead_windows=int(btc5m_raw.get("look_ahead_windows", 2)),
-            position_usd=float(btc5m_raw.get("position_usd", 25.0)),
-            max_position_usd=float(btc5m_raw.get("max_position_usd", 50.0)),
-            max_open_positions=int(btc5m_raw.get("max_open_positions", 2)),
-            stop_loss_pct=float(btc5m_raw.get("stop_loss_pct", 0.45)),
-        ),
         arbitrage=ArbitrageSettings(
             max_pair_cost=float(arbitrage_raw.get("max_pair_cost", 0.97)),
             max_maker_ask_sum=float(arbitrage_raw.get("max_maker_ask_sum", 1.04)),
@@ -1071,28 +861,6 @@ def load_settings(
             rebalance_fraction=float(arbitrage_raw.get("rebalance_fraction", 0.10)),
             rebalance_min_lead=float(arbitrage_raw.get("rebalance_min_lead", 0.55)),
         ),
-        penny=PennySettings(
-            buy_limit=float(penny_raw.get("buy_limit", 0.01)),
-            sell_limit=float(penny_raw.get("sell_limit", 0.03)),
-            max_ask_to_bid=float(penny_raw.get("max_ask_to_bid", 0.08)),
-            min_ask_size=float(penny_raw.get("min_ask_size", 1.0)),
-            min_event_volume=float(
-                penny_raw.get("min_event_volume", raw.get("min_event_volume", 100))
-            ),
-            min_days_ahead=int(penny_raw.get("min_days_ahead", 0)),
-            max_days_ahead=int(penny_raw.get("max_days_ahead", 2)),
-            position_usd=float(penny_raw.get("position_usd", 2.0)),
-            max_position_usd=float(penny_raw.get("max_position_usd", 5.0)),
-            max_open_positions=int(penny_raw.get("max_open_positions", 40)),
-            max_open_per_event=int(penny_raw.get("max_open_per_event", 6)),
-            paper_fill_at_limit=bool(penny_raw.get("paper_fill_at_limit", True)),
-            starting_balance=(
-                float(penny_raw["starting_balance"])
-                if penny_raw.get("starting_balance") is not None
-                else None
-            ),
-            cities=tuple(penny_raw.get("cities") or ()),
-        ),
         weatherlock=WeatherlockSettings(
             buy_min=float(weatherlock_raw.get("buy_min", 0.88)),
             buy_max=float(weatherlock_raw.get("buy_max", 0.92)),
@@ -1121,18 +889,18 @@ def load_settings(
         ),
         endgame=EndgameSettings(
             min_minutes=float(endgame_raw.get("min_minutes", 0.0)),
-            max_minutes=float(endgame_raw.get("max_minutes", 30.0)),
+            max_minutes=float(endgame_raw.get("max_minutes", 10.0)),
             look_ahead_minutes=float(endgame_raw.get("look_ahead_minutes", 360.0)),
-            price_min=float(endgame_raw.get("price_min", 0.89)),
-            price_max=float(endgame_raw.get("price_max", 0.95)),
+            price_min=float(endgame_raw.get("price_min", 0.85)),
+            price_max=float(endgame_raw.get("price_max", 0.97)),
             min_liquidity=float(endgame_raw.get("min_liquidity", 200.0)),
             min_ask_size=float(endgame_raw.get("min_ask_size", 5.0)),
             use_full_capital=bool(endgame_raw.get("use_full_capital", True)),
             position_usd=float(endgame_raw.get("position_usd", 500.0)),
             max_position_usd=float(endgame_raw.get("max_position_usd", 5000.0)),
             max_open_positions=int(endgame_raw.get("max_open_positions", 1)),
-            take_profit_offset=float(endgame_raw.get("take_profit_offset", 0.04)),
-            stop_bid=float(endgame_raw.get("stop_bid", 0.70)),
+            sell_limit=float(endgame_raw.get("sell_limit", 0.98)),
+            stop_bid=float(endgame_raw.get("stop_bid", 0.65)),
             paper_fill_at_limit=bool(endgame_raw.get("paper_fill_at_limit", True)),
             poll_interval_seconds=int(endgame_raw.get("poll_interval_seconds", 20)),
             starting_balance=(

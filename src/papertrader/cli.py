@@ -14,12 +14,10 @@ from papertrader.mode import ModeError, load_dotenv_file, resolve_mode
 
 log = logging.getLogger("papertrader")
 
-_STRATEGIES = ("safe", "asymmetric", "contrarian", "conviction", "obieweather", "both", "copy", "esports", "fadefinder", "momentum", "meanrev", "volspike", "closingsoon", "btc5m", "arbitrage", "penny", "weatherlock", "endgame")
+_STRATEGIES = ("asymmetric", "contrarian", "conviction", "both", "copy", "esports", "fadefinder", "momentum", "meanrev", "volspike", "arbitrage", "weatherlock", "endgame")
 
 
 def _strategy_balance(settings, name: str) -> float:
-    if name == "safe":
-        return float(settings.safe.starting_balance or settings.starting_balance)
     block = getattr(settings, name, None)
     if block is not None:
         sb = getattr(block, "starting_balance", None)
@@ -102,25 +100,17 @@ def _start(
         live = LiveTrader(get_shared_live_client(resolved))
     else:
         log.info("Paper/test mode. Simulator ledger: %s", resolved.data_dir)
-    safe_engine = None
     asymmetric_engine = None
     contrarian_engine = None
     conviction_engine = None
-    obieweather_engine = None
     copy_engine = None
     esports_engine = None
     momentum_engine = None
     meanrev_engine = None
     volspike_engine = None
-    closingsoon_engine = None
-    btc5m_engine = None
     arbitrage_engine = None
-    penny_engine = None
     weatherlock_engine = None
     endgame_engine = None
-    if strategy in ("safe", "both"):
-        safe_starting_balance = settings.safe.starting_balance or settings.starting_balance
-        safe_engine = make_engine("safe", resolved.data_dir, safe_starting_balance, reset=reset)
     if strategy in ("asymmetric", "both"):
         asymmetric_engine = make_engine(
             "asymmetric", resolved.data_dir, settings.starting_balance, reset=reset
@@ -137,13 +127,6 @@ def _start(
             "conviction",
             resolved.data_dir,
             _strategy_balance(settings, "conviction"),
-            reset=reset,
-        )
-    if strategy in ("obieweather", "both"):
-        obieweather_engine = make_engine(
-            "obieweather",
-            resolved.data_dir,
-            _strategy_balance(settings, "obieweather"),
             reset=reset,
         )
     if strategy in ("esports", "both"):
@@ -206,26 +189,11 @@ def _start(
         volspike_engine = make_engine(
             "volspike", resolved.data_dir, settings.starting_balance, reset=reset
         )
-    if strategy in ("closingsoon", "both"):
-        closingsoon_engine = make_engine(
-            "closingsoon", resolved.data_dir, settings.starting_balance, reset=reset
-        )
-    if strategy in ("btc5m", "both"):
-        btc5m_engine = make_engine(
-            "btc5m", resolved.data_dir, settings.starting_balance, reset=reset
-        )
     if strategy in ("arbitrage", "both"):
         arbitrage_engine = make_engine(
             "arbitrage",
             resolved.data_dir,
             _strategy_balance(settings, "arbitrage"),
-            reset=reset,
-        )
-    if strategy in ("penny", "both"):
-        penny_engine = make_engine(
-            "penny",
-            resolved.data_dir,
-            _strategy_balance(settings, "penny"),
             reset=reset,
         )
     if strategy in ("weatherlock", "both"):
@@ -256,20 +224,15 @@ def _start(
         return
     run_loop(
         settings=settings,
-        safe_engine=safe_engine,
         asymmetric_engine=asymmetric_engine,
         contrarian_engine=contrarian_engine,
         conviction_engine=conviction_engine,
-        obieweather_engine=obieweather_engine,
         copy_engine=copy_engine,
         esports_engine=esports_engine,
         momentum_engine=momentum_engine,
         meanrev_engine=meanrev_engine,
         volspike_engine=volspike_engine,
-        closingsoon_engine=closingsoon_engine,
-        btc5m_engine=btc5m_engine,
         arbitrage_engine=arbitrage_engine,
-        penny_engine=penny_engine,
         weatherlock_engine=weatherlock_engine,
         endgame_engine=endgame_engine,
         dry_run=dry_run,
@@ -284,7 +247,7 @@ def _start(
     "--strategy",
     type=click.Choice(_STRATEGIES),
     default="both",
-    help="both = safe + asymmetric + contrarian + conviction + obieweather + esports + momentum + meanrev + volspike + closingsoon + btc5m + arbitrage + penny + weatherlock + endgame.",
+    help="both = asymmetric + contrarian + conviction + esports + momentum + meanrev + volspike + arbitrage + weatherlock + endgame.",
 )
 @click.option("--dry-run", is_flag=True, help="Log would-be trades without filling.")
 @click.option("--once", is_flag=True, help="Run a single scan then exit.")
@@ -371,7 +334,7 @@ def status_cmd(cli_mode: str | None, data_dir: Path | None) -> None:
             click.echo("  CLOB balance: unavailable")
         else:
             click.echo(f"  CLOB balance: ${wallet_bal:.2f}")
-    for name in ("safe", "asymmetric", "contrarian", "conviction", "obieweather", "copy", "esports", "momentum", "meanrev", "volspike", "closingsoon", "btc5m", "arbitrage", "penny", "weatherlock", "endgame"):
+    for name in ("asymmetric", "contrarian", "conviction", "copy", "esports", "momentum", "meanrev", "volspike", "arbitrage", "weatherlock", "endgame"):
         engine = make_engine(name, resolved.data_dir, _strategy_balance(settings, name))
         try:
             if (
@@ -381,7 +344,7 @@ def status_cmd(cli_mode: str | None, data_dir: Path | None) -> None:
                 and name == "copy"
             ):
                 LiveTrader(live_client).sync_cash(engine)
-            elif name in ("safe", "asymmetric", "contrarian", "conviction", "obieweather", "esports", "momentum", "meanrev", "volspike", "closingsoon", "btc5m", "arbitrage", "penny", "weatherlock", "endgame"):
+            elif name in ("asymmetric", "contrarian", "conviction", "esports", "momentum", "meanrev", "volspike", "arbitrage", "weatherlock", "endgame"):
                 init_balance = _strategy_balance(settings, name)
                 acct = engine.get_account()
                 if acct.cash == 0 and acct.starting_balance == 0:

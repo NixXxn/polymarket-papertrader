@@ -38,7 +38,7 @@ def test_sell_realized_pnl():
 
 def test_skipped_and_copy_event_logging(tmp_path):
     sig = Signal(action="buy", slug="test-market", outcome="yes", amount_usd=5, reason="test")
-    append_skipped(tmp_path / "safe", strategy="safe", signal=sig, error="no liquidity")
+    append_skipped(tmp_path / "asymmetric", strategy="asymmetric", signal=sig, error="no liquidity")
     skipped = load_skipped_trades(tmp_path)
     assert len(skipped) == 1
     assert skipped[0]["error"] == "no liquidity"

@@ -28,7 +28,6 @@ from papertrader.penny_state import PennyExitStore
 from papertrader.endgame_state import EndgameExitStore
 from papertrader.weatherlock_state import WeatherlockExitStore
 from papertrader.strategies.esports import analyze_esports_candidate, esports_exits
-from papertrader.strategies.penny import analyze_penny_event, penny_exits
 from papertrader.strategies.weatherlock import analyze_weatherlock_event, weatherlock_exits
 from papertrader.strategies.momentum import (
     TokenWatch,
@@ -51,8 +50,6 @@ from papertrader.oddspapi import OddsPapiService, oddspapi_api_key
 from papertrader.strategies.asymmetric import analyze_asymmetric_event, asymmetric_exits
 from papertrader.strategies.contrarian import analyze_contrarian_event, contrarian_exits
 from papertrader.strategies.conviction import analyze_conviction_event, conviction_exits
-from papertrader.strategies.obieweather import analyze_obieweather_event, obieweather_exits
-from papertrader.strategies.safe import analyze_safe_event, safe_exits
 from papertrader.weather import WeatherHttp
 from papertrader.weather.ensemble import prefetch_combined_ensembles
 
@@ -632,20 +629,15 @@ def scan_once(
     *,
     settings: Settings,
     http: WeatherHttp,
-    safe_engine: Engine | None,
     asymmetric_engine: Engine | None = None,
     contrarian_engine: Engine | None = None,
     conviction_engine: Engine | None = None,
-    obieweather_engine: Engine | None = None,
     copy_engine: Engine | None = None,
     esports_engine: Engine | None = None,
     momentum_engine: Engine | None = None,
     meanrev_engine: Engine | None = None,
     volspike_engine: Engine | None = None,
-    closingsoon_engine: Engine | None = None,
-    btc5m_engine: Engine | None = None,
     arbitrage_engine: Engine | None = None,
-    penny_engine: Engine | None = None,
     weatherlock_engine: Engine | None = None,
     endgame_engine: Engine | None = None,
     dry_run: bool,
@@ -663,24 +655,18 @@ def scan_once(
         ctx.balance_checked = True
 
     live_engines: list[tuple[str, Engine]] = []
-    if safe_engine is not None:
-        live_engines.append(("safe", safe_engine))
     if asymmetric_engine is not None:
         live_engines.append(("asymmetric", asymmetric_engine))
     if contrarian_engine is not None:
         live_engines.append(("contrarian", contrarian_engine))
     if conviction_engine is not None:
         live_engines.append(("conviction", conviction_engine))
-    if obieweather_engine is not None:
-        live_engines.append(("obieweather", obieweather_engine))
     if copy_engine is not None:
         live_engines.append(("copy", copy_engine))
     if esports_engine is not None:
         live_engines.append(("esports", esports_engine))
     if momentum_engine is not None:
         live_engines.append(("momentum", momentum_engine))
-    if penny_engine is not None:
-        live_engines.append(("penny", penny_engine))
     if weatherlock_engine is not None:
         live_engines.append(("weatherlock", weatherlock_engine))
     if endgame_engine is not None:
@@ -691,20 +677,15 @@ def scan_once(
     purge_engines = [
         e
         for e in (
-            safe_engine,
             asymmetric_engine,
             contrarian_engine,
             conviction_engine,
-            obieweather_engine,
             copy_engine,
             esports_engine,
             momentum_engine,
             meanrev_engine,
             volspike_engine,
-            closingsoon_engine,
-            btc5m_engine,
             arbitrage_engine,
-            penny_engine,
             weatherlock_engine,
             endgame_engine,
         )
@@ -767,36 +748,6 @@ def scan_once(
                 reason=str(e),
                 strategy="endgame",
             )
-
-    if safe_engine:
-        if live is None:
-            counts.resolved += _resolve(safe_engine)
-        positions = safe_engine.db.get_open_positions()
-        for sig in safe_exits(safe_engine, http, settings, positions, settings.cities):
-            filled = execute_signal(safe_engine, sig, dry_run, live=live, ctx=ctx, strategy="safe")
-            emitted.append(sig)
-            if filled:
-                counts.orders_placed += 1
-                counts.fills += 1
-                counts.risk_exits += 1
-        cities = [settings.cities[s] for s in settings.safe.cities if s in settings.cities]
-        events = discover_events(safe_engine, cities, settings, now=now)
-        _log_missing_markets(
-            safe_engine, strategy="safe", cities=cities, events=events, settings=settings, now=now
-        )
-        positions = safe_engine.db.get_open_positions()
-        for _slug, event_date, city, buckets, _vol in events:
-            counts.candidates += len(buckets)
-            sig = analyze_safe_event(
-                safe_engine, http, city, event_date, buckets, settings, positions
-            )
-            if sig:
-                filled = execute_signal(safe_engine, sig, dry_run, live=live, ctx=ctx, strategy="safe")
-                emitted.append(sig)
-                if filled:
-                    counts.orders_placed += 1
-                    counts.fills += 1
-                    positions = safe_engine.db.get_open_positions()
 
     if asymmetric_engine:
         try:
@@ -980,81 +931,6 @@ def scan_once(
                     counts.fills += 1
                     positions = conviction_engine.db.get_open_positions()
 
-    if obieweather_engine:
-        try:
-            if live is None:
-                try:
-                    obieweather_engine.check_orders()
-                except Exception as e:
-                    log.debug("check_orders: %s", e)
-            if live is None:
-                counts.resolved += _resolve(obieweather_engine)
-            positions = obieweather_engine.db.get_open_positions()
-            for sig in obieweather_exits(
-                obieweather_engine, http, settings, positions, settings.cities
-            ):
-                filled = execute_signal(
-                    obieweather_engine, sig, dry_run, live=live, ctx=ctx, strategy="obieweather"
-                )
-                emitted.append(sig)
-                if filled:
-                    counts.orders_placed += 1
-                    counts.fills += 1
-                    counts.risk_exits += 1
-            cities = settings.cities_for("obieweather")
-            if settings.obieweather.cities:
-                cities = [
-                    settings.cities[s] for s in settings.obieweather.cities if s in settings.cities
-                ]
-            events = discover_events(obieweather_engine, cities, settings, now=now)
-            _log_missing_markets(
-                obieweather_engine,
-                strategy="obieweather",
-                cities=cities,
-                events=events,
-                settings=settings,
-                now=now,
-            )
-            prefetch_combined_ensembles(http, events)
-            positions = obieweather_engine.db.get_open_positions()
-            for _slug, event_date, city, buckets, _vol in events:
-                counts.candidates += len(buckets)
-                sigs = analyze_obieweather_event(
-                    obieweather_engine,
-                    http,
-                    city,
-                    event_date,
-                    buckets,
-                    settings,
-                    positions,
-                    paper_mode=live is None and not dry_run,
-                )
-                for sig in sigs:
-                    filled = execute_signal(
-                        obieweather_engine, sig, dry_run, live=live, ctx=ctx, strategy="obieweather"
-                    )
-                    emitted.append(sig)
-                    if filled:
-                        counts.orders_placed += 1
-                        counts.fills += 1
-                        positions = obieweather_engine.db.get_open_positions()
-        except Exception as e:
-            log.exception("obieweather scan failed: %s", e)
-            append_activity(
-                obieweather_engine.db.data_dir,
-                level="error",
-                event="scan_failed",
-                strategy="obieweather",
-                message=str(e),
-            )
-            log_decision(
-                obieweather_engine.db.data_dir,
-                strategy="obieweather",
-                decision="scan_failed",
-                reason=str(e),
-                level="error",
-            )
-
     if copy_engine:
         is_live = live is not None
 
@@ -1153,54 +1029,6 @@ def scan_once(
                 message=str(e),
             )
 
-    if closingsoon_engine:
-        try:
-            from papertrader.strategies.closingsoon import analyze_closingsoon, closingsoon_exits
-            if live is None:
-                counts.resolved += _resolve(closingsoon_engine)
-            for sig in closingsoon_exits(closingsoon_engine, settings):
-                if execute_signal(closingsoon_engine, sig, dry_run, live=live, ctx=ctx, strategy="closingsoon"):
-                    counts.risk_exits += 1
-                emitted.append(sig)
-            for sig in analyze_closingsoon(closingsoon_engine, settings):
-                if execute_signal(closingsoon_engine, sig, dry_run, live=live, ctx=ctx, strategy="closingsoon"):
-                    counts.fills += 1
-                counts.orders_placed += 1
-                emitted.append(sig)
-        except Exception as e:
-            log.exception("closingsoon scan failed: %s", e)
-            append_activity(
-                closingsoon_engine.db.data_dir,
-                level="error",
-                event="scan_failed",
-                strategy="closingsoon",
-                message=str(e),
-            )
-
-    if btc5m_engine:
-        try:
-            from papertrader.strategies.btc5m import analyze_btc5m, btc5m_exits
-            if live is None:
-                counts.resolved += _resolve(btc5m_engine)
-            for sig in btc5m_exits(btc5m_engine, settings):
-                if execute_signal(btc5m_engine, sig, dry_run, live=live, ctx=ctx, strategy="btc5m"):
-                    counts.risk_exits += 1
-                emitted.append(sig)
-            for sig in analyze_btc5m(btc5m_engine, settings):
-                if execute_signal(btc5m_engine, sig, dry_run, live=live, ctx=ctx, strategy="btc5m"):
-                    counts.fills += 1
-                counts.orders_placed += 1
-                emitted.append(sig)
-        except Exception as e:
-            log.exception("btc5m scan failed: %s", e)
-            append_activity(
-                btc5m_engine.db.data_dir,
-                level="error",
-                event="scan_failed",
-                strategy="btc5m",
-                message=str(e),
-            )
-
     if arbitrage_engine:
         try:
             from papertrader.strategies.arbitrage import analyze_arbitrage, arbitrage_exits
@@ -1234,73 +1062,6 @@ def scan_once(
                 level="error",
                 event="scan_failed",
                 strategy="arbitrage",
-                message=str(e),
-            )
-
-    if penny_engine:
-        try:
-            if live is None:
-                try:
-                    penny_engine.check_orders()
-                except Exception as e:
-                    log.debug("check_orders: %s", e)
-                counts.resolved += _resolve(penny_engine)
-            positions = penny_engine.db.get_open_positions()
-            for sig in penny_exits(penny_engine, settings, positions):
-                filled = execute_signal(
-                    penny_engine, sig, dry_run, live=live, ctx=ctx, strategy="penny"
-                )
-                emitted.append(sig)
-                if filled:
-                    counts.risk_exits += 1
-                    counts.fills += 1
-            cities = settings.cities_for("penny")
-            if settings.penny.cities:
-                cities = [
-                    settings.cities[s] for s in settings.penny.cities if s in settings.cities
-                ]
-            events = discover_events(penny_engine, cities, settings, now=now)
-            positions = penny_engine.db.get_open_positions()
-            any_buy_fill = False
-            for _event_slug, event_date, city, buckets, _volume in events:
-                sigs = analyze_penny_event(
-                    penny_engine,
-                    city,
-                    event_date,
-                    buckets,
-                    settings,
-                    positions,
-                    today=city_local_today(city, now),
-                    paper_mode=live is None and not dry_run,
-                )
-                for sig in sigs:
-                    filled = execute_signal(
-                        penny_engine, sig, dry_run, live=live, ctx=ctx, strategy="penny"
-                    )
-                    emitted.append(sig)
-                    counts.orders_placed += 1
-                    if filled:
-                        counts.fills += 1
-                        any_buy_fill = True
-                        positions = penny_engine.db.get_open_positions()
-            # Immediately rest 3¢ sells after any same-scan fills.
-            if any_buy_fill:
-                positions = penny_engine.db.get_open_positions()
-                for sig in penny_exits(penny_engine, settings, positions):
-                    filled = execute_signal(
-                        penny_engine, sig, dry_run, live=live, ctx=ctx, strategy="penny"
-                    )
-                    emitted.append(sig)
-                    if filled:
-                        counts.risk_exits += 1
-                        counts.fills += 1
-        except Exception as e:
-            log.exception("penny scan failed: %s", e)
-            append_activity(
-                penny_engine.db.data_dir,
-                level="error",
-                event="scan_failed",
-                strategy="penny",
                 message=str(e),
             )
 
@@ -1396,20 +1157,15 @@ def scan_once(
     engines = [
         e
         for e in (
-            safe_engine,
             asymmetric_engine,
             contrarian_engine,
             conviction_engine,
-            obieweather_engine,
             copy_engine,
             esports_engine,
             momentum_engine,
             meanrev_engine,
             volspike_engine,
-            closingsoon_engine,
-            btc5m_engine,
             arbitrage_engine,
-            penny_engine,
             weatherlock_engine,
             endgame_engine,
         )
@@ -1436,20 +1192,15 @@ def print_scan_update(
 def run_loop(
     *,
     settings: Settings,
-    safe_engine: Engine | None,
     asymmetric_engine: Engine | None = None,
     contrarian_engine: Engine | None = None,
     conviction_engine: Engine | None = None,
-    obieweather_engine: Engine | None = None,
     copy_engine: Engine | None = None,
     esports_engine: Engine | None = None,
     momentum_engine: Engine | None = None,
     meanrev_engine: Engine | None = None,
     volspike_engine: Engine | None = None,
-    closingsoon_engine: Engine | None = None,
-    btc5m_engine: Engine | None = None,
     arbitrage_engine: Engine | None = None,
-    penny_engine: Engine | None = None,
     weatherlock_engine: Engine | None = None,
     endgame_engine: Engine | None = None,
     dry_run: bool,
@@ -1459,16 +1210,12 @@ def run_loop(
 ) -> str:
     http = WeatherHttp(settings.user_agent)
     named_engines: list[tuple[str, Engine]] = []
-    if safe_engine is not None:
-        named_engines.append(("safe", safe_engine))
     if asymmetric_engine is not None:
         named_engines.append(("asymmetric", asymmetric_engine))
     if contrarian_engine is not None:
         named_engines.append(("contrarian", contrarian_engine))
     if conviction_engine is not None:
         named_engines.append(("conviction", conviction_engine))
-    if obieweather_engine is not None:
-        named_engines.append(("obieweather", obieweather_engine))
     if copy_engine is not None:
         named_engines.append(("copy", copy_engine))
     if esports_engine is not None:
@@ -1479,14 +1226,8 @@ def run_loop(
         named_engines.append(("meanrev", meanrev_engine))
     if volspike_engine is not None:
         named_engines.append(("volspike", volspike_engine))
-    if closingsoon_engine is not None:
-        named_engines.append(("closingsoon", closingsoon_engine))
-    if btc5m_engine is not None:
-        named_engines.append(("btc5m", btc5m_engine))
     if arbitrage_engine is not None:
         named_engines.append(("arbitrage", arbitrage_engine))
-    if penny_engine is not None:
-        named_engines.append(("penny", penny_engine))
     if weatherlock_engine is not None:
         named_engines.append(("weatherlock", weatherlock_engine))
     if endgame_engine is not None:
@@ -1500,9 +1241,6 @@ def run_loop(
         poll_seconds = min(poll_seconds, settings.esports.poll_interval_seconds)
     if momentum_engine is not None:
         poll_seconds = min(poll_seconds, settings.momentum.poll_interval_seconds)
-    if btc5m_engine is not None:
-        # 5m windows need faster scans than weather strategies.
-        poll_seconds = min(poll_seconds, 15)
     if endgame_engine is not None:
         poll_seconds = min(poll_seconds, settings.endgame.poll_interval_seconds)
     last = ""
@@ -1511,20 +1249,15 @@ def run_loop(
         _, counts = scan_once(
             settings=settings,
             http=http,
-            safe_engine=safe_engine,
             asymmetric_engine=asymmetric_engine,
             contrarian_engine=contrarian_engine,
             conviction_engine=conviction_engine,
-            obieweather_engine=obieweather_engine,
             copy_engine=copy_engine,
             esports_engine=esports_engine,
             momentum_engine=momentum_engine,
             meanrev_engine=meanrev_engine,
             volspike_engine=volspike_engine,
-            closingsoon_engine=closingsoon_engine,
-            btc5m_engine=btc5m_engine,
             arbitrage_engine=arbitrage_engine,
-            penny_engine=penny_engine,
             weatherlock_engine=weatherlock_engine,
             endgame_engine=endgame_engine,
             dry_run=dry_run,
@@ -1541,20 +1274,15 @@ def run_loop(
             _, counts = scan_once(
                 settings=settings,
                 http=http,
-                safe_engine=safe_engine,
                 asymmetric_engine=asymmetric_engine,
                 contrarian_engine=contrarian_engine,
                 conviction_engine=conviction_engine,
-                obieweather_engine=obieweather_engine,
                 copy_engine=copy_engine,
                 esports_engine=esports_engine,
                 momentum_engine=momentum_engine,
                 meanrev_engine=meanrev_engine,
                 volspike_engine=volspike_engine,
-                closingsoon_engine=closingsoon_engine,
-                btc5m_engine=btc5m_engine,
                 arbitrage_engine=arbitrage_engine,
-                penny_engine=penny_engine,
                 weatherlock_engine=weatherlock_engine,
                 endgame_engine=endgame_engine,
                 dry_run=dry_run,

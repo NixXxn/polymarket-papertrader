@@ -42,7 +42,7 @@ def test_scan_history_roundtrip(tmp_path):
 def test_fetch_dashboard_empty_data_dir(tmp_path):
     payload = fetch_dashboard(data_dir=tmp_path, mode="paper")
     assert payload["ok"] is True
-    assert len(payload["portfolio"]["by_strategy"]) == 16
+    assert len(payload["portfolio"]["by_strategy"]) == 11
     assert payload["portfolio"]["total"] > 0
     assert payload["activity_log"] == []
     assert payload["decisions"] == []
@@ -53,31 +53,26 @@ def test_fetch_dashboard_includes_all_strategies(tmp_path):
     payload = fetch_dashboard(data_dir=tmp_path, mode="paper")
     names = {s["name"] for s in payload["portfolio"]["by_strategy"]}
     assert names == {
-        "safe",
         "asymmetric",
         "contrarian",
         "conviction",
-        "obieweather",
         "copy",
         "esports",
         "momentum",
         "meanrev",
         "volspike",
-        "closingsoon",
-        "btc5m",
         "arbitrage",
-        "penny",
         "weatherlock",
         "endgame",
     }
 
 
 def test_fetch_dashboard_with_engines_and_logs(tmp_path):
-    make_engine("safe", tmp_path, starting_balance=1000.0, reset=True)
+    make_engine("asymmetric", tmp_path, starting_balance=1000.0, reset=True)
     make_engine("copy", tmp_path, starting_balance=1000.0, reset=True)
 
     sig = Signal(action="buy", slug="test-market", outcome="yes", amount_usd=5, reason="test")
-    append_skipped(tmp_path / "safe", strategy="safe", signal=sig, error="no liquidity")
+    append_skipped(tmp_path / "asymmetric", strategy="asymmetric", signal=sig, error="no liquidity")
     append_copy_event(
         tmp_path / "copy",
         tx_id="0xabc:buy:slug:1:10:0.5",
@@ -108,11 +103,11 @@ def test_fetch_dashboard_with_engines_and_logs(tmp_path):
 
 
 def test_reset_strategy_budgets(tmp_path):
-    make_engine("safe", tmp_path, starting_balance=100.0, reset=True)
     make_engine("asymmetric", tmp_path, starting_balance=100.0, reset=True)
+    make_engine("contrarian", tmp_path, starting_balance=100.0, reset=True)
     result = reset_strategy_budgets(data_dir=tmp_path, mode="paper", balance=500.0)
     assert result["ok"] is True
-    assert len(result["strategies"]) == 17
+    assert len(result["strategies"]) == 12
     assert all(s["cash"] == 500.0 for s in result["strategies"])
     payload = fetch_dashboard(data_dir=tmp_path, mode="paper")
     assert payload["portfolio"]["by_strategy"][0]["cash"] == 500.0
@@ -120,20 +115,20 @@ def test_reset_strategy_budgets(tmp_path):
 
 
 def test_set_single_strategy_budget(tmp_path):
-    make_engine("safe", tmp_path, starting_balance=100.0, reset=True)
     make_engine("asymmetric", tmp_path, starting_balance=100.0, reset=True)
-    result = set_strategy_budget(data_dir=tmp_path, mode="paper", strategy="safe", balance=750.0)
+    make_engine("contrarian", tmp_path, starting_balance=100.0, reset=True)
+    result = set_strategy_budget(data_dir=tmp_path, mode="paper", strategy="asymmetric", balance=750.0)
     assert result["ok"] is True
-    assert result["strategy"] == "safe"
+    assert result["strategy"] == "asymmetric"
     assert result["account"]["cash"] == 750.0
-    safe_engine = make_engine("safe", tmp_path, 100.0)
     asym_engine = make_engine("asymmetric", tmp_path, 100.0)
+    contra_engine = make_engine("contrarian", tmp_path, 100.0)
     try:
-        assert safe_engine.get_account().cash == 750.0
-        assert asym_engine.get_account().cash == 100.0
+        assert asym_engine.get_account().cash == 750.0
+        assert contra_engine.get_account().cash == 100.0
     finally:
-        safe_engine.close()
         asym_engine.close()
+        contra_engine.close()
 
 
 def test_fetch_dashboard_activity_includes_strategy_decisions(tmp_path):
@@ -160,7 +155,7 @@ def test_fetch_dashboard_activity_includes_strategy_decisions(tmp_path):
 
 
 def test_reset_balances_api(tmp_path):
-    make_engine("safe", tmp_path, starting_balance=50.0, reset=True)
+    make_engine("asymmetric", tmp_path, starting_balance=50.0, reset=True)
     client = app.test_client()
     resp = client.post(
         "/api/reset-balances?mode=paper",
@@ -170,7 +165,7 @@ def test_reset_balances_api(tmp_path):
     data = resp.get_json()
     assert data["ok"] is True
     assert data["balance"] == 500.0
-    engine = make_engine("safe", tmp_path, 50.0)
+    engine = make_engine("asymmetric", tmp_path, 50.0)
     try:
         assert engine.get_account().cash == 500.0
     finally:
@@ -178,26 +173,26 @@ def test_reset_balances_api(tmp_path):
 
 
 def test_reset_all_statistics_clears_logs_and_trades(tmp_path):
-    make_engine("safe", tmp_path, starting_balance=100.0, reset=True)
+    make_engine("asymmetric", tmp_path, starting_balance=100.0, reset=True)
     log_decision(
         tmp_path,
-        strategy="safe",
+        strategy="asymmetric",
         decision="scan",
         reason="test",
     )
     result = reset_all_statistics(data_dir=tmp_path, mode="paper")
     assert result["ok"] is True
     payload = fetch_dashboard(data_dir=tmp_path, mode="paper")
-    safe_row = next(s for s in payload["portfolio"]["by_strategy"] if s["name"] == "safe")
-    assert safe_row["trades"] == 0
+    asym_row = next(s for s in payload["portfolio"]["by_strategy"] if s["name"] == "asymmetric")
+    assert asym_row["trades"] == 0
     assert payload["decisions"] == []
 
 
 def test_reset_statistics_api(tmp_path):
-    make_engine("safe", tmp_path, starting_balance=100.0, reset=True)
+    make_engine("asymmetric", tmp_path, starting_balance=100.0, reset=True)
     log_decision(
         tmp_path,
-        strategy="safe",
+        strategy="asymmetric",
         decision="scan",
         reason="test",
     )
@@ -214,14 +209,14 @@ def test_reset_statistics_api(tmp_path):
 
 
 def test_set_strategy_budget_api(tmp_path):
-    make_engine("safe", tmp_path, starting_balance=100.0, reset=True)
+    make_engine("asymmetric", tmp_path, starting_balance=100.0, reset=True)
     client = app.test_client()
     resp = client.post(
         "/api/set-strategy-budget?mode=paper",
-        json={"strategy": "safe", "balance": 900, "data_dir": str(tmp_path)},
+        json={"strategy": "asymmetric", "balance": 900, "data_dir": str(tmp_path)},
     )
     assert resp.status_code == 200
     data = resp.get_json()
     assert data["ok"] is True
-    assert data["strategy"] == "safe"
+    assert data["strategy"] == "asymmetric"
     assert data["balance"] == 900.0

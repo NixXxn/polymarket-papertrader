@@ -142,7 +142,7 @@ def test_gate_caution_blocks_election(tmp_path: Path, monkeypatch):
         ),
     )
     gate = evaluate_entry_gate(
-        strategy="closingsoon",
+        strategy="meanrev",
         slug="will-michael-birch-win-the-2026-greater-wellington-regional-council-by-election",
         data_dir=tmp_path,
         cfg=cfg,

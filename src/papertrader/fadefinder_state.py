@@ -20,7 +20,6 @@ class FadeFinderState:
     def __init__(self, data_dir: Path | str) -> None:
         self._root = Path(data_dir)
         if self._root.name in (
-            "safe",
             "asymmetric",
             "contrarian",
             "conviction",
@@ -31,8 +30,9 @@ class FadeFinderState:
             "momentum",
             "meanrev",
             "volspike",
-            "closingsoon",
-            "btc5m",
+            "arbitrage",
+            "weatherlock",
+            "endgame",
         ):
             self._root = self._root.parent
         self._seen_path = self._root / "fadefinder_seen.json"

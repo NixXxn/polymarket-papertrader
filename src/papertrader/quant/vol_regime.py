@@ -21,7 +21,6 @@ class VolRegimeStore:
     ) -> None:
         self._root = Path(data_dir)
         if self._root.name in (
-            "safe",
             "asymmetric",
             "contrarian",
             "conviction",
@@ -32,8 +31,9 @@ class VolRegimeStore:
             "momentum",
             "meanrev",
             "volspike",
-            "closingsoon",
-            "btc5m",
+            "arbitrage",
+            "weatherlock",
+            "endgame",
         ):
             self._root = self._root.parent
         self._path = self._root / "vol_regime.json"
