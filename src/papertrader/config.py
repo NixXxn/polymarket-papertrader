@@ -458,9 +458,24 @@ def _parse_exit_ladder(raw: Any) -> tuple[ExitLadderStep, ...]:
 def _parse_contrarian_block(raw_cfg: dict[str, Any], *, defaults: dict[str, Any]) -> ContrarianSettings:
     merged = {**defaults, **raw_cfg}
     sb = merged.get("starting_balance")
+    min_yes_ask = float(merged.get("min_yes_ask", 0.02))
+    max_yes_ask = float(merged.get("max_yes_ask", 0.20))
+    min_no_entry = float(merged.get("min_no_entry", 0.50))
+    max_no_ask = float(merged.get("max_no_ask", 0.92))
+    # Real CLOB books usually have yes_ask + no_ask ≈ 1.02–1.06. If the YES
+    # ceiling sits below what the NO floor implies, every bucket is rejected.
+    if max_yes_ask + min_no_entry < 0.95:
+        import logging
+
+        logging.getLogger(__name__).warning(
+            "contrarian/conviction bands likely incompatible: "
+            "max_yes_ask=%.3f + min_no_entry=%.3f < 0.95 (no overlapping books)",
+            max_yes_ask,
+            min_no_entry,
+        )
     return ContrarianSettings(
-        min_yes_ask=float(merged.get("min_yes_ask", 0.02)),
-        max_yes_ask=float(merged.get("max_yes_ask", 0.20)),
+        min_yes_ask=min_yes_ask,
+        max_yes_ask=max_yes_ask,
         max_model_yes=float(merged.get("max_model_yes", 0.08)),
         min_edge=float(merged.get("min_edge", 0.06)),
         min_vig_edge=float(merged.get("min_vig_edge", 0.01)),
@@ -475,8 +490,8 @@ def _parse_contrarian_block(raw_cfg: dict[str, Any], *, defaults: dict[str, Any]
         max_open_per_city=int(merged.get("max_open_per_city", 2)),
         take_profit_no_bid=float(merged.get("take_profit_no_bid", 0.85)),
         stop_loss_no_bid=float(merged.get("stop_loss_no_bid", 0.35)),
-        min_no_entry=float(merged.get("min_no_entry", 0.50)),
-        max_no_ask=float(merged.get("max_no_ask", 0.92)),
+        min_no_entry=min_no_entry,
+        max_no_ask=max_no_ask,
         min_days_ahead=int(merged.get("min_days_ahead", 0)),
         max_days_ahead=int(merged.get("max_days_ahead", 2)),
         starting_balance=float(sb) if sb is not None else None,
