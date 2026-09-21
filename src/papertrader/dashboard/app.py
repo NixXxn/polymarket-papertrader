@@ -55,7 +55,33 @@ def requires_auth(fn):
 @app.route("/")
 @requires_auth
 def index():
-    return render_template("index.html")
+    # UI moved to the Next/OpenUI app on :3000. JSON APIs stay on this Flask port.
+    ui = os.getenv("DASHBOARD_UI_URL", "http://127.0.0.1:3000")
+    accept = (request.headers.get("Accept") or "").lower()
+    if "text/html" in accept or request.args.get("legacy") == "1":
+        if request.args.get("legacy") == "1":
+            return render_template("index.html")
+        return (
+            "<!doctype html><html><head><meta charset=utf-8>"
+            f"<meta http-equiv=refresh content='0;url={ui}'>"
+            f"<title>Papertrader Dashboard</title></head><body style='"
+            "font-family:system-ui,sans-serif;background:#0b1020;color:#eef3ff;"
+            "padding:40px'>"
+            "<h1>Dashboard moved</h1>"
+            f"<p>Open the OpenUI dashboard at <a href='{ui}' style='color:#7dd3fc'>{ui}</a>.</p>"
+            "<p>JSON APIs remain on this port (<code>/api/dashboard</code>).</p>"
+            "<p><a href='/?legacy=1' style='color:#94a3b8'>Legacy HTML UI</a></p>"
+            "</body></html>"
+        ), 200, {"Content-Type": "text/html; charset=utf-8"}
+    return jsonify(
+        {
+            "ok": True,
+            "service": "papertrader-dashboard-api",
+            "ui": ui,
+            "message": "Use the Next/OpenUI app for the UI; JSON APIs are on this host.",
+            "legacy_html": "/?legacy=1",
+        }
+    )
 
 
 @app.route("/api/dashboard")

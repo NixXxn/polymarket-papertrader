@@ -1,0 +1,12 @@
+# Allow native build scripts so `pnpm install` never stops at approve-builds.
+onlyBuiltDependencies:
+  - "@openuidev/lang-core"
+  - esbuild
+  - sharp
+  - unrs-resolver
+allowBuilds:
+  "@openuidev/lang-core": true
+  esbuild: true
+  sharp: true
+  unrs-resolver: true
+packages: ["."]
