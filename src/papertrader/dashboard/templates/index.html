@@ -131,7 +131,7 @@
           style="width:140px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:transparent;color:inherit" />
         <button id="copyWalletAddBtn" type="button">Add wallet</button>
       </div>
-      <div class="mini" style="margin-top:6px">Leaders are only the wallets listed above (saved in <code>copy/wallets.json</code>). Runs as <code>papertrader run --strategy copy</code> — restart/reload picks up adds.</div>
+      <div class="mini" style="margin-top:6px">Leaders are saved to <code>~/.pm-trader/copy/wallets.json</code> (shared) and polled by <code>papertrader run --strategy copy</code>. New wallets are seeded on first poll — only trades after that are copied.</div>
     </div>
   </div>
 
@@ -391,10 +391,10 @@
     const btn = document.getElementById('copyWalletAddBtn');
     btn.disabled = true;
     try {
-      const r = await fetch('/api/copy/wallets', {
+      const r = await fetch(`/api/copy/wallets?mode=${encodeURIComponent(dashMode)}`, {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({address, label}),
+        body: JSON.stringify({address, label, mode: dashMode}),
       });
       await readJsonOrThrow(r);
       document.getElementById('copyWalletInput').value = '';
@@ -410,10 +410,10 @@
   async function removeCopyWallet(address) {
     if (!address) return;
     try {
-      const r = await fetch('/api/copy/wallets', {
+      const r = await fetch(`/api/copy/wallets?mode=${encodeURIComponent(dashMode)}`, {
         method: 'DELETE',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({address}),
+        body: JSON.stringify({address, mode: dashMode}),
       });
       await readJsonOrThrow(r);
       await load();

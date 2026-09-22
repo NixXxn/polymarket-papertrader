@@ -1286,6 +1286,13 @@ def run_copy_loop(
     last_summary = ""
     heartbeat = time.monotonic()
     backoff_s = 0.0
+    from papertrader.copytrade import resolve_wallets
+
+    leaders = resolve_wallets(http, settings, data_dir=Path(copy_engine.db.data_dir))
+    if leaders:
+        log.info("copy leaders: %s", ", ".join(w[:10] + "…" for w in leaders))
+    else:
+        log.warning("copy: no leader wallets — add one in the dashboard")
     try:
 
         def _execute(sig: Signal) -> bool:
@@ -1297,6 +1304,7 @@ def run_copy_loop(
             loop_started = time.perf_counter()
             if is_live and live is not None:
                 _sync_live_engines(live, [("copy", copy_engine)])
+            # Refresh leader list each poll so dashboard adds apply without restart.
             _, copied, fetch_ok = sync_copy_trades(
                 copy_engine,
                 http,

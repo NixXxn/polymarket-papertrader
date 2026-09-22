@@ -542,6 +542,24 @@ def _process_pending_trade(
     return sig
 
 
+def _wallet_bucket(state: dict[str, Any], wallet: str) -> dict[str, Any]:
+    """Per-leader seen/last_ts so adding a new dashboard wallet cannot be blocked
+    by another leader's watermark."""
+    key = wallet.lower()
+    buckets = state.setdefault("wallet_state", {})
+    if not isinstance(buckets, dict):
+        buckets = {}
+        state["wallet_state"] = buckets
+    bucket = buckets.get(key)
+    if not isinstance(bucket, dict):
+        bucket = {"seen": [], "last_leader_ts": 0, "seeded": False}
+        buckets[key] = bucket
+    bucket.setdefault("seen", [])
+    bucket.setdefault("last_leader_ts", 0)
+    bucket.setdefault("seeded", False)
+    return bucket
+
+
 def sync_copy_trades(
     engine: Engine,
     http: WeatherHttp,
@@ -560,22 +578,23 @@ def sync_copy_trades(
     data_dir = Path(engine.db.data_dir)
     wallets = resolve_wallets(http, settings, data_dir=data_dir)
     if not wallets:
-        log.warning("copy: no leader wallets configured")
+        log.warning("copy: no leader wallets configured (add one in the dashboard)")
         return 0, [], True
 
     limit = recent_limit if recent_limit is not None else settings.copy.recent_limit
     state = load_state(engine)
-    seen = set(state.get("seen") or [])
-    last_leader_ts = int(state.get("last_leader_ts") or 0)
+    had_legacy = "seen" in state or "last_leader_ts" in state
     scale = _resolve_scale(settings, state, [])
     signals: list[Signal] = []
     considered = 0
     dirty = False
     fetch_ok = False
     fetch_errors = 0
-    recent_ids: set[str] = set()
 
     for wallet in wallets:
+        bucket = _wallet_bucket(state, wallet)
+        seen = set(bucket.get("seen") or [])
+        last_leader_ts = int(bucket.get("last_leader_ts") or 0)
         try:
             trades = fetch_recent_trades(http, wallet, limit=limit)
             fetch_ok = True
@@ -583,12 +602,7 @@ def sync_copy_trades(
             fetch_errors += 1
             log.warning("copy: trade fetch failed for %s: %s", wallet[:10], e)
             continue
-        recent_ids.update(t.tx_id for t in trades)
-        if state.get("live_seeded") and not state.get("last_leader_ts") and trades:
-            last_leader_ts = max(t.timestamp for t in trades)
-            state["last_leader_ts"] = last_leader_ts
-            dirty = True
-        # Recompute scale once we have trades if auto-scale.
+
         if settings.copy.scale is None and trades:
             before = state.get("scale")
             scale = _resolve_scale(settings, state, trades)
@@ -599,24 +613,30 @@ def sync_copy_trades(
             scale = _resolve_scale(settings, state, trades)
             if state.get("scale") != before:
                 dirty = True
+
+        # Live mode: one-shot seed of all leaders before any fills.
         if live and not state.get("live_seeded"):
-            _fast_live_seed(http, wallet, state, recent_limit=limit)
-            # Seed remaining wallets into the same seen set.
-            for extra in wallets:
-                if extra == wallet:
-                    continue
+            for w in wallets:
+                b = _wallet_bucket(state, w)
                 try:
-                    more = fetch_recent_trades(http, extra, limit=limit)
+                    more = (
+                        trades
+                        if w == wallet
+                        else fetch_recent_trades(http, w, limit=limit)
+                    )
                 except Exception:
                     continue
-                seen_extra = set(state.get("seen") or [])
-                seen_extra.update(t.tx_id for t in more)
-                state["seen"] = list(seen_extra)
+                seen_w = set(b.get("seen") or [])
+                seen_w.update(t.tx_id for t in more)
+                b["seen"] = list(seen_w)
                 if more:
-                    state["last_leader_ts"] = max(
-                        int(state.get("last_leader_ts") or 0),
+                    b["last_leader_ts"] = max(
+                        int(b.get("last_leader_ts") or 0),
                         max(t.timestamp for t in more),
                     )
+                b["seeded"] = True
+            state["live_seeded"] = True
+            dirty = True
             save_state(engine, state)
             log.warning(
                 "copy live: fast-seeded %s wallet(s) from last %s trades each; "
@@ -625,6 +645,23 @@ def sync_copy_trades(
                 limit,
             )
             return 0, [], True
+
+        # First time we see a leader (new dashboard wallet): seed without backfill.
+        if not bucket.get("seeded"):
+            seen.update(t.tx_id for t in trades)
+            if trades:
+                last_leader_ts = max(t.timestamp for t in trades)
+            bucket["seen"] = list(seen)
+            bucket["last_leader_ts"] = last_leader_ts
+            bucket["seeded"] = True
+            dirty = True
+            log.warning(
+                "copy: seeded leader %s from last %s trades; only newer prints will be copied",
+                wallet[:10],
+                len(trades),
+            )
+            continue
+
         pending = _pending_trades(trades, seen, last_leader_ts)
         considered += len(pending)
         if dry_run:
@@ -640,7 +677,10 @@ def sync_copy_trades(
             if pending:
                 last_leader_ts = max(last_leader_ts, max(t.timestamp for t in pending))
                 dirty = True
+            bucket["seen"] = list(seen)
+            bucket["last_leader_ts"] = last_leader_ts
             continue
+
         for t in pending:
             sig = _process_pending_trade(
                 engine,
@@ -660,18 +700,22 @@ def sync_copy_trades(
                 signals.append(sig)
             last_leader_ts = max(last_leader_ts, t.timestamp)
 
-    if len(seen) > 1500:
-        seen = prune_seen(
+        pruned = prune_seen(
             seen,
-            recent_ids=recent_ids,
+            recent_ids={t.tx_id for t in trades},
             last_leader_ts=last_leader_ts,
             max_keep=1500,
         )
-        dirty = True
+        if len(pruned) != len(seen):
+            seen = pruned
+            dirty = True
+        bucket["seen"] = list(seen)
+        bucket["last_leader_ts"] = last_leader_ts
 
-    if dirty:
-        state["last_leader_ts"] = last_leader_ts
-        state["seen"] = list(seen)
+    # Drop legacy flat keys once per-wallet state is in use.
+    if (dirty or had_legacy) and state.get("wallet_state"):
+        state.pop("seen", None)
+        state.pop("last_leader_ts", None)
         save_state(engine, state)
 
     if not fetch_ok and fetch_errors:

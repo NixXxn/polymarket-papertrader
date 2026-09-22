@@ -1,4 +1,8 @@
-"""Runtime-managed copy-leader wallets (dashboard + settings)."""
+"""Runtime-managed copy-leader wallets (dashboard + settings).
+
+Leaders are stored in the paper copy dir (~/.pm-trader/copy/wallets.json) so the
+dashboard (any mode) and `papertrader run --strategy copy` share one list.
+"""
 
 from __future__ import annotations
 
@@ -8,13 +12,28 @@ from pathlib import Path
 from typing import Any
 
 from papertrader.config import Settings
+from papertrader.paths import DEFAULT_DATA_DIR, DEFAULT_LIVE_DATA_DIR
 
 _WALLET_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 
 
-def wallets_path(data_dir: Path) -> Path:
+def wallets_path(data_dir: Path | None = None) -> Path:
+    """Leader list path.
+
+    Live dashboard mode redirects to the paper copy dir so ``papertrader run
+    --strategy copy`` always sees wallets added from either mode. Explicit
+    temp/test data dirs keep their own file.
+    """
+    if data_dir is None:
+        return DEFAULT_DATA_DIR / "copy" / "wallets.json"
     root = Path(data_dir)
-    # Engine account dir is already .../copy; dashboard may pass the parent root.
+    try:
+        resolved = root.resolve()
+        live_root = DEFAULT_LIVE_DATA_DIR.resolve()
+        if resolved == live_root or resolved == (live_root / "copy"):
+            return DEFAULT_DATA_DIR / "copy" / "wallets.json"
+    except OSError:
+        pass
     if root.name == "copy":
         return root / "wallets.json"
     return root / "copy" / "wallets.json"
@@ -27,7 +46,7 @@ def normalize_wallet(address: str) -> str:
     return raw
 
 
-def _load_raw(data_dir: Path) -> dict[str, Any]:
+def _load_raw(data_dir: Path | None = None) -> dict[str, Any]:
     path = wallets_path(data_dir)
     if not path.is_file():
         return {"wallets": []}
@@ -43,14 +62,14 @@ def _load_raw(data_dir: Path) -> dict[str, Any]:
     return {"wallets": rows}
 
 
-def _save_raw(data_dir: Path, payload: dict[str, Any]) -> None:
+def _save_raw(data_dir: Path | None, payload: dict[str, Any]) -> None:
     path = wallets_path(data_dir)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2) + "\n")
 
 
-def list_managed_wallets(data_dir: Path) -> list[dict[str, str]]:
-    """Wallets stored in data_dir/copy/wallets.json (dashboard-managed)."""
+def list_managed_wallets(data_dir: Path | None = None) -> list[dict[str, str]]:
+    """Wallets stored in ~/.pm-trader/copy/wallets.json (dashboard-managed)."""
     out: list[dict[str, str]] = []
     seen: set[str] = set()
     for row in _load_raw(data_dir).get("wallets") or []:
@@ -73,7 +92,7 @@ def list_managed_wallets(data_dir: Path) -> list[dict[str, str]]:
     return out
 
 
-def list_copy_wallets(data_dir: Path, settings: Settings) -> list[dict[str, str]]:
+def list_copy_wallets(data_dir: Path | None, settings: Settings) -> list[dict[str, str]]:
     """Leader wallets: dashboard wallets.json first, then optional settings fallbacks."""
     out: list[dict[str, str]] = []
     seen: set[str] = set()
@@ -88,11 +107,9 @@ def list_copy_wallets(data_dir: Path, settings: Settings) -> list[dict[str, str]
         seen.add(normalized)
         out.append({"address": normalized, "label": label, "source": source})
 
-    # Dashboard leaders are authoritative (add/remove in the UI).
     for row in list_managed_wallets(data_dir):
         _add(row["address"], label=row.get("label") or "", source="dashboard")
 
-    # Optional settings.yaml entries only fill gaps (not a hardcoded primary).
     cfg = settings.copy
     if getattr(cfg, "wallet", ""):
         _add(cfg.wallet, label=getattr(cfg, "username", "") or "", source="settings")
@@ -109,7 +126,9 @@ def list_copy_wallets(data_dir: Path, settings: Settings) -> list[dict[str, str]
     return out
 
 
-def add_copy_wallet(data_dir: Path, address: str, *, label: str = "") -> dict[str, str]:
+def add_copy_wallet(
+    data_dir: Path | None, address: str, *, label: str = ""
+) -> dict[str, str]:
     addr = normalize_wallet(address)
     clean_label = str(label or "").strip()
     payload = _load_raw(data_dir)
@@ -121,7 +140,11 @@ def add_copy_wallet(data_dir: Path, address: str, *, label: str = "") -> dict[st
                 if clean_label:
                     row["label"] = clean_label
                 _save_raw(data_dir, {"wallets": rows})
-                return {"address": addr, "label": str(row.get("label") or ""), "source": "dashboard"}
+                return {
+                    "address": addr,
+                    "label": str(row.get("label") or ""),
+                    "source": "dashboard",
+                }
         except ValueError:
             continue
     rows.append({"address": addr, "label": clean_label})
@@ -129,7 +152,7 @@ def add_copy_wallet(data_dir: Path, address: str, *, label: str = "") -> dict[st
     return {"address": addr, "label": clean_label, "source": "dashboard"}
 
 
-def remove_copy_wallet(data_dir: Path, address: str) -> bool:
+def remove_copy_wallet(data_dir: Path | None, address: str) -> bool:
     addr = normalize_wallet(address)
     payload = _load_raw(data_dir)
     rows = [r for r in (payload.get("wallets") or []) if isinstance(r, dict)]

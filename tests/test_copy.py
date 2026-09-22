@@ -92,6 +92,53 @@ def test_live_copy_seeds_history_without_fills(tmp_path, monkeypatch):
     engine.close()
 
 
+def test_new_dashboard_wallet_is_seeded_not_backfilled(tmp_path, monkeypatch):
+    engine = Engine(tmp_path)
+    engine.init_account(100.0)
+    # Legacy state from a previous leader must not block a newly added wallet.
+    from papertrader.copytrade import save_state
+
+    save_state(
+        engine,
+        {
+            "seen": ["old"],
+            "last_leader_ts": 9_999_999_999,
+            "scale": 0.1,
+        },
+    )
+    wallet = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+    history = [
+        parse_trade(_row(timestamp=100, transactionHash="0xnew1")),
+        parse_trade(_row(timestamp=200, transactionHash="0xnew2", side="SELL")),
+    ]
+    monkeypatch.setattr(
+        "papertrader.copytrade.resolve_wallets", lambda *a, **k: [wallet]
+    )
+    monkeypatch.setattr(
+        "papertrader.copytrade.fetch_recent_trades", lambda *a, **k: history
+    )
+    considered, copied, ok = sync_copy_trades(
+        engine, None, load_settings(), dry_run=False, live=False
+    )
+    assert ok and considered == 0 and copied == []
+    st = load_state(engine)
+    bucket = st["wallet_state"][wallet]
+    assert bucket["seeded"] is True
+    assert engine.get_account().cash == 100.0
+
+    # A trade newer than the seed watermark is copied.
+    newer = [parse_trade(_row(timestamp=300, transactionHash="0xnew3", size=4))]
+    monkeypatch.setattr(
+        "papertrader.copytrade.fetch_recent_trades", lambda *a, **k: history + newer
+    )
+    considered, copied, ok = sync_copy_trades(
+        engine, None, load_settings(), dry_run=False, live=False
+    )
+    assert ok and considered == 1 and len(copied) == 1
+    assert copied[0].action == "buy"
+    engine.close()
+
+
 def test_prune_seen_keeps_recent(tmp_path):
     from papertrader.copytrade import prune_seen
 
