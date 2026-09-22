@@ -1,7 +1,7 @@
 """Runtime-managed copy-leader wallets (dashboard + settings).
 
-Leaders are stored in the paper copy dir (~/.pm-trader/copy/wallets.json) so the
-dashboard (any mode) and `papertrader run --strategy copy` share one list.
+Stored under ``{data_dir}/copy/wallets.json``. Dashboard wallet CRUD always uses
+the paper ledger root so VPS ``PAPERTRADER_DATA_DIR`` and local installs agree.
 """
 
 from __future__ import annotations
@@ -12,28 +12,17 @@ from pathlib import Path
 from typing import Any
 
 from papertrader.config import Settings
-from papertrader.paths import DEFAULT_DATA_DIR, DEFAULT_LIVE_DATA_DIR
 
 _WALLET_RE = re.compile(r"^0x[a-fA-F0-9]{40}$")
 
 
 def wallets_path(data_dir: Path | None = None) -> Path:
-    """Leader list path.
-
-    Live dashboard mode redirects to the paper copy dir so ``papertrader run
-    --strategy copy`` always sees wallets added from either mode. Explicit
-    temp/test data dirs keep their own file.
-    """
+    """``{root}/copy/wallets.json`` (``data_dir`` may already be the copy account)."""
     if data_dir is None:
-        return DEFAULT_DATA_DIR / "copy" / "wallets.json"
+        from papertrader.paths import data_dir_from_env
+
+        return data_dir_from_env() / "copy" / "wallets.json"
     root = Path(data_dir)
-    try:
-        resolved = root.resolve()
-        live_root = DEFAULT_LIVE_DATA_DIR.resolve()
-        if resolved == live_root or resolved == (live_root / "copy"):
-            return DEFAULT_DATA_DIR / "copy" / "wallets.json"
-    except OSError:
-        pass
     if root.name == "copy":
         return root / "wallets.json"
     return root / "copy" / "wallets.json"
@@ -69,7 +58,7 @@ def _save_raw(data_dir: Path | None, payload: dict[str, Any]) -> None:
 
 
 def list_managed_wallets(data_dir: Path | None = None) -> list[dict[str, str]]:
-    """Wallets stored in ~/.pm-trader/copy/wallets.json (dashboard-managed)."""
+    """Wallets stored in data_dir/copy/wallets.json (dashboard-managed)."""
     out: list[dict[str, str]] = []
     seen: set[str] = set()
     for row in _load_raw(data_dir).get("wallets") or []:

@@ -131,7 +131,7 @@
           style="width:140px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:transparent;color:inherit" />
         <button id="copyWalletAddBtn" type="button">Add wallet</button>
       </div>
-      <div class="mini" style="margin-top:6px">Leaders are saved to <code>~/.pm-trader/copy/wallets.json</code> (shared) and polled by <code>papertrader run --strategy copy</code>. New wallets are seeded on first poll — only trades after that are copied.</div>
+      <div class="mini" style="margin-top:6px">Leaders are saved under the <strong>paper</strong> data dir (<code>copy/wallets.json</code>, respects <code>PAPERTRADER_DATA_DIR</code> on VPS) and polled by <code>papertrader run --strategy copy</code>. New wallets are seeded on first poll — only later trades are copied.</div>
     </div>
   </div>
 

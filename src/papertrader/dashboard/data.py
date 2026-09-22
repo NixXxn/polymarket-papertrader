@@ -279,14 +279,25 @@ def _copy_meta(data_dir: Path, settings: Any) -> dict[str, Any]:
     if path.is_file():
         try:
             raw = json.loads(path.read_text())
-            seen = len(raw.get("seen") or [])
+            # Prefer per-wallet buckets when present.
+            wallet_state = raw.get("wallet_state") or {}
+            if isinstance(wallet_state, dict) and wallet_state:
+                seen = sum(len(b.get("seen") or []) for b in wallet_state.values() if isinstance(b, dict))
+            else:
+                seen = len(raw.get("seen") or [])
             scale = raw.get("scale")
         except json.JSONDecodeError:
             pass
     username = getattr(settings.copy, "username", "") if settings.copy else ""
     from papertrader.copy_wallets import list_copy_wallets
 
-    wallets = list_copy_wallets(data_dir, settings)
+    # Always list leaders from the paper ledger (same file copy process polls).
+    try:
+        _, paper = _resolve_dashboard(None, "paper")
+        wallet_root = paper.data_dir
+    except Exception:
+        wallet_root = data_dir
+    wallets = list_copy_wallets(wallet_root, settings)
     wallet = wallets[0]["address"] if wallets else ""
     return {
         "username": username,
@@ -304,9 +315,11 @@ def list_dashboard_copy_wallets(
     data_dir: Path | None = None,
     mode: str | None = None,
 ) -> dict[str, Any]:
-    settings, resolved = _resolve_dashboard(data_dir, mode)
-    wallets = list_copy_wallets_for_dashboard(resolved.data_dir, settings)
-    return {"ok": True, "wallets": wallets, "data_dir": str(resolved.data_dir)}
+    settings, _resolved = _resolve_dashboard(data_dir, mode)
+    # Copy leaders always live on the paper ledger (copy process is paper).
+    _, paper = _resolve_dashboard(data_dir, "paper")
+    wallets = list_copy_wallets_for_dashboard(paper.data_dir, settings)
+    return {"ok": True, "wallets": wallets, "data_dir": str(paper.data_dir)}
 
 
 def add_dashboard_copy_wallet(
@@ -318,12 +331,14 @@ def add_dashboard_copy_wallet(
 ) -> dict[str, Any]:
     from papertrader.copy_wallets import add_copy_wallet, list_copy_wallets
 
-    settings, resolved = _resolve_dashboard(data_dir, mode)
-    row = add_copy_wallet(resolved.data_dir, address, label=label)
+    settings, _resolved = _resolve_dashboard(data_dir, mode)
+    _, paper = _resolve_dashboard(data_dir, "paper")
+    row = add_copy_wallet(paper.data_dir, address, label=label)
     return {
         "ok": True,
         "wallet": row,
-        "wallets": list_copy_wallets(resolved.data_dir, settings),
+        "wallets": list_copy_wallets(paper.data_dir, settings),
+        "data_dir": str(paper.data_dir),
     }
 
 
@@ -335,12 +350,14 @@ def remove_dashboard_copy_wallet(
 ) -> dict[str, Any]:
     from papertrader.copy_wallets import list_copy_wallets, remove_copy_wallet
 
-    settings, resolved = _resolve_dashboard(data_dir, mode)
-    removed = remove_copy_wallet(resolved.data_dir, address)
+    settings, _resolved = _resolve_dashboard(data_dir, mode)
+    _, paper = _resolve_dashboard(data_dir, "paper")
+    removed = remove_copy_wallet(paper.data_dir, address)
     return {
         "ok": True,
         "removed": removed,
-        "wallets": list_copy_wallets(resolved.data_dir, settings),
+        "wallets": list_copy_wallets(paper.data_dir, settings),
+        "data_dir": str(paper.data_dir),
     }
 
 

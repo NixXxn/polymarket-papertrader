@@ -32,6 +32,16 @@ class ExecutionContext:
     tick_cache: dict[str, str] = field(default_factory=dict)
     wallet_balance: float | None = None
     balance_checked: bool = False
+    # After a Cloudflare/CLOB 429, pause before the next live order in this scan.
+    rate_limited_until: float = 0.0
+
+    def respect_rate_limit(self) -> None:
+        delay = self.rate_limited_until - time.time()
+        if delay > 0:
+            time.sleep(min(delay, 30.0))
+
+    def trip_rate_limit(self, seconds: float = 8.0) -> None:
+        self.rate_limited_until = max(self.rate_limited_until, time.time() + seconds)
 
     def get_market(self, engine: Engine, slug: str) -> Any:
         if slug not in self.market_cache:

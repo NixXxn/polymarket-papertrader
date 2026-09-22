@@ -360,6 +360,15 @@ def _paper_fill_limit_buy(
     return True
 
 
+def _rate_limit_wait(exc: BaseException) -> float | None:
+    """Return backoff seconds if this looks like a CLOB/Cloudflare 429."""
+    status = getattr(exc, "status_code", None)
+    text = str(exc)
+    if status == 429 or "429" in text or "too many requests" in text.lower():
+        return 8.0
+    return None
+
+
 def execute_signal(
     engine: Engine,
     signal: Signal,
@@ -393,31 +402,56 @@ def execute_signal(
     try:
         started = time.perf_counter()
         if live is not None:
-            filled = live.fill(engine, signal, ctx=ctx, strategy=strategy)
-            log_fill_latency(f"LIVE {signal.action.upper()} {signal.slug}", started)
-            if filled and signal.esports_take_profit:
-                _mark_esports_take_profit(engine, signal)
-            if filled and signal.momentum_take_profit:
-                _mark_momentum_take_profit(engine, signal)
-            if filled and signal.penny_take_profit:
-                _mark_penny_take_profit(engine, signal)
-            if filled and signal.endgame_take_profit:
-                _mark_endgame_take_profit(engine, signal)
-            if filled and signal.weatherlock_take_profit:
-                _mark_weatherlock_take_profit(engine, signal)
-            if filled:
-                log_decision(
-                    engine.db.data_dir,
-                    strategy=strategy,
-                    decision="executed",
-                    reason=signal.reason,
-                    city=signal.city.slug if signal.city else None,
-                    slug=signal.slug,
-                    action=signal.action,
-                    amount_usd=signal.amount_usd,
-                    shares=signal.shares,
-                )
-            return filled
+            ctx = ctx or ExecutionContext()
+            last_err: BaseException | None = None
+            for attempt in range(4):
+                ctx.respect_rate_limit()
+                try:
+                    filled = live.fill(engine, signal, ctx=ctx, strategy=strategy)
+                    # Small gap between live posts to avoid burst 429s.
+                    time.sleep(0.2)
+                    log_fill_latency(f"LIVE {signal.action.upper()} {signal.slug}", started)
+                    if filled and signal.esports_take_profit:
+                        _mark_esports_take_profit(engine, signal)
+                    if filled and signal.momentum_take_profit:
+                        _mark_momentum_take_profit(engine, signal)
+                    if filled and signal.penny_take_profit:
+                        _mark_penny_take_profit(engine, signal)
+                    if filled and signal.endgame_take_profit:
+                        _mark_endgame_take_profit(engine, signal)
+                    if filled and signal.weatherlock_take_profit:
+                        _mark_weatherlock_take_profit(engine, signal)
+                    if filled:
+                        log_decision(
+                            engine.db.data_dir,
+                            strategy=strategy,
+                            decision="executed",
+                            reason=signal.reason,
+                            city=signal.city.slug if signal.city else None,
+                            slug=signal.slug,
+                            action=signal.action,
+                            amount_usd=signal.amount_usd,
+                            shares=signal.shares,
+                        )
+                    return filled
+                except Exception as e:
+                    wait = _rate_limit_wait(e)
+                    last_err = e
+                    if wait is None or attempt >= 3:
+                        raise OrderRejectedError(str(e)[:400]) from e
+                    ctx.trip_rate_limit(wait * (attempt + 1))
+                    log.warning(
+                        "live %s %s rate-limited (attempt %s); backing off %.1fs — %s",
+                        signal.action,
+                        signal.slug,
+                        attempt + 1,
+                        wait * (attempt + 1),
+                        signal.reason,
+                    )
+                    time.sleep(wait * (attempt + 1))
+            if last_err is not None:
+                raise OrderRejectedError(str(last_err)[:400]) from last_err
+            return False
         if (
             signal.paper_fill_at_limit
             and signal.order_type == "limit"
