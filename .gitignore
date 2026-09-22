@@ -15,8 +15,3 @@ build/
 
 # Local historic backtest extracts
 data/backtest/
-
-# Next dashboard
-web/node_modules/
-web/.next/
-web/out/

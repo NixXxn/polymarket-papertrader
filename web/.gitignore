@@ -1,9 +1,0 @@
-node_modules/
-.next/
-out/
-build/
-*.log
-.env
-.env.local
-.DS_Store
-*.tsbuildinfo

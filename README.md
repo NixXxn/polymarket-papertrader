@@ -77,25 +77,13 @@ Knobs live in `config/settings.yaml` and `config/cities.yaml`. Bet size autoscal
 
 ## Dashboard
 
-UI is a Next/OpenUI app in `web/`. Flask still serves JSON APIs on `:8787`.
-
 ```bash
-# Terminal A — API (paper ledger)
 pip install -e ".[dashboard]"
 papertrader dashboard
-# → http://127.0.0.1:8787/api/dashboard
-
-# Terminal B — OpenUI dashboard
-pnpm --dir web install
-pnpm --dir web dev
-# → http://127.0.0.1:3000
+# → http://127.0.0.1:8787
 ```
 
-Open **Paper** (not Live) in the mode badge when paper runners are active — Live reads `~/.pm-trader-live` and will look empty.
-
-Shows combined **P&L**, **ROI**, win rate, per-strategy breakdown, open positions, trades, equity curve, copy wallets, and activity. Optional HTTP basic auth via `DASHBOARD_USER` / `DASHBOARD_PASSWORD` in `.env`. Polls every 15s.
-
-Visiting `http://127.0.0.1:8787/` redirects to the Next UI (`DASHBOARD_UI_URL`, default `http://127.0.0.1:3000`). Legacy HTML: `http://127.0.0.1:8787/?legacy=1`.
+Shows combined **P&L**, **ROI**, win rate, per-strategy breakdown (safe / asymmetric), open positions with unrealized P&L, trade history, equity curve, and legacy **copy** account stats if `~/.pm-trader/copy` exists. Optional HTTP basic auth via `DASHBOARD_USER` / `DASHBOARD_PASSWORD` in `.env`. Refreshes every 15s.
 
 Scan snapshots are appended to `{data_dir}/scan_history.jsonl` while `papertrader run` is active.
 
