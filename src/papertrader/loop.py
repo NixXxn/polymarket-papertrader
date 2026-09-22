@@ -937,7 +937,7 @@ def scan_once(
                 copy_engine, sig, dry_run, live=live, ctx=ctx, strategy="copy"
             )
 
-        considered, copied = sync_copy_trades(
+        considered, copied, _fetch_ok = sync_copy_trades(
             copy_engine,
             http,
             settings,
@@ -1273,11 +1273,11 @@ def run_copy_loop(
     live: LiveTrader | None = None,
     data_dir: Path | None = None,
 ) -> str:
-    """Tight polling loop for leader copy — targets sub-second detection via data-api."""
+    """Polling loop for leader copy via data-api (with backoff on rate limits)."""
     logging.getLogger("httpx").setLevel(logging.WARNING)
     http = WeatherHttp(settings.user_agent)
     named_engines = [("copy", copy_engine)]
-    poll_ms = max(50, settings.copy.poll_interval_ms)
+    poll_ms = max(250, settings.copy.poll_interval_ms)
     is_live = live is not None
     ctx = ExecutionContext()
     if is_live and not ctx.balance_checked:
@@ -1285,6 +1285,7 @@ def run_copy_loop(
         ctx.balance_checked = True
     last_summary = ""
     heartbeat = time.monotonic()
+    backoff_s = 0.0
     try:
 
         def _execute(sig: Signal) -> bool:
@@ -1296,7 +1297,7 @@ def run_copy_loop(
             loop_started = time.perf_counter()
             if is_live and live is not None:
                 _sync_live_engines(live, [("copy", copy_engine)])
-            _, copied = sync_copy_trades(
+            _, copied, fetch_ok = sync_copy_trades(
                 copy_engine,
                 http,
                 settings,
@@ -1304,6 +1305,10 @@ def run_copy_loop(
                 live=is_live,
                 execute=_execute if is_live else None,
             )
+            if fetch_ok:
+                backoff_s = 0.0
+            else:
+                backoff_s = min(60.0, max(2.0, backoff_s * 2 if backoff_s else 2.0))
             if copied:
                 counts = ScanCounts(orders_placed=len(copied), fills=len(copied))
                 last_summary = print_scan_update(counts, named_engines, data_dir=data_dir)
@@ -1316,8 +1321,8 @@ def run_copy_loop(
             if once:
                 return last_summary
             elapsed_ms = (time.perf_counter() - loop_started) * 1000
-            sleep_ms = max(0.0, poll_ms - elapsed_ms)
-            if sleep_ms:
+            sleep_ms = max(backoff_s * 1000.0, poll_ms - elapsed_ms)
+            if sleep_ms > 0:
                 time.sleep(sleep_ms / 1000)
     finally:
         http.close()

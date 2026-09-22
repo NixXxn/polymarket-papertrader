@@ -249,5 +249,52 @@ def build_activity_feed(data_dir: Path | str, limit: int = 250) -> list[dict[str
                 "feed": "copy",
             }
         )
+    from papertrader.predictionhunt import load_ph_signals
+
+    for row in load_ph_signals(data_dir, limit=limit):
+        title = (
+            row.get("group_title")
+            or row.get("slug")
+            or row.get("bucket")
+            or row.get("reason")
+            or "predictionhunt"
+        )
+        parts: list[str] = [str(title)]
+        if row.get("roi_pct") is not None:
+            parts.append(f"roi={float(row['roi_pct']):.2f}%")
+        elif row.get("ph_edge_no") is not None:
+            parts.append(f"edge_no={float(row['ph_edge_no']):.3f}")
+        elif row.get("dislocation") is not None:
+            parts.append(f"Δ={float(row['dislocation']):.3f}")
+        if row.get("total_cost") is not None:
+            parts.append(f"cost={float(row['total_cost']):.3f}")
+        if row.get("is_polymarket_pair"):
+            parts.append("PM pair")
+        elif row.get("legs"):
+            legs = row.get("legs") or []
+            if isinstance(legs, list):
+                parts.append(
+                    " / ".join(
+                        f"{leg.get('platform')}:{leg.get('side')}"
+                        for leg in legs
+                        if isinstance(leg, dict)
+                    )
+                )
+        elif row.get("source"):
+            parts.append(str(row.get("source")))
+        ev = str(row.get("event") or "ph_signal")
+        rows.append(
+            {
+                "ts": row.get("ts"),
+                "level": "info",
+                "event": ev,
+                "strategy": "predictionhunt",
+                "message": " · ".join(p for p in parts if p),
+                "source": "predictionhunt",
+                "slug": row.get("slug"),
+                "bucket": row.get("bucket"),
+                "feed": "predictionhunt",
+            }
+        )
     rows.sort(key=lambda r: r.get("ts") or "", reverse=True)
     return rows[:limit]

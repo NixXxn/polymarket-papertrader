@@ -51,17 +51,20 @@ def test_is_yes_no_market():
     assert not _is_yes_no_market({"outcomes": '["WRAITH","MORROW"]'})
 
 
-def test_analyze_endgame_buys_limit_full_cash(monkeypatch, tmp_path):
+def test_analyze_endgame_buys_capped_size(monkeypatch, tmp_path):
     settings = load_settings()
-    assert settings.endgame.use_full_capital is True
-    assert settings.endgame.price_min == 0.85
-    assert settings.endgame.price_max == 0.97
+    assert settings.endgame.use_full_capital is False
+    assert settings.endgame.price_min == 0.90
+    assert settings.endgame.price_max == 0.95
     assert settings.endgame.sell_limit == 0.98
-    assert settings.endgame.max_minutes == 10
+    assert settings.endgame.take_profit_offset == 0.05
+    assert settings.endgame.stop_bid == 0.78
+    assert settings.endgame.max_minutes == 6
+    assert settings.endgame.position_usd == 150
     assert settings.endgame.yes_no_only is True
 
     now = datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc)
-    end = (now + timedelta(minutes=8)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    end = (now + timedelta(minutes=4)).strftime("%Y-%m-%dT%H:%M:%SZ")
     market_row = {
         "slug": "will-demo-team-win-2026-09-15",
         "question": "Will Demo Team win on 2026-09-15?",
@@ -87,7 +90,7 @@ def test_analyze_endgame_buys_limit_full_cash(monkeypatch, tmp_path):
 
     monkeypatch.setattr(
         "papertrader.strategies.endgame.best_ask",
-        lambda _book: (0.90, 2000.0),
+        lambda _book: (0.92, 2000.0),
     )
 
     sigs = analyze_endgame(engine, settings, now=now, paper_mode=True)
@@ -96,16 +99,16 @@ def test_analyze_endgame_buys_limit_full_cash(monkeypatch, tmp_path):
     assert sig.action == "buy"
     assert sig.slug == "will-demo-team-win-2026-09-15"
     assert sig.outcome.lower() == "yes"
-    assert sig.amount_usd == 1000.0
+    assert sig.amount_usd == 150.0
     assert sig.order_type == "limit"
-    assert sig.limit_price == 0.90
+    assert sig.limit_price == 0.92
     assert sig.paper_fill_at_limit is True
 
 
 def test_analyze_endgame_rejects_team_name_moneyline(monkeypatch, tmp_path):
     settings = load_settings()
     now = datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc)
-    end = (now + timedelta(minutes=8)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    end = (now + timedelta(minutes=4)).strftime("%Y-%m-%dT%H:%M:%SZ")
     market_row = {
         "slug": "cs2-wraith-morrow-2026-09-15",
         "question": "CS2: Wraith vs Morrow",
@@ -167,7 +170,7 @@ def test_analyze_endgame_logs_outside_window_sports(monkeypatch, tmp_path):
 def test_analyze_endgame_rejects_ask_at_or_above_sell_limit(monkeypatch, tmp_path):
     settings = load_settings()
     now = datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc)
-    end = (now + timedelta(minutes=8)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    end = (now + timedelta(minutes=4)).strftime("%Y-%m-%dT%H:%M:%SZ")
     market_row = {
         "slug": "will-parity-demo-win-2026-09-15",
         "question": "Will Parity Demo win?",
@@ -202,7 +205,7 @@ def test_analyze_endgame_rejects_ask_at_or_above_sell_limit(monkeypatch, tmp_pat
     assert scan["rejects"]["ask_out_of_band"] == 1
 
 
-def test_endgame_exits_place_fixed_sell_limit(tmp_path):
+def test_endgame_exits_place_soft_take_profit(tmp_path):
     settings = load_settings()
     engine = MagicMock()
     engine.db.data_dir = tmp_path
@@ -220,5 +223,6 @@ def test_endgame_exits_place_fixed_sell_limit(tmp_path):
     assert len(sigs) == 1
     assert sigs[0].action == "sell"
     assert sigs[0].order_type == "limit"
-    assert sigs[0].limit_price == 0.98
+    # Soft TP: min(sell_limit 0.98, entry 0.90 + offset 0.05) = 0.95
+    assert abs(sigs[0].limit_price - 0.95) < 1e-9
     assert sigs[0].endgame_take_profit is True

@@ -159,7 +159,8 @@ copy:
   wallet: '0x09b045baad1fbe115c70785635a261411774a3b6'
   wallets: []
   scale: 0.1
-  poll_interval_ms: 250
+  # 250ms hammered data-api → 429/DNS failures and missed prints. 2s is enough.
+  poll_interval_ms: 2000
   recent_limit: 50
 esports:
   horizon_hours: 8
@@ -285,19 +286,12 @@ arbitrage:
   prefer_crypto_weather: false
   prefer_lp_rewards: true
   scan_limit: 250
-  exit_ladder_prices:
-  - 0.5
-  - 0.7
-  - 0.85
-  - 0.95
-  exit_ladder_fraction: 0.25
-  lose_leg_bid_max: 0.35
-  lose_leg_bid_min: 0.05
-  lose_leg_lead_bid: 0.55
-  rebalance_enabled: true
-  rebalance_move: 0.04
-  rebalance_fraction: 0.1
-  rebalance_min_lead: 0.55
+  # Ladder / lose-leg / rebalance disabled — sell BOTH legs when pair is in profit.
+  exit_ladder_prices: []
+  exit_ladder_fraction: 0
+  rebalance_enabled: false
+  min_pair_profit_pct: 0.005
+  pair_bid_sum_exit: 0.99
 # Buy weather NO with real edge. Prior 96–98¢ fills won ~2¢ then wiped −$25
 # on the rare miss (~93% WR still −EV). Stay 88–91¢, TP +7¢, stop before wipe.
 weatherlock:
@@ -335,22 +329,24 @@ weatherlock:
   - cape-town
   - tokyo
   - sydney
-# Sports/esports Yes/No only: buy ≥85¢ in last 10m, rest fixed TP @98¢.
+# Sports/esports Yes/No: buy 90–95¢ in last 6m, TP entry+5¢ (cap 98¢), earlier stop.
+# Full-capital + 85¢ entries wiped bankroll on rare fades — capped size, safer band.
 endgame:
   starting_balance: 1000
   min_minutes: 0
-  max_minutes: 10
+  max_minutes: 6
   look_ahead_minutes: 360
-  price_min: 0.85
-  price_max: 0.97
-  min_liquidity: 200
-  min_ask_size: 5
-  use_full_capital: true
-  position_usd: 1000
-  max_position_usd: 5000
-  max_open_positions: 1
+  price_min: 0.90
+  price_max: 0.95
+  min_liquidity: 250
+  min_ask_size: 8
+  use_full_capital: false
+  position_usd: 150
+  max_position_usd: 250
+  max_open_positions: 2
   sell_limit: 0.98
-  stop_bid: 0.65
+  take_profit_offset: 0.05
+  stop_bid: 0.78
   yes_no_only: true
   paper_fill_at_limit: true
   poll_interval_seconds: 20

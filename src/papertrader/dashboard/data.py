@@ -22,7 +22,6 @@ from papertrader.report import (
 from papertrader.live_sync import load_live_open_orders, load_live_sync_meta
 from papertrader.scan_history import load_scan_history
 from papertrader.decision_log import load_decisions
-from papertrader.predictionhunt import load_ph_signals, predictionhunt_api_key
 from papertrader.trade_log import (
     build_activity_feed,
     copy_latency_by_trade_id,
@@ -37,6 +36,7 @@ STRATEGY_LABELS: dict[str, str] = {
     "arbitrage": "Arbitrage",
     "weatherlock": "Weatherlock",
     "endgame": "Endgame",
+    "predictionhunt": "Prediction Hunt",
 }
 
 _RESET_STATS_FILES = (
@@ -391,13 +391,6 @@ def fetch_dashboard(
                 "decisions": load_decisions(resolved.data_dir),
                 "live_open_orders": [],
                 "live_sync": load_live_sync_meta(resolved.data_dir),
-                "predictionhunt": {
-                    "enabled": bool(settings.predictionhunt.enabled),
-                    "api_key_configured": bool(predictionhunt_api_key()),
-                    "shadow_only": bool(settings.predictionhunt.shadow_only),
-                    "scan_arb": bool(settings.predictionhunt.scan_arb),
-                    "signals": load_ph_signals(resolved.data_dir, limit=60),
-                },
             }
 
         combined = combine_engines(engines)
@@ -488,13 +481,6 @@ def fetch_dashboard(
             "decisions": load_decisions(resolved.data_dir),
             "live_open_orders": load_live_open_orders(resolved.data_dir),
             "live_sync": load_live_sync_meta(resolved.data_dir),
-            "predictionhunt": {
-                "enabled": bool(settings.predictionhunt.enabled),
-                "api_key_configured": bool(predictionhunt_api_key()),
-                "shadow_only": bool(settings.predictionhunt.shadow_only),
-                "scan_arb": bool(settings.predictionhunt.scan_arb),
-                "signals": load_ph_signals(resolved.data_dir, limit=60),
-            },
         }
     finally:
         for _name, engine in engines:

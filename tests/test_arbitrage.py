@@ -19,9 +19,10 @@ def test_arbitrage_settings_loaded():
     assert s.arbitrage.position_usd > 0
     assert s.arbitrage.max_open_pairs >= 1
     assert s.arbitrage.starting_balance == 1000
-    assert s.arbitrage.exit_ladder_prices == (0.50, 0.70, 0.85, 0.95)
-    assert s.arbitrage.lose_leg_bid_max == 0.35
-    assert s.arbitrage.rebalance_enabled
+    assert s.arbitrage.exit_ladder_prices == ()
+    assert s.arbitrage.rebalance_enabled is False
+    assert s.arbitrage.min_pair_profit_pct > 0
+    assert s.arbitrage.pair_bid_sum_exit >= 0.95
 
 
 def test_analyze_arbitrage_emits_paired_legs(monkeypatch, tmp_path):
@@ -211,95 +212,84 @@ def test_arbitrage_exits_orphan(monkeypatch, tmp_path):
     assert sigs[0].outcome == "yes"
 
 
-def test_arbitrage_exits_ladder_and_lose_leg(monkeypatch, tmp_path):
+def test_arbitrage_exits_both_legs_when_pair_in_profit(monkeypatch, tmp_path):
     settings = load_settings()
     engine = MagicMock()
     engine.db.data_dir = tmp_path
-    win = SimpleNamespace(
+    # Cost $38 for 40+40 shares; bids 0.55+0.48 → MTM $41.20 → +profit
+    yes = SimpleNamespace(
         shares=40.0,
         is_resolved=False,
         market_condition_id="0xpair",
         market_slug="btc-updown",
-        outcome="up",
-        avg_entry_price=0.45,
-        total_cost=18.0,
+        outcome="yes",
+        avg_entry_price=0.47,
+        total_cost=18.8,
     )
-    lose = SimpleNamespace(
+    no = SimpleNamespace(
         shares=40.0,
         is_resolved=False,
         market_condition_id="0xpair",
         market_slug="btc-updown",
-        outcome="down",
-        avg_entry_price=0.50,
-        total_cost=20.0,
+        outcome="no",
+        avg_entry_price=0.48,
+        total_cost=19.2,
     )
-    engine.db.get_open_positions.return_value = [win, lose]
+    engine.db.get_open_positions.return_value = [yes, no]
     full = MagicMock()
     full.get_token_id.side_effect = lambda o: f"tok-{o.lower()}"
     engine.api.get_market.return_value = full
 
     def book_for(token):
-        if "up" in token:
-            return SimpleNamespace(asks=[FakeLevel(0.72, 20)], bids=[FakeLevel(0.71, 20)])
-        return SimpleNamespace(asks=[FakeLevel(0.30, 20)], bids=[FakeLevel(0.28, 20)])
+        if "yes" in token:
+            return SimpleNamespace(asks=[FakeLevel(0.56, 20)], bids=[FakeLevel(0.55, 20)])
+        return SimpleNamespace(asks=[FakeLevel(0.49, 20)], bids=[FakeLevel(0.48, 20)])
 
     engine.api.get_order_book.side_effect = book_for
     sigs = arbitrage_exits(engine, settings)
-    assert any(s.outcome == "down" and s.shares == 40.0 and "lose-leg" in s.reason for s in sigs)
-    assert any(s.outcome == "up" and s.partial_exit and "ladder" in s.reason for s in sigs)
-    # 25% of baseline 40 at 0.50 and 0.70 (bid 0.71 crosses both)
-    ladder = [s for s in sigs if s.outcome == "up" and s.partial_exit]
-    assert sum(s.shares or 0 for s in ladder) == 20.0
-    assert {s.ladder_multiple for s in ladder} == {0.50, 0.70}
+    assert len(sigs) == 2
+    assert {s.outcome for s in sigs} == {"yes", "no"}
+    assert all(s.action == "sell" and not s.partial_exit for s in sigs)
+    assert all("pair profit" in s.reason for s in sigs)
+    assert all((s.shares or 0) == 40.0 for s in sigs)
 
 
-def test_arbitrage_exits_rebalance(monkeypatch, tmp_path):
-    from papertrader.arbitrage_state import ArbExitStore
-
+def test_arbitrage_exits_holds_when_underwater(monkeypatch, tmp_path):
     settings = load_settings()
     engine = MagicMock()
     engine.db.data_dir = tmp_path
-    win = SimpleNamespace(
+    yes = SimpleNamespace(
         shares=40.0,
         is_resolved=False,
-        market_condition_id="0xreb",
+        market_condition_id="0xuw",
         market_slug="eth-updown",
-        outcome="up",
+        outcome="yes",
         avg_entry_price=0.48,
         total_cost=19.2,
     )
-    lose = SimpleNamespace(
+    no = SimpleNamespace(
         shares=40.0,
         is_resolved=False,
-        market_condition_id="0xreb",
+        market_condition_id="0xuw",
         market_slug="eth-updown",
-        outcome="down",
+        outcome="no",
         avg_entry_price=0.48,
         total_cost=19.2,
     )
-    engine.db.get_open_positions.return_value = [win, lose]
-    store = ArbExitStore(tmp_path)
-    store.set_last_mid("0xreb", "up", 0.56, market_slug="eth-updown")
-    # Mark ladder levels already hit so only rebalance fires.
-    for level in settings.arbitrage.exit_ladder_prices:
-        if level <= 0.60:
-            store.mark_ladder("0xreb", "up", level, market_slug="eth-updown")
-
+    engine.db.get_open_positions.return_value = [yes, no]
     full = MagicMock()
     full.get_token_id.side_effect = lambda o: f"tok-{o.lower()}"
     engine.api.get_market.return_value = full
 
     def book_for(token):
-        if "up" in token:
-            return SimpleNamespace(asks=[FakeLevel(0.62, 20)], bids=[FakeLevel(0.61, 20)])
+        # bid_sum 0.90 < 0.99; MTM 36 < cost 38.4
+        if "yes" in token:
+            return SimpleNamespace(asks=[FakeLevel(0.52, 20)], bids=[FakeLevel(0.50, 20)])
         return SimpleNamespace(asks=[FakeLevel(0.42, 20)], bids=[FakeLevel(0.40, 20)])
 
     engine.api.get_order_book.side_effect = book_for
     sigs = arbitrage_exits(engine, settings)
-    reb = [s for s in sigs if "rebalance" in s.reason]
-    assert len(reb) == 1
-    assert reb[0].outcome == "up"
-    assert abs((reb[0].shares or 0) - 4.0) < 1e-6
+    assert sigs == []
 
 
 def test_paper_fill_at_limit_buy(tmp_path):

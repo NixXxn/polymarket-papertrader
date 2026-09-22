@@ -4,8 +4,8 @@ Two-legged strategy — buy YES+NO (or Up+Down) so one side always pays $1/share
 When ask_yes + ask_no + fees < 1, the locked edge is independent of the outcome.
 Prefers fast crypto / weather markets and ranks LP-reward markets higher when present.
 
-After entry, hybrid active exits take over: laddered take-profit on the leading leg,
-lose-leg salvage when the hedge bid collapses, and momentum rebalance trims on mid moves.
+After entry, exit by selling BOTH legs when combined mark-to-market is in profit
+(or when bid_a + bid_b recovers near $1). Incomplete orphan fills are still unwound.
 """
 
 from __future__ import annotations
@@ -14,7 +14,6 @@ import json
 import logging
 from collections import defaultdict
 from dataclasses import dataclass, replace
-from types import SimpleNamespace
 from typing import Any
 
 from pm_trader.engine import Engine
@@ -628,10 +627,10 @@ def analyze_arbitrage(
 
 
 def arbitrage_exits(engine: Engine, settings: Settings) -> list[Signal]:
-    """Hybrid active exits after arb entry: lose-leg salvage, ladder TP, momentum trim.
+    """Exit arb pairs by selling BOTH legs when overall MTM is in profit.
 
-    Incomplete (orphan) pairs are still unwound. Complete pairs no longer hold both
-    legs to resolution — capital turns over via laddered winner sells + lose-leg exits.
+    Incomplete (orphan) pairs are still unwound. Ladder / lose-leg / rebalance
+    directional exits are intentionally disabled — they broke the locked hedge.
     """
     from papertrader.arbitrage_state import ArbExitStore
 
@@ -642,6 +641,8 @@ def arbitrage_exits(engine: Engine, settings: Settings) -> list[Signal]:
     store.prune_closed(positions)
     signals: list[Signal] = []
     min_sell_usd = float(settings.min_position_usd)
+    min_profit_pct = float(getattr(cfg, "min_pair_profit_pct", 0.005))
+    sum_exit = float(getattr(cfg, "pair_bid_sum_exit", 0.99))
 
     def _leg_book(pos: Position) -> tuple[float | None, float | None]:
         try:
@@ -654,10 +655,11 @@ def arbitrage_exits(engine: Engine, settings: Settings) -> list[Signal]:
         ask, _ = best_ask(book)
         return bid, ask
 
-    def _mid(bid: float | None, ask: float | None) -> float | None:
-        if bid is not None and ask is not None:
-            return (bid + ask) / 2.0
-        return bid if bid is not None else ask
+    def _leg_cost(pos: Position) -> float:
+        cost = float(getattr(pos, "total_cost", 0.0) or 0.0)
+        if cost > 0:
+            return cost
+        return float(pos.shares) * float(pos.avg_entry_price or 0.0)
 
     def _sell(
         pos: Position,
@@ -665,14 +667,11 @@ def arbitrage_exits(engine: Engine, settings: Settings) -> list[Signal]:
         *,
         reason: str,
         bid: float,
-        partial: bool = False,
-        ladder_level: float | None = None,
     ) -> Signal | None:
         sell_shares = min(float(pos.shares), float(shares))
         if sell_shares <= 0:
             return None
         if sell_shares * bid < min_sell_usd and sell_shares < pos.shares - 1e-9:
-            # Skip dust partials; allow full exits even if small.
             return None
         _log_arb(
             engine,
@@ -682,8 +681,7 @@ def arbitrage_exits(engine: Engine, settings: Settings) -> list[Signal]:
             outcome=pos.outcome,
             shares=round(sell_shares, 4),
             bid=bid,
-            partial_exit=partial,
-            ladder_level=ladder_level,
+            partial_exit=False,
         )
         return Signal(
             action="sell",
@@ -692,148 +690,60 @@ def arbitrage_exits(engine: Engine, settings: Settings) -> list[Signal]:
             shares=sell_shares,
             order_type="fak",
             limit_price=bid,
-            partial_exit=partial,
-            ladder_multiple=ladder_level,
+            partial_exit=False,
             market_condition_id=pos.market_condition_id,
             reason=reason,
         )
 
     for key, legs in pairs.items():
-        # Orphan: incomplete fill — exit remaining directional risk unless lose-leg
-        # already harvested intentionally (winner left for ladder TP).
         if len(legs) < 2:
-            if key and store.lose_leg_sold(key):
-                # Remaining winner: still apply ladder / rebalance below via single-leg path.
-                pass
-            else:
-                for outcome, pos in legs.items():
-                    bid, _ask = _leg_book(pos)
-                    if bid is None or bid < 0.01:
-                        continue
-                    reason = (
-                        f"arb orphan exit {outcome} bid={bid:.3f} "
-                        f"(incomplete pair on {pos.market_slug})"
-                    )
-                    sig = _sell(pos, pos.shares, reason=reason, bid=bid)
-                    if sig:
-                        signals.append(sig)
-                continue
-
-        # Complete pair (or winner left after lose-leg): quote both sides.
-        quoted: list[tuple[str, Position, float, float | None]] = []
-        for outcome, pos in legs.items():
-            bid, ask = _leg_book(pos)
-            if bid is None:
-                continue
-            quoted.append((outcome, pos, bid, ask))
-        if len(quoted) < 1:
-            continue
-
-        condition_id = key if key else (quoted[0][1].market_condition_id or quoted[0][1].market_slug)
-        market_slug = quoted[0][1].market_slug
-
-        for outcome, pos, bid, ask in quoted:
-            store.set_baseline(condition_id, outcome, pos.shares, market_slug=market_slug)
-            mid = _mid(bid, ask)
-            if mid is not None and store.last_mid(condition_id, outcome) is None:
-                store.set_last_mid(condition_id, outcome, mid, market_slug=market_slug)
-
-        # Identify leader / laggard by bid.
-        quoted_sorted = sorted(quoted, key=lambda row: row[2], reverse=True)
-        win_outcome, win_pos, win_bid, win_ask = quoted_sorted[0]
-        lose_row = quoted_sorted[-1] if len(quoted_sorted) >= 2 else None
-
-        # 1) Losing-leg exit — salvage hedge when trend is clear.
-        if (
-            lose_row is not None
-            and not store.lose_leg_sold(condition_id)
-            and win_bid >= cfg.lose_leg_lead_bid
-            and cfg.lose_leg_bid_min <= lose_row[2] <= cfg.lose_leg_bid_max
-        ):
-            lose_outcome, lose_pos, lose_bid, _lose_ask = lose_row
-            reason = (
-                f"arb lose-leg exit {lose_outcome} bid={lose_bid:.3f} "
-                f"(lead {win_outcome}@{win_bid:.3f} >= {cfg.lose_leg_lead_bid:.2f})"
-            )
-            store.mark_lose_leg_sold(condition_id, market_slug=market_slug)
-            sig = _sell(lose_pos, lose_pos.shares, reason=reason, bid=lose_bid)
-            if sig:
-                signals.append(sig)
-
-        # Single remaining or winner leg for TP / rebalance.
-        lead_outcome, lead_pos, lead_bid, lead_ask = win_outcome, win_pos, win_bid, win_ask
-        if lead_pos.shares <= 0:
-            continue
-
-        # 2) Laddered take-profit on the leading leg (absolute price rungs).
-        baseline = store.baseline(condition_id, lead_outcome) or lead_pos.shares
-        tranche = baseline * cfg.exit_ladder_fraction
-        laddered = False
-        for level in cfg.exit_ladder_prices:
-            if lead_bid + 1e-9 < level:
-                break
-            if store.ladder_hit(condition_id, lead_outcome, level):
-                continue
-            sell_shares = min(lead_pos.shares, tranche)
-            if sell_shares <= 0:
-                continue
-            reason = (
-                f"arb ladder TP {int(cfg.exit_ladder_fraction * 100)}% "
-                f"@ {level:.2f} bid={lead_bid:.3f} ({lead_outcome})"
-            )
-            store.mark_ladder(condition_id, lead_outcome, level, market_slug=market_slug)
-            sig = _sell(
-                lead_pos,
-                sell_shares,
-                reason=reason,
-                bid=lead_bid,
-                partial=True,
-                ladder_level=level,
-            )
-            if sig:
-                signals.append(sig)
-                # Reduce local view so subsequent rungs don't oversell same scan.
-                lead_pos = SimpleNamespace(  # type: ignore[assignment]
-                    shares=max(0.0, float(lead_pos.shares) - sell_shares),
-                    market_slug=lead_pos.market_slug,
-                    outcome=lead_pos.outcome,
-                    market_condition_id=lead_pos.market_condition_id,
-                    avg_entry_price=lead_pos.avg_entry_price,
-                    total_cost=getattr(lead_pos, "total_cost", 0.0),
-                    is_resolved=False,
-                )
-                laddered = True
-                if lead_pos.shares <= 0:
-                    break
-
-        # 3) Momentum rebalance — trim leader on significant mid advances.
-        if (
-            cfg.rebalance_enabled
-            and not laddered
-            and lead_pos.shares > 0
-            and lead_bid >= cfg.rebalance_min_lead
-        ):
-            mid = _mid(lead_bid, lead_ask)
-            prev = store.last_mid(condition_id, lead_outcome)
-            if mid is not None and prev is not None and (mid - prev) >= cfg.rebalance_move:
-                sell_shares = lead_pos.shares * cfg.rebalance_fraction
+            for _outcome, pos in legs.items():
+                bid, _ask = _leg_book(pos)
+                if bid is None or bid < 0.01:
+                    continue
                 reason = (
-                    f"arb rebalance trim {int(cfg.rebalance_fraction * 100)}% "
-                    f"{lead_outcome} mid {prev:.3f}->{mid:.3f} "
-                    f"(Δ>={cfg.rebalance_move:.2f})"
+                    f"arb orphan exit {_outcome} bid={bid:.3f} "
+                    f"(incomplete pair on {pos.market_slug})"
                 )
-                store.set_last_mid(condition_id, lead_outcome, mid, market_slug=market_slug)
-                sig = _sell(
-                    lead_pos,
-                    sell_shares,
-                    reason=reason,
-                    bid=lead_bid,
-                    partial=True,
-                    ladder_level=round(mid, 4),
-                )
+                sig = _sell(pos, pos.shares, reason=reason, bid=bid)
                 if sig:
                     signals.append(sig)
-            elif mid is not None:
-                store.set_last_mid(condition_id, lead_outcome, mid, market_slug=market_slug)
+            continue
+
+        quoted: list[tuple[str, Position, float]] = []
+        for outcome, pos in legs.items():
+            bid, _ask = _leg_book(pos)
+            if bid is None:
+                continue
+            quoted.append((outcome, pos, bid))
+        if len(quoted) < 2:
+            continue
+
+        condition_id = key or (
+            quoted[0][1].market_condition_id or quoted[0][1].market_slug
+        )
+        market_slug = quoted[0][1].market_slug
+
+        mtm = sum(bid * float(pos.shares) for _o, pos, bid in quoted)
+        cost = sum(_leg_cost(pos) for _o, pos, _b in quoted)
+        bid_sum = sum(bid for _o, _p, bid in quoted)
+        profit_ok = cost > 0 and mtm >= cost * (1.0 + min_profit_pct)
+        sum_ok = bid_sum + 1e-9 >= sum_exit
+        if not (profit_ok or sum_ok):
+            continue
+
+        for outcome, pos, bid in quoted:
+            store.set_baseline(
+                condition_id, outcome, pos.shares, market_slug=market_slug
+            )
+            pnl = mtm - cost
+            reason = (
+                f"arb pair profit exit {outcome} bid={bid:.3f} "
+                f"mtm=${mtm:.2f} cost=${cost:.2f} pnl=${pnl:.2f} "
+                f"bid_sum={bid_sum:.3f}"
+            )
+            sig = _sell(pos, pos.shares, reason=reason, bid=bid)
+            if sig:
+                signals.append(sig)
 
     return signals

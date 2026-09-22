@@ -81,14 +81,30 @@ def test_live_copy_seeds_history_without_fills(tmp_path, monkeypatch):
     history = [parse_trade(_row())]
     monkeypatch.setattr("papertrader.copytrade.resolve_wallets", lambda *a, **k: ["0xabc"])
     monkeypatch.setattr("papertrader.copytrade.fetch_recent_trades", lambda *a, **k: history)
-    considered, copied = sync_copy_trades(
+    considered, copied, fetch_ok = sync_copy_trades(
         engine, None, load_settings(), dry_run=False, live=True
     )
     assert considered == 0
     assert copied == []
+    assert fetch_ok is True
     assert engine.get_account().cash == 50.0
     assert load_state(engine)["live_seeded"] is True
     engine.close()
+
+
+def test_prune_seen_keeps_recent(tmp_path):
+    from papertrader.copytrade import prune_seen
+
+    recent = {f"0xnew:BUY:slug:{1_700_000_000 + i}:1:0.5" for i in range(10)}
+    old = {f"0xold:BUY:slug:{1_600_000_000 + i}:1:0.5" for i in range(2000)}
+    pruned = prune_seen(
+        recent | old,
+        recent_ids=recent,
+        last_leader_ts=1_700_000_010,
+        max_keep=50,
+    )
+    assert recent <= pruned
+    assert len(pruned) <= 50
 
 
 def test_normalize_and_manage_wallets(tmp_path: Path):

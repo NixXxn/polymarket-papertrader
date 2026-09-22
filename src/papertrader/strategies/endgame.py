@@ -344,7 +344,7 @@ def analyze_endgame(
             if cfg.yes_no_only and side.strip().lower() not in {"yes", "no"}:
                 rejects["not_yes_no"] += 1
                 continue
-            # Buy when favorite is ≥ price_min (85¢+) and still below sell_limit.
+            # Buy when favorite is in [price_min, price_max] and still below sell_limit.
             in_band = bool(cfg.price_min <= mid <= cfg.price_max)
             sports_row = {
                 "slug": slug,
@@ -458,11 +458,15 @@ def analyze_endgame(
             continue
 
         limit_px = min(float(ask), float(cfg.price_max))
-        tp_px = float(cfg.sell_limit)
+        tp_px = min(
+            float(cfg.sell_limit),
+            float(limit_px) + float(cfg.take_profit_offset),
+        )
         fill_now = bool(paper_mode and cfg.paper_fill_at_limit)
         reason = (
             f"endgame {minutes_left:.1f}m yes/no @{limit_px:.2f} "
-            f"ask={ask:.2f} → TP@{tp_px:.2f} full_cap={cfg.use_full_capital}"
+            f"ask={ask:.2f} → TP@{tp_px:.2f} "
+            f"(+{cfg.take_profit_offset:.2f}) full_cap={cfg.use_full_capital}"
         )
         signals.append(
             Signal(
@@ -622,12 +626,16 @@ def endgame_exits(
         if store.take_profit_placed(pos.market_condition_id, pos.outcome):
             continue
 
-        tp = float(cfg.sell_limit)
+        tp = min(
+            float(cfg.sell_limit),
+            float(pos.avg_entry_price) + float(cfg.take_profit_offset),
+        )
         if tp <= float(pos.avg_entry_price) + 1e-12:
             continue
         reason = (
             f"endgame TP limit @{tp:.2f} after entry@{pos.avg_entry_price:.3f} "
-            f"({pos.shares:.1f} sh)"
+            f"(+{cfg.take_profit_offset:.2f} / cap {cfg.sell_limit:.2f}, "
+            f"{pos.shares:.1f} sh)"
         )
         log_decision(
             engine.db.data_dir,

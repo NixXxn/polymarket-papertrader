@@ -220,7 +220,7 @@ class ArbitrageSettings:
     prefer_lp_rewards: bool
     scan_limit: int
     starting_balance: float | None
-    # Hybrid active exits after locked-edge entry.
+    # Legacy ladder fields kept for YAML compat; exits no longer use them.
     exit_ladder_prices: tuple[float, ...]
     exit_ladder_fraction: float
     lose_leg_bid_max: float
@@ -230,6 +230,9 @@ class ArbitrageSettings:
     rebalance_move: float
     rebalance_fraction: float
     rebalance_min_lead: float
+    # Sell both legs when pair MTM ≥ cost×(1+pct) or bid_a+bid_b ≥ threshold.
+    min_pair_profit_pct: float
+    pair_bid_sum_exit: float
 
 
 @dataclass(frozen=True)
@@ -257,7 +260,7 @@ class WeatherlockSettings:
 
 @dataclass(frozen=True)
 class EndgameSettings:
-    """Sports Yes/No near-expiry: buy ≥85¢ in last minutes, rest TP @98¢."""
+    """Sports Yes/No near-expiry locks with capped size and earlier stop."""
 
     min_minutes: float
     max_minutes: float
@@ -271,6 +274,7 @@ class EndgameSettings:
     max_position_usd: float
     max_open_positions: int
     sell_limit: float
+    take_profit_offset: float
     stop_bid: float
     paper_fill_at_limit: bool
     poll_interval_seconds: int
@@ -284,8 +288,12 @@ class CopySettings:
     wallet: str
     wallets: tuple[str, ...] = ()
     scale: float | None = None
-    poll_interval_ms: int = 250
+    poll_interval_ms: int = 2000
     recent_limit: int = 50
+
+    @property
+    def poll_interval_seconds(self) -> float:
+        return max(0.05, float(self.poll_interval_ms) / 1000.0)
 
 
 @dataclass(frozen=True)
@@ -839,14 +847,16 @@ def load_settings(
             exit_ladder_prices=_parse_arb_ladder_prices(
                 arbitrage_raw.get("exit_ladder_prices")
             ),
-            exit_ladder_fraction=float(arbitrage_raw.get("exit_ladder_fraction", 0.25)),
+            exit_ladder_fraction=float(arbitrage_raw.get("exit_ladder_fraction", 0.0)),
             lose_leg_bid_max=float(arbitrage_raw.get("lose_leg_bid_max", 0.35)),
             lose_leg_bid_min=float(arbitrage_raw.get("lose_leg_bid_min", 0.05)),
             lose_leg_lead_bid=float(arbitrage_raw.get("lose_leg_lead_bid", 0.55)),
-            rebalance_enabled=bool(arbitrage_raw.get("rebalance_enabled", True)),
+            rebalance_enabled=bool(arbitrage_raw.get("rebalance_enabled", False)),
             rebalance_move=float(arbitrage_raw.get("rebalance_move", 0.04)),
             rebalance_fraction=float(arbitrage_raw.get("rebalance_fraction", 0.10)),
             rebalance_min_lead=float(arbitrage_raw.get("rebalance_min_lead", 0.55)),
+            min_pair_profit_pct=float(arbitrage_raw.get("min_pair_profit_pct", 0.005)),
+            pair_bid_sum_exit=float(arbitrage_raw.get("pair_bid_sum_exit", 0.99)),
         ),
         weatherlock=WeatherlockSettings(
             buy_min=float(weatherlock_raw.get("buy_min", 0.88)),
@@ -881,18 +891,19 @@ def load_settings(
         ),
         endgame=EndgameSettings(
             min_minutes=float(endgame_raw.get("min_minutes", 0.0)),
-            max_minutes=float(endgame_raw.get("max_minutes", 10.0)),
+            max_minutes=float(endgame_raw.get("max_minutes", 6.0)),
             look_ahead_minutes=float(endgame_raw.get("look_ahead_minutes", 360.0)),
-            price_min=float(endgame_raw.get("price_min", 0.85)),
-            price_max=float(endgame_raw.get("price_max", 0.97)),
-            min_liquidity=float(endgame_raw.get("min_liquidity", 200.0)),
-            min_ask_size=float(endgame_raw.get("min_ask_size", 5.0)),
-            use_full_capital=bool(endgame_raw.get("use_full_capital", True)),
-            position_usd=float(endgame_raw.get("position_usd", 500.0)),
-            max_position_usd=float(endgame_raw.get("max_position_usd", 5000.0)),
-            max_open_positions=int(endgame_raw.get("max_open_positions", 1)),
+            price_min=float(endgame_raw.get("price_min", 0.90)),
+            price_max=float(endgame_raw.get("price_max", 0.95)),
+            min_liquidity=float(endgame_raw.get("min_liquidity", 250.0)),
+            min_ask_size=float(endgame_raw.get("min_ask_size", 8.0)),
+            use_full_capital=bool(endgame_raw.get("use_full_capital", False)),
+            position_usd=float(endgame_raw.get("position_usd", 150.0)),
+            max_position_usd=float(endgame_raw.get("max_position_usd", 250.0)),
+            max_open_positions=int(endgame_raw.get("max_open_positions", 2)),
             sell_limit=float(endgame_raw.get("sell_limit", 0.98)),
-            stop_bid=float(endgame_raw.get("stop_bid", 0.65)),
+            take_profit_offset=float(endgame_raw.get("take_profit_offset", 0.05)),
+            stop_bid=float(endgame_raw.get("stop_bid", 0.78)),
             paper_fill_at_limit=bool(endgame_raw.get("paper_fill_at_limit", True)),
             poll_interval_seconds=int(endgame_raw.get("poll_interval_seconds", 20)),
             starting_balance=(
@@ -931,7 +942,7 @@ def load_settings(
                 if str(w).strip()
             ),
             scale=float(copy_raw["scale"]) if copy_raw.get("scale") is not None else None,
-            poll_interval_ms=int(copy_raw.get("poll_interval_ms") or 250),
+            poll_interval_ms=int(copy_raw.get("poll_interval_ms") or 2000),
             recent_limit=int(copy_raw.get("recent_limit") or 50),
         ),
         cities=cities,
