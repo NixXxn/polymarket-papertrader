@@ -74,7 +74,7 @@ def list_managed_wallets(data_dir: Path) -> list[dict[str, str]]:
 
 
 def list_copy_wallets(data_dir: Path, settings: Settings) -> list[dict[str, str]]:
-    """Merge settings.yaml wallets with dashboard-managed wallets.json."""
+    """Leader wallets: dashboard wallets.json first, then optional settings fallbacks."""
     out: list[dict[str, str]] = []
     seen: set[str] = set()
 
@@ -88,6 +88,11 @@ def list_copy_wallets(data_dir: Path, settings: Settings) -> list[dict[str, str]
         seen.add(normalized)
         out.append({"address": normalized, "label": label, "source": source})
 
+    # Dashboard leaders are authoritative (add/remove in the UI).
+    for row in list_managed_wallets(data_dir):
+        _add(row["address"], label=row.get("label") or "", source="dashboard")
+
+    # Optional settings.yaml entries only fill gaps (not a hardcoded primary).
     cfg = settings.copy
     if getattr(cfg, "wallet", ""):
         _add(cfg.wallet, label=getattr(cfg, "username", "") or "", source="settings")
@@ -100,9 +105,6 @@ def list_copy_wallets(data_dir: Path, settings: Settings) -> list[dict[str, str]
             )
         else:
             _add(str(item), source="settings")
-
-    for row in list_managed_wallets(data_dir):
-        _add(row["address"], label=row.get("label") or "", source="dashboard")
 
     return out
 

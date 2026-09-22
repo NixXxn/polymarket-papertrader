@@ -284,10 +284,10 @@ def _copy_meta(data_dir: Path, settings: Any) -> dict[str, Any]:
         except json.JSONDecodeError:
             pass
     username = getattr(settings.copy, "username", "") if settings.copy else ""
-    wallet = getattr(settings.copy, "wallet", "") if settings.copy else ""
     from papertrader.copy_wallets import list_copy_wallets
 
     wallets = list_copy_wallets(data_dir, settings)
+    wallet = wallets[0]["address"] if wallets else ""
     return {
         "username": username,
         "wallet": wallet,

@@ -101,12 +101,14 @@ def save_state(engine: Engine, state: dict[str, Any]) -> None:
 
 
 def resolve_wallet(http: WeatherHttp, settings: Settings) -> str | None:
-    """Resolve a single primary wallet (settings.wallet or profile scrape)."""
+    """Resolve a single primary wallet (settings.wallet/wallets or optional @username)."""
     if settings.copy.wallet:
         return settings.copy.wallet.lower()
     if settings.copy.wallets:
         return str(settings.copy.wallets[0]).lower()
-    username = settings.copy.username.lstrip("@")
+    username = (settings.copy.username or "").lstrip("@").strip()
+    if not username:
+        return None
     try:
         resp = http.client.get(f"https://polymarket.com/@{username}")
         resp.raise_for_status()
@@ -123,10 +125,9 @@ def resolve_wallets(
     *,
     data_dir: Path | None = None,
 ) -> list[str]:
-    """All leader wallets: settings + dashboard wallets.json (+ profile fallback)."""
+    """Leader wallets from dashboard wallets.json (preferred) + optional settings."""
     root = Path(data_dir) if data_dir is not None else None
     if root is None:
-        # Caller usually has an engine; fall back to settings-only.
         wallets = []
         if settings.copy.wallet:
             wallets.append(settings.copy.wallet.lower())
@@ -134,15 +135,13 @@ def resolve_wallets(
             ww = str(w).lower()
             if ww and ww not in wallets:
                 wallets.append(ww)
-        if wallets:
-            return wallets
-        primary = resolve_wallet(http, settings)
-        return [primary] if primary else []
+        return wallets
 
     rows = list_copy_wallets(root, settings)
     wallets = [r["address"] for r in rows]
     if wallets:
         return wallets
+    # No dashboard/settings wallets — only scrape a profile if username is set.
     primary = resolve_wallet(http, settings)
     return [primary] if primary else []
 

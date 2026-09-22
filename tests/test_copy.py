@@ -109,6 +109,7 @@ def test_prune_seen_keeps_recent(tmp_path):
 
 def test_normalize_and_manage_wallets(tmp_path: Path):
     settings = load_settings()
+    assert not settings.copy.wallet
     with pytest.raises(ValueError):
         normalize_wallet("not-a-wallet")
     addr = "0x09b045baad1fbe115c70785635a261411774a3b6"
@@ -116,6 +117,30 @@ def test_normalize_and_manage_wallets(tmp_path: Path):
     assert row["address"] == addr
     assert row["label"] == "leader"
     wallets = list_copy_wallets(tmp_path, settings)
-    assert any(w["address"] == addr for w in wallets)
+    assert wallets == [{"address": addr, "label": "leader", "source": "dashboard"}]
     assert remove_copy_wallet(tmp_path, addr) is True
+    assert list_copy_wallets(tmp_path, settings) == []
     assert remove_copy_wallet(tmp_path, addr) is False
+
+
+def test_dashboard_wallet_wins_over_settings(tmp_path: Path):
+    from papertrader.config import CopySettings
+    from types import SimpleNamespace
+
+    # Simulate a leftover settings hardcode that must not hide the dashboard entry.
+    settings = SimpleNamespace(
+        copy=CopySettings(
+            username="",
+            wallet="0x09b045baad1fbe115c70785635a261411774a3b6",
+            wallets=(),
+            scale=0.1,
+            poll_interval_ms=2000,
+            recent_limit=50,
+        )
+    )
+    dash = "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"
+    add_copy_wallet(tmp_path, dash, label="ui")
+    wallets = list_copy_wallets(tmp_path, settings)  # type: ignore[arg-type]
+    assert wallets[0]["address"] == dash
+    assert wallets[0]["source"] == "dashboard"
+    assert any(w["address"].startswith("0x09b0") and w["source"] == "settings" for w in wallets)

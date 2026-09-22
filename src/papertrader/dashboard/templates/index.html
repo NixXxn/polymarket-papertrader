@@ -131,7 +131,7 @@
           style="width:140px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:transparent;color:inherit" />
         <button id="copyWalletAddBtn" type="button">Add wallet</button>
       </div>
-      <div class="mini" style="margin-top:6px">Runs as a separate process: <code>papertrader run --strategy copy</code>. New wallets are picked up on the next poll.</div>
+      <div class="mini" style="margin-top:6px">Leaders are only the wallets listed above (saved in <code>copy/wallets.json</code>). Runs as <code>papertrader run --strategy copy</code> — restart/reload picks up adds.</div>
     </div>
   </div>
 
@@ -355,9 +355,11 @@
     const latPill = lat.count
       ? `<span class="pill">Ø Latenz ${ms(lat.avg_ms)} (p50 ${ms(lat.p50_ms)}, p95 ${ms(lat.p95_ms)})</span>`
       : '';
-    document.getElementById('copyPills').innerHTML = `
+            document.getElementById('copyPills').innerHTML = `
       <span class="pill">${copy.active ? 'engine aktiv' : 'engine idle'}</span>
-      <span class="pill">@${esc(copy.username || '–')}</span>
+      ${(copy.wallets || []).length
+        ? `<span class="pill">${(copy.wallets || []).length} Leader-Wallet(s)</span>`
+        : '<span class="pill warn">keine Leader-Wallets</span>'}
       <span class="pill">${copy.seen_trades || 0} gesehene Leader-Trades</span>
       <span class="pill">Scale ${copy.scale != null ? Number(copy.scale).toFixed(4) : '–'}</span>
       ${latPill}`;

@@ -155,9 +155,10 @@ conviction:
   - denver
   - london
 copy:
-  # Primary leader wallet (also editable via dashboard → copy/wallets.json).
-  wallet: '0x09b045baad1fbe115c70785635a261411774a3b6'
+  # Leaders come from the dashboard (copy/wallets.json). Leave wallet/wallets empty.
+  wallet: ''
   wallets: []
+  username: ''
   scale: 0.1
   # 250ms hammered data-api → 429/DNS failures and missed prints. 2s is enough.
   poll_interval_ms: 2000

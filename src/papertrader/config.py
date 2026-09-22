@@ -934,7 +934,7 @@ def load_settings(
             high_hour_local=int(edge_raw.get("high_hour_local", 20)),
         ),
         copy=CopySettings(
-            username=str(copy_raw.get("username") or "0x.aljjj").lstrip("@"),
+            username=str(copy_raw.get("username") or "").lstrip("@"),
             wallet=str(copy_raw.get("wallet") or "").lower(),
             wallets=tuple(
                 str(w).lower()
