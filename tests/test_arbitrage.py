@@ -21,8 +21,8 @@ def test_arbitrage_settings_loaded():
     assert s.arbitrage.starting_balance == 1000
     assert s.arbitrage.exit_ladder_prices == ()
     assert s.arbitrage.rebalance_enabled is False
-    assert s.arbitrage.min_pair_profit_pct > 0
-    assert s.arbitrage.pair_bid_sum_exit >= 0.95
+    assert s.arbitrage.prefer_crypto_weather is False
+    assert s.arbitrage.max_pair_cost >= 0.97
 
 
 def test_analyze_arbitrage_emits_paired_legs(monkeypatch, tmp_path):
@@ -134,7 +134,7 @@ def test_analyze_arbitrage_orphans_do_not_block_new_pairs(monkeypatch, tmp_path)
     assert len(sigs) == 2
 
 
-def test_analyze_arbitrage_maker_no_paper_fill_at_limit(monkeypatch, tmp_path):
+def test_analyze_arbitrage_maker_paper_fill_at_limit(monkeypatch, tmp_path):
     settings = load_settings()
     engine = MagicMock()
     engine.db.data_dir = tmp_path
@@ -174,7 +174,7 @@ def test_analyze_arbitrage_maker_no_paper_fill_at_limit(monkeypatch, tmp_path):
     assert len(sigs) == 2
     assert {s.outcome for s in sigs} == {"up", "down"}
     assert all(s.order_type == "limit" for s in sigs)
-    assert all(not s.paper_fill_at_limit for s in sigs)
+    assert all(s.paper_fill_at_limit for s in sigs)
     pair_sum = sum(s.limit_price or 0 for s in sigs)
     assert pair_sum <= settings.arbitrage.max_pair_cost + 1e-9
     assert pair_sum < 1.0

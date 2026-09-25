@@ -268,33 +268,32 @@ volspike:
   stop_loss_pct: 0.10
   take_profit_pct: 0.14
   allow_cold_start: false
-# Steady two-leg arb: take clear edges (paper FAK walks book = live), rest maker otherwise.
-# Orphans never permanently block new pairs; exit needs a small profit cushion.
+# Steady two-leg arb: take when ask-sum still locks an edge; otherwise rest maker.
+# Slightly looser so live/paper actually posts instead of scanning empty.
 arbitrage:
   starting_balance: 1000
-  max_pair_cost: 0.96
-  max_maker_ask_sum: 1.04
-  min_edge: 0.02
-  fee_buffer: 0.01
-  min_liquidity: 300
-  min_volume_24h: 100
+  max_pair_cost: 0.98
+  max_maker_ask_sum: 1.06
+  min_edge: 0.012
+  fee_buffer: 0.005
+  min_liquidity: 150
+  min_volume_24h: 50
   min_ask: 0.02
-  max_ask: 0.95
-  min_ask_size: 5
-  book_fill_fraction: 0.75
+  max_ask: 0.98
+  min_ask_size: 3
+  book_fill_fraction: 1.0
   position_usd: 40
   max_position_usd: 80
-  max_open_pairs: 6
+  max_open_pairs: 8
   maker_tick: 0.01
-  # Paper FAK on clear edge (book walk). Maker posts still rest — no fill-at-limit.
   paper_fak: true
-  prefer_crypto_weather: true
+  prefer_crypto_weather: false
   prefer_lp_rewards: true
-  scan_limit: 250
+  scan_limit: 400
   exit_ladder_prices: []
   exit_ladder_fraction: 0
   rebalance_enabled: false
-  min_pair_profit_pct: 0.008
+  min_pair_profit_pct: 0.005
   pair_bid_sum_exit: 0.97
 # Buy weather NO with real edge. Prior 96–98¢ fills won ~2¢ then wiped −$25
 # on the rare miss (~93% WR still −EV). Stay 88–91¢, TP +7¢, stop before wipe.
@@ -333,28 +332,27 @@ weatherlock:
   - cape-town
   - tokyo
   - sydney
-# Sports/esports Yes/No near expiry — buy favorites 88–96¢, TP +5¢, stop before wipe.
-# Paper fill-at-ask mirrors live take; size to book; leave cash dust for float rounding.
+# Sports/esports Yes/No near expiry. Slightly wider band/window so locks actually fill.
 endgame:
   starting_balance: 1000
   min_minutes: 0
-  max_minutes: 10
+  max_minutes: 15
   look_ahead_minutes: 360
-  price_min: 0.88
-  price_max: 0.96
-  min_liquidity: 150
-  min_ask_size: 8
-  book_fill_fraction: 0.8
+  price_min: 0.86
+  price_max: 0.97
+  min_liquidity: 80
+  min_ask_size: 4
+  book_fill_fraction: 1.0
   use_full_capital: false
-  position_usd: 60
+  position_usd: 50
   max_position_usd: 100
-  max_open_positions: 3
+  max_open_positions: 4
   sell_limit: 0.99
   take_profit_offset: 0.05
-  stop_bid: 0.80
+  stop_bid: 0.78
   yes_no_only: true
   paper_fill_at_limit: true
-  poll_interval_seconds: 15
+  poll_interval_seconds: 12
 intel:
   enabled: true
   shadow_only: false

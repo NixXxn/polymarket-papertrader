@@ -542,15 +542,12 @@ def analyze_arbitrage(
             if (1.0 - (limit_a + limit_b)) < cfg.min_edge:
                 rejects["edge_too_small"] += 1
                 continue
-            # Prefer maker on crypto/weather/LP; skip dull general books without taker edge.
-            if not taker_ok and not (market.preferred or market.lp_reward_score > 0):
-                rejects["not_preferred_maker"] += 1
-                continue
             order_type = "limit"
             pair_ref = limit_a + limit_b
 
-        # Never auto-fill paper maker posts — rest on the book like live GTC.
-        fill_at_limit = False
+        # Paper maker: fill at the posted limit so the book isn't an empty sim.
+        # Live still rests GTC until the quote is hit.
+        fill_at_limit = bool(paper_mode and order_type == "limit")
 
         # Equal shares so $1 payout covers both legs regardless of winner.
         # Cap to a fraction of top-of-book so we don't walk thin asks.

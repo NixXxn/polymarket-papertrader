@@ -54,13 +54,13 @@ def test_is_yes_no_market():
 def test_analyze_endgame_buys_capped_size(monkeypatch, tmp_path):
     settings = load_settings()
     assert settings.endgame.use_full_capital is False
-    assert settings.endgame.price_min == 0.88
-    assert settings.endgame.price_max == 0.96
+    assert settings.endgame.price_min == 0.86
+    assert settings.endgame.price_max == 0.97
     assert settings.endgame.sell_limit == 0.99
     assert settings.endgame.take_profit_offset == 0.05
-    assert settings.endgame.stop_bid == 0.80
-    assert settings.endgame.max_minutes == 10
-    assert settings.endgame.position_usd == 60
+    assert settings.endgame.stop_bid == 0.78
+    assert settings.endgame.max_minutes == 15
+    assert settings.endgame.position_usd == 50
     assert settings.endgame.paper_fill_at_limit is True
     assert settings.endgame.yes_no_only is True
 
@@ -100,7 +100,7 @@ def test_analyze_endgame_buys_capped_size(monkeypatch, tmp_path):
     assert sig.action == "buy"
     assert sig.slug == "will-demo-team-win-2026-09-15"
     assert sig.outcome.lower() == "yes"
-    assert sig.amount_usd == 60.0
+    assert sig.amount_usd == 50.0
     assert sig.order_type == "limit"
     assert sig.limit_price == 0.92
     assert sig.paper_fill_at_limit is True

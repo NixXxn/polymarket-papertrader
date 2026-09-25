@@ -226,7 +226,7 @@ def analyze_endgame(
     engine: Engine,
     settings: Settings,
     *,
-    max_signals: int = 1,
+    max_signals: int = 2,
     now: datetime | None = None,
     paper_mode: bool = False,
 ) -> list[Signal]:
