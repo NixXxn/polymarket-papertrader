@@ -493,13 +493,15 @@ def analyze_arbitrage(
             rejects["no_quote"] += 1
             continue
 
+        # Same fee/edge gates in paper and live so paper P&L matches live fills.
         taker_cap = cfg.max_pair_cost
+        taker_ok = quote.pair_cost + cfg.fee_buffer <= taker_cap + 1e-9
+        taker_ok = taker_ok and (1.0 - quote.pair_cost) >= cfg.min_edge
+        # Live FAK on clear edge; paper defaults to maker GTC (paper_fak off) — no fill-at-limit.
         if paper_mode:
-            # Paper: take any gross ask-sum under $1 (sim has no separate fee drag on both legs).
-            taker_cap = max(cfg.max_pair_cost, 0.995)
-        taker_ok = quote.pair_cost + (0.0 if paper_mode else cfg.fee_buffer) <= taker_cap + 1e-9
-        taker_ok = taker_ok and (1.0 - quote.pair_cost) >= (cfg.min_edge * (0.5 if paper_mode else 1.0))
-        use_fak = bool(paper_mode and cfg.paper_fak and taker_ok)
+            use_fak = bool(taker_ok and cfg.paper_fak)
+        else:
+            use_fak = bool(taker_ok)
 
         if use_fak:
             limit_a = round(quote.ask_a, 4)
@@ -539,12 +541,14 @@ def analyze_arbitrage(
             order_type = "limit"
             pair_ref = limit_a + limit_b
 
-        # Paper maker: fill both legs at posted limits so locked edge is bookable.
-        fill_at_limit = bool(paper_mode and cfg.paper_fak and order_type == "limit")
+        # Never auto-fill paper maker posts — rest on the book like live GTC.
+        fill_at_limit = False
 
         # Equal shares so $1 payout covers both legs regardless of winner.
+        # Cap to a fraction of top-of-book so we don't walk thin asks.
+        book_frac = max(0.1, min(1.0, float(getattr(cfg, "book_fill_fraction", 0.5))))
         target_shares = pair_budget / pair_ref
-        max_by_book = min(quote.size_a, quote.size_b)
+        max_by_book = min(quote.size_a, quote.size_b) * book_frac
         target_shares = min(target_shares, max_by_book)
         amount_a = round(target_shares * limit_a, 2)
         amount_b = round(target_shares * limit_b, 2)

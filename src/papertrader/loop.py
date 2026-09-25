@@ -1063,6 +1063,15 @@ def scan_once(
                 counts.orders_placed += 1
                 if filled:
                     counts.fills += 1
+            # Immediate orphan unwind if only one leg filled this cycle.
+            for sig in arbitrage_exits(arbitrage_engine, settings):
+                filled = execute_signal(
+                    arbitrage_engine, sig, dry_run, live=live, ctx=ctx, strategy="arbitrage"
+                )
+                emitted.append(sig)
+                if filled:
+                    counts.risk_exits += 1
+                    counts.fills += 1
         except Exception as e:
             log.exception("arbitrage scan failed: %s", e)
             append_activity(

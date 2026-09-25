@@ -452,6 +452,10 @@ def analyze_endgame(
             size = cash
         else:
             size = min(cfg.position_usd, cfg.max_position_usd, cash)
+        # Cap clip to visible ask depth (fraction) so paper/live don't assume infinite fill.
+        book_frac = max(0.1, min(1.0, float(getattr(cfg, "book_fill_fraction", 0.6))))
+        depth_usd = float(ask) * float(ask_size) * book_frac
+        size = min(size, depth_usd)
         size = round(size, 2)
         if size < settings.min_position_usd:
             rejects["tiny_size"] += 1
@@ -462,6 +466,7 @@ def analyze_endgame(
             float(cfg.sell_limit),
             float(limit_px) + float(cfg.take_profit_offset),
         )
+        # Paper defaults off: wait for book like live GTC (no instant fill-at-limit).
         fill_now = bool(paper_mode and cfg.paper_fill_at_limit)
         reason = (
             f"endgame {minutes_left:.1f}m yes/no @{limit_px:.2f} "

@@ -68,12 +68,19 @@ def test_analyze_arbitrage_emits_paired_legs(monkeypatch, tmp_path):
     outcomes = {s.outcome for s in sigs}
     assert outcomes == {"yes", "no"}
     assert all(s.action == "buy" for s in sigs)
-    assert all(s.order_type == "fak" for s in sigs)
+    # Paper defaults to maker GTC (no optimistic FAK / fill-at-limit).
+    assert all(s.order_type == "limit" for s in sigs)
+    assert all(not s.paper_fill_at_limit for s in sigs)
     assert sum(s.limit_price or 0 for s in sigs) <= settings.arbitrage.max_pair_cost + 1e-9
     assert sum(s.amount_usd or 0 for s in sigs) <= settings.arbitrage.max_position_usd + 1e-6
 
+    # Live mode: FAK when fee-aware edge clears.
+    live_sigs = analyze_arbitrage(engine, settings, paper_mode=False)
+    assert len(live_sigs) == 2
+    assert all(s.order_type == "fak" for s in live_sigs)
 
-def test_analyze_arbitrage_maker_paper_fill_at_limit(monkeypatch, tmp_path):
+
+def test_analyze_arbitrage_maker_no_paper_fill_at_limit(monkeypatch, tmp_path):
     settings = load_settings()
     engine = MagicMock()
     engine.db.data_dir = tmp_path
@@ -113,7 +120,7 @@ def test_analyze_arbitrage_maker_paper_fill_at_limit(monkeypatch, tmp_path):
     assert len(sigs) == 2
     assert {s.outcome for s in sigs} == {"up", "down"}
     assert all(s.order_type == "limit" for s in sigs)
-    assert all(s.paper_fill_at_limit for s in sigs)
+    assert all(not s.paper_fill_at_limit for s in sigs)
     pair_sum = sum(s.limit_price or 0 for s in sigs)
     assert pair_sum <= settings.arbitrage.max_pair_cost + 1e-9
     assert pair_sum < 1.0

@@ -57,10 +57,11 @@ def test_analyze_endgame_buys_capped_size(monkeypatch, tmp_path):
     assert settings.endgame.price_min == 0.90
     assert settings.endgame.price_max == 0.95
     assert settings.endgame.sell_limit == 0.98
-    assert settings.endgame.take_profit_offset == 0.05
-    assert settings.endgame.stop_bid == 0.78
+    assert settings.endgame.take_profit_offset == 0.04
+    assert settings.endgame.stop_bid == 0.82
     assert settings.endgame.max_minutes == 6
-    assert settings.endgame.position_usd == 150
+    assert settings.endgame.position_usd == 75
+    assert settings.endgame.paper_fill_at_limit is False
     assert settings.endgame.yes_no_only is True
 
     now = datetime(2026, 9, 15, 12, 0, tzinfo=timezone.utc)
@@ -99,10 +100,10 @@ def test_analyze_endgame_buys_capped_size(monkeypatch, tmp_path):
     assert sig.action == "buy"
     assert sig.slug == "will-demo-team-win-2026-09-15"
     assert sig.outcome.lower() == "yes"
-    assert sig.amount_usd == 150.0
+    assert sig.amount_usd == 75.0
     assert sig.order_type == "limit"
     assert sig.limit_price == 0.92
-    assert sig.paper_fill_at_limit is True
+    assert sig.paper_fill_at_limit is False
 
 
 def test_analyze_endgame_rejects_team_name_moneyline(monkeypatch, tmp_path):
@@ -223,6 +224,6 @@ def test_endgame_exits_place_soft_take_profit(tmp_path):
     assert len(sigs) == 1
     assert sigs[0].action == "sell"
     assert sigs[0].order_type == "limit"
-    # Soft TP: min(sell_limit 0.98, entry 0.90 + offset 0.05) = 0.95
-    assert abs(sigs[0].limit_price - 0.95) < 1e-9
+    # Soft TP: min(sell_limit 0.98, entry 0.90 + offset 0.04) = 0.94
+    assert abs(sigs[0].limit_price - 0.94) < 1e-9
     assert sigs[0].endgame_take_profit is True
