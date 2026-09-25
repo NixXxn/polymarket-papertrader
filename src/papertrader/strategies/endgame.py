@@ -1,4 +1,4 @@
-"""Endgame: buy sports/esports Yes/No favorites ≥85¢ near expiry, TP @98¢."""
+"""Endgame: buy sports/esports Yes/No favorites near expiry; soft TP + early stop."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from papertrader.decision_log import log_decision
 from papertrader.endgame_state import EndgameExitStore
 from papertrader.markets import best_ask, best_bid
 from papertrader.signals import Signal
+from papertrader.sizing import spendable_usd
 
 log = logging.getLogger("papertrader")
 
@@ -448,12 +449,13 @@ def analyze_endgame(
             )
             continue
 
+        spendable = spendable_usd(cash)
         if cfg.use_full_capital:
-            size = cash
+            size = spendable
         else:
-            size = min(cfg.position_usd, cfg.max_position_usd, cash)
+            size = min(cfg.position_usd, cfg.max_position_usd, spendable)
         # Cap clip to visible ask depth (fraction) so paper/live don't assume infinite fill.
-        book_frac = max(0.1, min(1.0, float(getattr(cfg, "book_fill_fraction", 0.6))))
+        book_frac = max(0.1, min(1.0, float(getattr(cfg, "book_fill_fraction", 0.8))))
         depth_usd = float(ask) * float(ask_size) * book_frac
         size = min(size, depth_usd)
         size = round(size, 2)
@@ -466,7 +468,7 @@ def analyze_endgame(
             float(cfg.sell_limit),
             float(limit_px) + float(cfg.take_profit_offset),
         )
-        # Paper defaults off: wait for book like live GTC (no instant fill-at-limit).
+        # Fill-at-ask on paper mirrors live take when we post at the ask.
         fill_now = bool(paper_mode and cfg.paper_fill_at_limit)
         reason = (
             f"endgame {minutes_left:.1f}m yes/no @{limit_px:.2f} "

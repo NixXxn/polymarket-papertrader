@@ -422,20 +422,25 @@ def analyze_arbitrage(
 
     positions = engine.db.get_open_positions()
     pairs = _open_pairs(positions)
-    open_pair_count = sum(1 for legs in pairs.values() if len(legs) >= 1)
-    if open_pair_count >= cfg.max_open_pairs:
+    # Only complete (2-leg) pairs consume capacity — orphans are unwound and must
+    # not permanently block new entries (legacy lose-leg exits left many orphans).
+    complete_pairs = sum(1 for legs in pairs.values() if len(legs) >= 2)
+    orphan_count = sum(1 for legs in pairs.values() if len(legs) == 1)
+    open_pair_count = complete_pairs
+    if complete_pairs >= cfg.max_open_pairs:
         _log_arb(
             engine,
             decision="skip",
             reason="max_open_pairs",
-            open_pairs=open_pair_count,
+            open_pairs=complete_pairs,
+            orphans=orphan_count,
             max_open_pairs=cfg.max_open_pairs,
             ph_slugs=len(ph_slugs),
         )
         return []
 
     bankroll = account_cash(engine, cfg.starting_balance or settings.starting_balance)
-    remaining_slots = max(1, cfg.max_open_pairs - open_pair_count)
+    remaining_slots = max(1, cfg.max_open_pairs - complete_pairs)
     pair_budget = scaled_size(
         cfg.position_usd,
         cash=bankroll,
@@ -468,10 +473,12 @@ def analyze_arbitrage(
         reason=(
             f"arbitrage scan: {len(markets)} binary candidates / "
             f"budget=${pair_budget:.2f} / open_pairs={open_pair_count}"
+            + (f" / orphans={orphan_count}" if orphan_count else "")
             + (f" / ph_slugs={len(ph_slugs)}" if ph_slugs else "")
         ),
         candidates=len(markets),
         open_pairs=open_pair_count,
+        orphans=orphan_count,
         pair_budget=pair_budget,
         ph_slugs=len(ph_slugs),
     )
@@ -497,9 +504,10 @@ def analyze_arbitrage(
         taker_cap = cfg.max_pair_cost
         taker_ok = quote.pair_cost + cfg.fee_buffer <= taker_cap + 1e-9
         taker_ok = taker_ok and (1.0 - quote.pair_cost) >= cfg.min_edge
-        # Live FAK on clear edge; paper defaults to maker GTC (paper_fak off) — no fill-at-limit.
-        if paper_mode:
-            use_fak = bool(taker_ok and cfg.paper_fak)
+        # Take clear edges with FAK (paper walks book; live CLOB FAK). paper_fak=false
+        # forces maker-only for paper sims that want resting-only behavior.
+        if paper_mode and not cfg.paper_fak:
+            use_fak = False
         else:
             use_fak = bool(taker_ok)
 
@@ -670,12 +678,13 @@ def arbitrage_exits(engine: Engine, settings: Settings) -> list[Signal]:
         shares: float,
         *,
         reason: str,
-        bid: float,
+        bid: float | None,
     ) -> Signal | None:
         sell_shares = min(float(pos.shares), float(shares))
         if sell_shares <= 0:
             return None
-        if sell_shares * bid < min_sell_usd and sell_shares < pos.shares - 1e-9:
+        px = float(bid) if bid is not None and bid > 0 else 0.0
+        if px > 0 and sell_shares * px < min_sell_usd and sell_shares < pos.shares - 1e-9:
             return None
         _log_arb(
             engine,
@@ -684,7 +693,7 @@ def arbitrage_exits(engine: Engine, settings: Settings) -> list[Signal]:
             slug=pos.market_slug,
             outcome=pos.outcome,
             shares=round(sell_shares, 4),
-            bid=bid,
+            bid=px or None,
             partial_exit=False,
         )
         return Signal(
@@ -693,7 +702,8 @@ def arbitrage_exits(engine: Engine, settings: Settings) -> list[Signal]:
             outcome=pos.outcome,
             shares=sell_shares,
             order_type="fak",
-            limit_price=bid,
+            # Market FAK when book is empty/thin so orphans never stick forever.
+            limit_price=px if px >= 0.01 else None,
             partial_exit=False,
             market_condition_id=pos.market_condition_id,
             reason=reason,
@@ -703,10 +713,9 @@ def arbitrage_exits(engine: Engine, settings: Settings) -> list[Signal]:
         if len(legs) < 2:
             for _outcome, pos in legs.items():
                 bid, _ask = _leg_book(pos)
-                if bid is None or bid < 0.01:
-                    continue
+                bid_txt = f"{bid:.3f}" if bid is not None else "none"
                 reason = (
-                    f"arb orphan exit {_outcome} bid={bid:.3f} "
+                    f"arb orphan exit {_outcome} bid={bid_txt} "
                     f"(incomplete pair on {pos.market_slug})"
                 )
                 sig = _sell(pos, pos.shares, reason=reason, bid=bid)

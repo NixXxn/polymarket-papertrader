@@ -268,34 +268,34 @@ volspike:
   stop_loss_pct: 0.10
   take_profit_pct: 0.14
   allow_cold_start: false
-# Live-realistic two-leg arb: no paper fill shortcuts; size to book; fee-aware exits.
+# Steady two-leg arb: take clear edges (paper FAK walks book = live), rest maker otherwise.
+# Orphans never permanently block new pairs; exit needs a small profit cushion.
 arbitrage:
   starting_balance: 1000
-  max_pair_cost: 0.93
-  max_maker_ask_sum: 1.03
-  min_edge: 0.03
-  fee_buffer: 0.015
-  min_liquidity: 600
-  min_volume_24h: 250
+  max_pair_cost: 0.96
+  max_maker_ask_sum: 1.04
+  min_edge: 0.02
+  fee_buffer: 0.01
+  min_liquidity: 300
+  min_volume_24h: 100
   min_ask: 0.02
   max_ask: 0.95
-  min_ask_size: 20
-  book_fill_fraction: 0.5
-  position_usd: 30
-  max_position_usd: 60
-  max_open_pairs: 5
+  min_ask_size: 5
+  book_fill_fraction: 0.75
+  position_usd: 40
+  max_position_usd: 80
+  max_open_pairs: 6
   maker_tick: 0.01
-  # Paper posts GTC like live (no instant FAK / fill-at-limit). Live still FAK when taker_ok.
-  paper_fak: false
-  prefer_crypto_weather: false
+  # Paper FAK on clear edge (book walk). Maker posts still rest — no fill-at-limit.
+  paper_fak: true
+  prefer_crypto_weather: true
   prefer_lp_rewards: true
   scan_limit: 250
-  # Ladder / lose-leg / rebalance disabled — sell BOTH legs when pair is in profit.
   exit_ladder_prices: []
   exit_ladder_fraction: 0
   rebalance_enabled: false
-  min_pair_profit_pct: 0.02
-  pair_bid_sum_exit: 0.985
+  min_pair_profit_pct: 0.008
+  pair_bid_sum_exit: 0.97
 # Buy weather NO with real edge. Prior 96–98¢ fills won ~2¢ then wiped −$25
 # on the rare miss (~93% WR still −EV). Stay 88–91¢, TP +7¢, stop before wipe.
 weatherlock:
@@ -333,28 +333,28 @@ weatherlock:
   - cape-town
   - tokyo
   - sydney
-# Sports/esports Yes/No near expiry — paper waits on book like live GTC (no fill-at-limit).
-# Size to visible ask depth; earlier stop; smaller clips for CLOB fillability.
+# Sports/esports Yes/No near expiry — buy favorites 88–96¢, TP +5¢, stop before wipe.
+# Paper fill-at-ask mirrors live take; size to book; leave cash dust for float rounding.
 endgame:
   starting_balance: 1000
   min_minutes: 0
-  max_minutes: 6
+  max_minutes: 10
   look_ahead_minutes: 360
-  price_min: 0.90
-  price_max: 0.95
-  min_liquidity: 400
-  min_ask_size: 25
-  book_fill_fraction: 0.6
+  price_min: 0.88
+  price_max: 0.96
+  min_liquidity: 150
+  min_ask_size: 8
+  book_fill_fraction: 0.8
   use_full_capital: false
-  position_usd: 75
-  max_position_usd: 120
-  max_open_positions: 2
-  sell_limit: 0.98
-  take_profit_offset: 0.04
-  stop_bid: 0.82
+  position_usd: 60
+  max_position_usd: 100
+  max_open_positions: 3
+  sell_limit: 0.99
+  take_profit_offset: 0.05
+  stop_bid: 0.80
   yes_no_only: true
-  paper_fill_at_limit: false
-  poll_interval_seconds: 20
+  paper_fill_at_limit: true
+  poll_interval_seconds: 15
 intel:
   enabled: true
   shadow_only: false

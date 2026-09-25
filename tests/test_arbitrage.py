@@ -68,16 +68,70 @@ def test_analyze_arbitrage_emits_paired_legs(monkeypatch, tmp_path):
     outcomes = {s.outcome for s in sigs}
     assert outcomes == {"yes", "no"}
     assert all(s.action == "buy" for s in sigs)
-    # Paper defaults to maker GTC (no optimistic FAK / fill-at-limit).
-    assert all(s.order_type == "limit" for s in sigs)
+    # Clear fee-aware edge → FAK in paper (book walk) and live.
+    assert all(s.order_type == "fak" for s in sigs)
     assert all(not s.paper_fill_at_limit for s in sigs)
     assert sum(s.limit_price or 0 for s in sigs) <= settings.arbitrage.max_pair_cost + 1e-9
     assert sum(s.amount_usd or 0 for s in sigs) <= settings.arbitrage.max_position_usd + 1e-6
 
-    # Live mode: FAK when fee-aware edge clears.
     live_sigs = analyze_arbitrage(engine, settings, paper_mode=False)
     assert len(live_sigs) == 2
     assert all(s.order_type == "fak" for s in live_sigs)
+
+
+def test_analyze_arbitrage_orphans_do_not_block_new_pairs(monkeypatch, tmp_path):
+    """Legacy lose-leg leftovers must not permanently freeze entries."""
+    settings = load_settings()
+    engine = MagicMock()
+    engine.db.data_dir = tmp_path
+    engine.get_account.return_value = SimpleNamespace(cash=1000.0)
+    # Fill max_open_pairs slots with single-leg orphans.
+    orphans = []
+    for i in range(settings.arbitrage.max_open_pairs + 2):
+        orphans.append(
+            SimpleNamespace(
+                shares=10.0,
+                is_resolved=False,
+                market_condition_id=f"0xorphan{i}",
+                market_slug=f"orphan-{i}",
+                outcome="yes",
+                avg_entry_price=0.5,
+                total_cost=5.0,
+            )
+        )
+    engine.db.get_open_positions.return_value = orphans
+
+    market = _ArbMarket(
+        condition_id="0xnew",
+        slug="will-new-pair",
+        question="Will new pair?",
+        outcome_a="Yes",
+        outcome_b="No",
+        liquidity=5000,
+        volume_24h=20000,
+        lp_reward_score=1.0,
+        preferred=True,
+    )
+    import papertrader.strategies.arbitrage as arb_mod
+
+    monkeypatch.setattr(arb_mod, "discover_arb_markets", lambda *_a, **_k: [market])
+    monkeypatch.setattr(
+        arb_mod,
+        "_quote_pair",
+        lambda *_a, **_k: SimpleNamespace(
+            market=market,
+            ask_a=0.42,
+            ask_b=0.48,
+            size_a=100.0,
+            size_b=100.0,
+            pair_cost=0.90,
+            edge=0.09,
+        ),
+    )
+    monkeypatch.setattr(arb_mod, "_scan_predictionhunt_arb", lambda *_a, **_k: set())
+
+    sigs = analyze_arbitrage(engine, settings, paper_mode=True)
+    assert len(sigs) == 2
 
 
 def test_analyze_arbitrage_maker_no_paper_fill_at_limit(monkeypatch, tmp_path):
