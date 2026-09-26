@@ -285,6 +285,48 @@ class EndgameSettings:
 
 
 @dataclass(frozen=True)
+class ForgeSettings:
+    """Barbell: Hearth locks for cashflow + Strike breakouts from surplus only."""
+
+    starting_balance: float | None
+    waterline_lock_fraction: float
+    book_fill_fraction: float
+    paper_fill_at_limit: bool
+    poll_interval_seconds: int
+    # Hearth sleeve
+    hearth_min_minutes: float
+    hearth_max_minutes: float
+    hearth_look_ahead_minutes: float
+    hearth_price_min: float
+    hearth_price_max: float
+    hearth_min_liquidity: float
+    hearth_min_ask_size: float
+    hearth_position_usd: float
+    hearth_max_position_usd: float
+    hearth_max_open: int
+    hearth_sell_limit: float
+    hearth_take_profit_offset: float
+    hearth_stop_bid: float
+    # Strike sleeve
+    strike_enabled: bool
+    strike_min_excess: float
+    strike_excess_fraction: float
+    strike_kelly: float
+    strike_price_min: float
+    strike_price_max: float
+    strike_min_volume: float
+    strike_min_liquidity: float
+    strike_min_ask_size: float
+    strike_min_move: float
+    strike_min_pulse: float
+    strike_max_position_usd: float
+    strike_max_open: int
+    strike_take_profit_bid: float
+    strike_take_profit_mult: float
+    strike_stop_mult: float
+
+
+@dataclass(frozen=True)
 class CopySettings:
     username: str
     wallet: str
@@ -408,6 +450,7 @@ class Settings:
     arbitrage: ArbitrageSettings
     weatherlock: WeatherlockSettings
     endgame: EndgameSettings
+    forge: ForgeSettings
     edge: EdgeSettings
     copy: CopySettings
     cities: dict[str, City] = field(default_factory=dict)
@@ -556,6 +599,7 @@ def load_settings(
     arbitrage_raw = raw.get("arbitrage") or {}
     weatherlock_raw = raw.get("weatherlock") or {}
     endgame_raw = raw.get("endgame") or {}
+    forge_raw = raw.get("forge") or {}
     live_raw = raw.get("live") or {}
     intel_raw = raw.get("intel") or {}
     adaptive_raw = raw.get("adaptive_sizing") or {}
@@ -916,6 +960,50 @@ def load_settings(
                 else None
             ),
             yes_no_only=bool(endgame_raw.get("yes_no_only", True)),
+        ),
+        forge=ForgeSettings(
+            starting_balance=(
+                float(forge_raw["starting_balance"])
+                if forge_raw.get("starting_balance") is not None
+                else None
+            ),
+            waterline_lock_fraction=float(forge_raw.get("waterline_lock_fraction", 0.35)),
+            book_fill_fraction=float(forge_raw.get("book_fill_fraction", 0.75)),
+            paper_fill_at_limit=bool(forge_raw.get("paper_fill_at_limit", True)),
+            poll_interval_seconds=int(forge_raw.get("poll_interval_seconds", 15)),
+            hearth_min_minutes=float(forge_raw.get("hearth_min_minutes", 0.0)),
+            hearth_max_minutes=float(forge_raw.get("hearth_max_minutes", 12.0)),
+            hearth_look_ahead_minutes=float(
+                forge_raw.get("hearth_look_ahead_minutes", 360.0)
+            ),
+            hearth_price_min=float(forge_raw.get("hearth_price_min", 0.88)),
+            hearth_price_max=float(forge_raw.get("hearth_price_max", 0.96)),
+            hearth_min_liquidity=float(forge_raw.get("hearth_min_liquidity", 150.0)),
+            hearth_min_ask_size=float(forge_raw.get("hearth_min_ask_size", 8.0)),
+            hearth_position_usd=float(forge_raw.get("hearth_position_usd", 80.0)),
+            hearth_max_position_usd=float(forge_raw.get("hearth_max_position_usd", 140.0)),
+            hearth_max_open=int(forge_raw.get("hearth_max_open", 3)),
+            hearth_sell_limit=float(forge_raw.get("hearth_sell_limit", 0.99)),
+            hearth_take_profit_offset=float(
+                forge_raw.get("hearth_take_profit_offset", 0.05)
+            ),
+            hearth_stop_bid=float(forge_raw.get("hearth_stop_bid", 0.80)),
+            strike_enabled=bool(forge_raw.get("strike_enabled", True)),
+            strike_min_excess=float(forge_raw.get("strike_min_excess", 80.0)),
+            strike_excess_fraction=float(forge_raw.get("strike_excess_fraction", 0.20)),
+            strike_kelly=float(forge_raw.get("strike_kelly", 0.25)),
+            strike_price_min=float(forge_raw.get("strike_price_min", 0.04)),
+            strike_price_max=float(forge_raw.get("strike_price_max", 0.14)),
+            strike_min_volume=float(forge_raw.get("strike_min_volume", 2000.0)),
+            strike_min_liquidity=float(forge_raw.get("strike_min_liquidity", 400.0)),
+            strike_min_ask_size=float(forge_raw.get("strike_min_ask_size", 15.0)),
+            strike_min_move=float(forge_raw.get("strike_min_move", 0.015)),
+            strike_min_pulse=float(forge_raw.get("strike_min_pulse", 1.8)),
+            strike_max_position_usd=float(forge_raw.get("strike_max_position_usd", 60.0)),
+            strike_max_open=int(forge_raw.get("strike_max_open", 2)),
+            strike_take_profit_bid=float(forge_raw.get("strike_take_profit_bid", 0.35)),
+            strike_take_profit_mult=float(forge_raw.get("strike_take_profit_mult", 2.5)),
+            strike_stop_mult=float(forge_raw.get("strike_stop_mult", 0.45)),
         ),
         edge=EdgeSettings(
             min_ask=float(edge_raw.get("min_ask", 0.45)),

@@ -63,6 +63,7 @@ def test_fetch_dashboard_includes_all_strategies(tmp_path):
         "arbitrage",
         "weatherlock",
         "endgame",
+        "forge",
     }
 
 

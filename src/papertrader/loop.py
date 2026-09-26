@@ -26,6 +26,7 @@ from papertrader.esports_state import EsportsExitStore
 from papertrader.momentum_state import MomentumExitStore
 from papertrader.penny_state import PennyExitStore
 from papertrader.endgame_state import EndgameExitStore
+from papertrader.forge_state import ForgeExitStore
 from papertrader.weatherlock_state import WeatherlockExitStore
 from papertrader.strategies.esports import analyze_esports_candidate, esports_exits
 from papertrader.strategies.weatherlock import analyze_weatherlock_event, weatherlock_exits
@@ -169,6 +170,36 @@ def _mark_endgame_take_profit(engine: Engine, signal: Signal) -> None:
         signal.outcome,
         market_slug=signal.slug,
         take_profit_price=float(signal.limit_price),
+    )
+
+
+def _rollback_forge_take_profit(
+    engine: Engine, signal: Signal, ctx: ExecutionContext | None = None
+) -> None:
+    if not signal.forge_take_profit:
+        return
+    condition_id = signal.market_condition_id
+    if not condition_id:
+        try:
+            market = (ctx or ExecutionContext()).get_market(engine, signal.slug)
+            condition_id = market.condition_id
+        except Exception:
+            return
+    ForgeExitStore(engine.db.data_dir).unmark_take_profit(condition_id, signal.outcome)
+
+
+def _mark_forge_take_profit(engine: Engine, signal: Signal) -> None:
+    if not signal.forge_take_profit or signal.limit_price is None:
+        return
+    condition_id = signal.market_condition_id
+    if not condition_id:
+        return
+    ForgeExitStore(engine.db.data_dir).mark_take_profit(
+        condition_id,
+        signal.outcome,
+        market_slug=signal.slug,
+        take_profit_price=float(signal.limit_price),
+        sleeve="hearth",
     )
 
 
@@ -419,6 +450,8 @@ def execute_signal(
                         _mark_penny_take_profit(engine, signal)
                     if filled and signal.endgame_take_profit:
                         _mark_endgame_take_profit(engine, signal)
+                    if filled and signal.forge_take_profit:
+                        _mark_forge_take_profit(engine, signal)
                     if filled and signal.weatherlock_take_profit:
                         _mark_weatherlock_take_profit(engine, signal)
                     if filled:
@@ -470,6 +503,8 @@ def execute_signal(
                 _mark_penny_take_profit(engine, signal)
             if signal.endgame_take_profit and signal.action == "sell":
                 _mark_endgame_take_profit(engine, signal)
+            if signal.forge_take_profit and signal.action == "sell":
+                _mark_forge_take_profit(engine, signal)
             if signal.weatherlock_take_profit and signal.action == "sell":
                 _mark_weatherlock_take_profit(engine, signal)
             if signal.action == "buy":
@@ -583,6 +618,7 @@ def execute_signal(
             _rollback_momentum_take_profit(engine, signal, ctx=ctx)
             _rollback_penny_take_profit(engine, signal, ctx=ctx)
             _rollback_endgame_take_profit(engine, signal, ctx=ctx)
+            _rollback_forge_take_profit(engine, signal, ctx=ctx)
             _rollback_weatherlock_take_profit(engine, signal, ctx=ctx)
             append_skipped(engine.db.data_dir, strategy=strategy, signal=signal, error=str(e))
             append_activity(
@@ -673,6 +709,7 @@ def scan_once(
     arbitrage_engine: Engine | None = None,
     weatherlock_engine: Engine | None = None,
     endgame_engine: Engine | None = None,
+    forge_engine: Engine | None = None,
     dry_run: bool,
     today: date | None = None,
     live: LiveTrader | None = None,
@@ -704,6 +741,8 @@ def scan_once(
         live_engines.append(("weatherlock", weatherlock_engine))
     if endgame_engine is not None:
         live_engines.append(("endgame", endgame_engine))
+    if forge_engine is not None:
+        live_engines.append(("forge", forge_engine))
     if live is not None and live_engines:
         _sync_live_engines(live, live_engines)
 
@@ -720,6 +759,7 @@ def scan_once(
             arbitrage_engine,
             weatherlock_engine,
             endgame_engine,
+            forge_engine,
         )
         if e is not None
     ]
@@ -779,6 +819,62 @@ def scan_once(
                 decision="error",
                 reason=str(e),
                 strategy="endgame",
+            )
+
+    # Forge early: life cashflow + surplus breakouts shouldn't wait on weather.
+    if forge_engine:
+        try:
+            from papertrader.strategies.forge import analyze_forge, forge_exits
+
+            if live is None:
+                try:
+                    forge_engine.check_orders()
+                except Exception as e:
+                    log.debug("check_orders: %s", e)
+                counts.resolved += _resolve(forge_engine)
+            positions = forge_engine.db.get_open_positions()
+            for sig in forge_exits(forge_engine, settings, positions):
+                filled = execute_signal(
+                    forge_engine, sig, dry_run, live=live, ctx=ctx, strategy="forge"
+                )
+                emitted.append(sig)
+                if filled:
+                    counts.orders_placed += 1
+                    counts.fills += 1
+                    counts.risk_exits += 1
+            any_buy_fill = False
+            for sig in analyze_forge(
+                forge_engine,
+                settings,
+                paper_mode=live is None and not dry_run,
+            ):
+                filled = execute_signal(
+                    forge_engine, sig, dry_run, live=live, ctx=ctx, strategy="forge"
+                )
+                emitted.append(sig)
+                counts.orders_placed += 1
+                if filled:
+                    counts.fills += 1
+                    any_buy_fill = True
+            if any_buy_fill:
+                positions = forge_engine.db.get_open_positions()
+                for sig in forge_exits(forge_engine, settings, positions):
+                    filled = execute_signal(
+                        forge_engine, sig, dry_run, live=live, ctx=ctx, strategy="forge"
+                    )
+                    emitted.append(sig)
+                    if filled:
+                        counts.orders_placed += 1
+                        counts.fills += 1
+                        counts.risk_exits += 1
+        except Exception as e:
+            log.exception("forge scan failed: %s", e)
+            append_activity(
+                forge_engine.db.data_dir,
+                level="error",
+                event="scan_failed",
+                strategy="forge",
+                message=str(e),
             )
 
     if asymmetric_engine:
@@ -1184,6 +1280,7 @@ def scan_once(
             arbitrage_engine,
             weatherlock_engine,
             endgame_engine,
+            forge_engine,
         )
         if e is not None
     ]
@@ -1218,6 +1315,7 @@ def run_loop(
     arbitrage_engine: Engine | None = None,
     weatherlock_engine: Engine | None = None,
     endgame_engine: Engine | None = None,
+    forge_engine: Engine | None = None,
     dry_run: bool,
     once: bool,
     live: LiveTrader | None = None,
@@ -1245,6 +1343,8 @@ def run_loop(
         named_engines.append(("weatherlock", weatherlock_engine))
     if endgame_engine is not None:
         named_engines.append(("endgame", endgame_engine))
+    if forge_engine is not None:
+        named_engines.append(("forge", forge_engine))
     poll_seconds = (
         settings.copy.poll_interval_seconds
         if copy_engine is not None
@@ -1256,6 +1356,8 @@ def run_loop(
         poll_seconds = min(poll_seconds, settings.momentum.poll_interval_seconds)
     if endgame_engine is not None:
         poll_seconds = min(poll_seconds, settings.endgame.poll_interval_seconds)
+    if forge_engine is not None:
+        poll_seconds = min(poll_seconds, settings.forge.poll_interval_seconds)
     last = ""
     try:
         ctx = ExecutionContext()
@@ -1272,6 +1374,7 @@ def run_loop(
             arbitrage_engine=arbitrage_engine,
             weatherlock_engine=weatherlock_engine,
             endgame_engine=endgame_engine,
+            forge_engine=forge_engine,
             dry_run=dry_run,
             live=live,
             ctx=ctx,
@@ -1296,6 +1399,7 @@ def run_loop(
                 arbitrage_engine=arbitrage_engine,
                 weatherlock_engine=weatherlock_engine,
                 endgame_engine=endgame_engine,
+                forge_engine=forge_engine,
                 dry_run=dry_run,
                 live=live,
                 ctx=ctx,

@@ -17,7 +17,7 @@ __all__ = [
     "reset_all_strategies",
 ]
 
-STRATEGY_NAMES = ("asymmetric", "contrarian", "conviction", "copy", "esports", "fadefinder", "momentum", "volspike", "arbitrage", "weatherlock", "endgame")
+STRATEGY_NAMES = ("asymmetric", "contrarian", "conviction", "copy", "esports", "fadefinder", "momentum", "volspike", "arbitrage", "weatherlock", "endgame", "forge")
 
 
 def account_dir(account: str, data_dir: Path | None = None) -> Path:

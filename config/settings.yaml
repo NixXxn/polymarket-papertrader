@@ -353,6 +353,43 @@ endgame:
   yes_no_only: true
   paper_fill_at_limit: true
   poll_interval_seconds: 12
+# Forge — if this were my money: Hearth locks pay life; Strike only spends surplus.
+# Waterline ratchets up with equity highs and never comes back down.
+forge:
+  starting_balance: 2000
+  waterline_lock_fraction: 0.35
+  book_fill_fraction: 0.75
+  paper_fill_at_limit: true
+  poll_interval_seconds: 15
+  hearth_min_minutes: 0
+  hearth_max_minutes: 12
+  hearth_look_ahead_minutes: 360
+  hearth_price_min: 0.88
+  hearth_price_max: 0.96
+  hearth_min_liquidity: 150
+  hearth_min_ask_size: 8
+  hearth_position_usd: 80
+  hearth_max_position_usd: 140
+  hearth_max_open: 3
+  hearth_sell_limit: 0.99
+  hearth_take_profit_offset: 0.05
+  hearth_stop_bid: 0.80
+  strike_enabled: true
+  strike_min_excess: 80
+  strike_excess_fraction: 0.20
+  strike_kelly: 0.25
+  strike_price_min: 0.04
+  strike_price_max: 0.14
+  strike_min_volume: 2000
+  strike_min_liquidity: 400
+  strike_min_ask_size: 15
+  strike_min_move: 0.015
+  strike_min_pulse: 1.8
+  strike_max_position_usd: 60
+  strike_max_open: 2
+  strike_take_profit_bid: 0.35
+  strike_take_profit_mult: 2.5
+  strike_stop_mult: 0.45
 intel:
   enabled: true
   shadow_only: false

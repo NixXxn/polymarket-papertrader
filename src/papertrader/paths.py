@@ -31,6 +31,7 @@ def root_data_dir(path: Path | str) -> Path:
         "arbitrage",
         "weatherlock",
         "endgame",
+        "forge",
     ):
         return root.parent
     return root

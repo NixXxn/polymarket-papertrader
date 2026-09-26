@@ -38,4 +38,5 @@ class Signal:
     penny_take_profit: bool = False
     endgame_take_profit: bool = False
     weatherlock_take_profit: bool = False
+    forge_take_profit: bool = False
     market_condition_id: str | None = None
