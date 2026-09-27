@@ -1,11 +1,11 @@
-"""Forge: finance life with Hearth locks; fund breakouts only from surplus.
+"""Forge: finance life with Hearth locks; Strike only from surplus (off by default).
 
 Barbell for personal capital:
-  Hearth — near-expiry Yes/No favorites (high win rate, small edge) = rent money.
-  Strike — cheap underdogs with confirmed momentum, sized only from equity
-           ABOVE a ratcheting waterline = breakout sleeve you can afford to lose.
+  Hearth — late Yes/No sports favorites (91–94¢, last 6m). Ride resolution;
+           stop only on collapse. High win rate = rent money.
+  Strike — DISABLED by default. Cheap underdog pulses burned overnight capital.
 
-The waterline only rises. When underwater vs waterline, Strike is dark.
+Waterline ratchets up. Drawdown halt freezes new buys after a fixed % loss.
 """
 
 from __future__ import annotations
@@ -298,6 +298,8 @@ def analyze_forge(
     waterline = store.ratchet(equity, start_bal, lock_fraction=cfg.waterline_lock_fraction)
     excess = max(0.0, equity - waterline)
     spendable = spendable_usd(cash)
+    drawdown_pct = ((start_bal - equity) / start_bal) if start_bal > 0 else 0.0
+    halted = drawdown_pct >= float(cfg.max_drawdown_halt_pct)
 
     log_decision(
         engine.db.data_dir,
@@ -305,16 +307,34 @@ def analyze_forge(
         decision="scan",
         reason=(
             f"forge equity=${equity:.2f} waterline=${waterline:.2f} "
-            f"excess=${excess:.2f} hearth={hearth_open}/{cfg.hearth_max_open} "
+            f"excess=${excess:.2f} dd={drawdown_pct:.1%}"
+            f"{' HALT' if halted else ''} "
+            f"hearth={hearth_open}/{cfg.hearth_max_open} "
             f"strike={strike_open}/{cfg.strike_max_open}"
         ),
         equity=round(equity, 2),
         waterline=round(waterline, 2),
         excess=round(excess, 2),
         cash=round(cash, 2),
+        drawdown_pct=round(drawdown_pct, 4),
+        halted=halted,
         hearth_open=hearth_open,
         strike_open=strike_open,
     )
+
+    if halted:
+        log_decision(
+            engine.db.data_dir,
+            strategy="forge",
+            decision="skip",
+            reason=(
+                f"drawdown_halt equity=${equity:.2f} "
+                f"dd={drawdown_pct:.1%} >= {cfg.max_drawdown_halt_pct:.0%}"
+            ),
+            equity=round(equity, 2),
+            drawdown_pct=round(drawdown_pct, 4),
+        )
+        return []
 
     signals: list[Signal] = []
 
@@ -390,12 +410,18 @@ def analyze_forge(
                 cfg.hearth_price_min <= ask <= cfg.hearth_price_max
             ):
                 continue
+            # Skip if mid is stale vs live ask (chasing a ghost lock).
+            if abs(float(ask) - float(mid)) > 0.03:
+                continue
             depth_usd = float(ask) * float(ask_size) * cfg.book_fill_fraction
             size = min(cfg.hearth_position_usd, cfg.hearth_max_position_usd, spendable, depth_usd)
             size = round(size, 2)
             if size < settings.min_position_usd:
                 continue
             limit_px = min(float(ask), float(cfg.hearth_price_max))
+            # Need enough room to TP before parity.
+            if float(cfg.hearth_sell_limit) - limit_px < 0.02:
+                continue
             tp_px = min(
                 float(cfg.hearth_sell_limit),
                 float(limit_px) + float(cfg.hearth_take_profit_offset),
@@ -642,15 +668,24 @@ def forge_exits(
                 continue
             continue
 
-        # Hearth exits
-        stop = cfg.hearth_stop_bid
-        if bid is not None and bid < stop:
+        # Hearth: only catastrophic fades — overnight 0.80 stops cut winners.
+        floor_hit = bid is not None and bid < float(cfg.hearth_stop_bid)
+        drop_hit = (
+            bid is not None
+            and entry > 0
+            and bid <= entry - float(cfg.hearth_stop_drop)
+        )
+        if floor_hit or drop_hit:
             signals.append(
                 Signal(
                     action="sell",
                     slug=pos.market_slug,
                     outcome=pos.outcome,
-                    reason=f"forge hearth stop bid={bid:.2f} < {stop:.2f}",
+                    reason=(
+                        f"forge hearth stop bid={bid:.2f} "
+                        f"(floor<{cfg.hearth_stop_bid:.2f} or "
+                        f"drop≥{cfg.hearth_stop_drop:.2f} from {entry:.2f})"
+                    ),
                     shares=pos.shares,
                     order_type="fak",
                     limit_price=None,
