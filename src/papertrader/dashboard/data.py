@@ -30,11 +30,12 @@ from papertrader.trade_log import (
 )
 
 
-STRATEGIES = ("asymmetric", "contrarian", "conviction", "copy", "esports", "momentum", "volspike", "arbitrage", "weatherlock", "endgame", "forge")
+STRATEGIES = ("asymmetric", "contrarian", "conviction", "copy", "esports", "momentum", "volspike", "arbitrage", "weatherlock", "counter-trade", "endgame", "forge")
 
 STRATEGY_LABELS: dict[str, str] = {
     "arbitrage": "Arbitrage",
     "weatherlock": "Weatherlock",
+    "counter-trade": "counter-trade",
     "endgame": "Endgame",
     "forge": "Forge",
     "predictionhunt": "Prediction Hunt",
@@ -55,6 +56,7 @@ _RESET_STATS_FILES = (
     "momentum_exit_state.json",
     "penny_exit_state.json",
     "weatherlock_exit_state.json",
+    "counter_trade_state.json",
     "endgame_exit_state.json",
     "forge_exit_state.json",
     "predictionhunt_signals.jsonl",

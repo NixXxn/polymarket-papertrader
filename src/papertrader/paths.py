@@ -20,16 +20,19 @@ def root_data_dir(path: Path | str) -> Path:
     """Strategy engines live in {root}/{strategy}/; logs go under {root}/."""
     root = Path(path)
     if root.name in (
+        "safe",
         "asymmetric",
         "contrarian",
         "conviction",
         "copy",
         "edge",
         "esports",
+        "fadefinder",
         "momentum",
         "volspike",
         "arbitrage",
         "weatherlock",
+        "counter-trade",
         "endgame",
         "forge",
     ):

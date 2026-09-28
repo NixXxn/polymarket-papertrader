@@ -14,7 +14,7 @@ from papertrader.mode import ModeError, load_dotenv_file, resolve_mode
 
 log = logging.getLogger("papertrader")
 
-_STRATEGIES = ("asymmetric", "contrarian", "conviction", "both", "copy", "esports", "fadefinder", "momentum", "volspike", "arbitrage", "weatherlock", "endgame", "forge")
+_STRATEGIES = ("asymmetric", "contrarian", "conviction", "both", "copy", "esports", "fadefinder", "momentum", "volspike", "arbitrage", "weatherlock", "counter-trade", "endgame", "forge")
 
 
 def _strategy_balance(settings, name: str) -> float:
@@ -109,6 +109,8 @@ def _start(
     volspike_engine = None
     arbitrage_engine = None
     weatherlock_engine = None
+    counter_engine = None
+    counter_source_engines = None
     endgame_engine = None
     forge_engine = None
     if strategy in ("asymmetric", "both"):
@@ -199,6 +201,23 @@ def _start(
             _strategy_balance(settings, "weatherlock"),
             reset=reset,
         )
+    if strategy in ("asymmetric", "weatherlock", "both", "counter-trade"):
+        counter_engine = make_engine(
+            "counter-trade",
+            resolved.data_dir,
+            _strategy_balance(settings, "counter-trade"),
+            reset=reset,
+        )
+    if strategy == "counter-trade":
+        # Monitor the two existing ledgers without running their scanners.
+        counter_source_engines = {
+            "asymmetric": make_engine(
+                "asymmetric", resolved.data_dir, _strategy_balance(settings, "asymmetric")
+            ),
+            "weatherlock": make_engine(
+                "weatherlock", resolved.data_dir, _strategy_balance(settings, "weatherlock")
+            ),
+        }
     if strategy in ("endgame", "both"):
         endgame_engine = make_engine(
             "endgame",
@@ -236,6 +255,8 @@ def _start(
         volspike_engine=volspike_engine,
         arbitrage_engine=arbitrage_engine,
         weatherlock_engine=weatherlock_engine,
+        counter_engine=counter_engine,
+        counter_source_engines=counter_source_engines,
         endgame_engine=endgame_engine,
         forge_engine=forge_engine,
         dry_run=dry_run,
@@ -250,7 +271,7 @@ def _start(
     "--strategy",
     type=click.Choice(_STRATEGIES),
     default="both",
-    help="both = asymmetric + contrarian + conviction + esports + momentum + volspike + arbitrage + weatherlock + endgame + forge.",
+    help="both = all scanners plus counter-trade for asymmetric/weatherlock BUY fills.",
 )
 @click.option("--dry-run", is_flag=True, help="Log would-be trades without filling.")
 @click.option("--once", is_flag=True, help="Run a single scan then exit.")
@@ -337,7 +358,7 @@ def status_cmd(cli_mode: str | None, data_dir: Path | None) -> None:
             click.echo("  CLOB balance: unavailable")
         else:
             click.echo(f"  CLOB balance: ${wallet_bal:.2f}")
-    for name in ("asymmetric", "contrarian", "conviction", "copy", "esports", "momentum", "volspike", "arbitrage", "weatherlock", "endgame", "forge"):
+    for name in ("asymmetric", "contrarian", "conviction", "copy", "esports", "momentum", "volspike", "arbitrage", "weatherlock", "counter-trade", "endgame", "forge"):
         engine = make_engine(name, resolved.data_dir, _strategy_balance(settings, name))
         try:
             if (
@@ -347,7 +368,7 @@ def status_cmd(cli_mode: str | None, data_dir: Path | None) -> None:
                 and name == "copy"
             ):
                 LiveTrader(live_client).sync_cash(engine)
-            elif name in ("asymmetric", "contrarian", "conviction", "esports", "momentum", "volspike", "arbitrage", "weatherlock", "endgame", "forge"):
+            elif name in ("asymmetric", "contrarian", "conviction", "esports", "momentum", "volspike", "arbitrage", "weatherlock", "counter-trade", "endgame", "forge"):
                 init_balance = _strategy_balance(settings, name)
                 acct = engine.get_account()
                 if acct.cash == 0 and acct.starting_balance == 0:

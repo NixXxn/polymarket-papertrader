@@ -11,6 +11,7 @@ from pm_trader.engine import Engine
 from pm_trader.models import MarketNotFoundError, NoPositionError, OrderRejectedError, SimError
 
 from papertrader.config import Settings
+from papertrader.counter_trade import CounterTradeManager, STRATEGY_NAME as COUNTER_TRADE
 from papertrader.execution import ExecutionContext, log_fill_latency
 from papertrader.live import LiveTrader
 from papertrader.quant.position_state import PositionExitStore
@@ -708,6 +709,8 @@ def scan_once(
     volspike_engine: Engine | None = None,
     arbitrage_engine: Engine | None = None,
     weatherlock_engine: Engine | None = None,
+    counter_engine: Engine | None = None,
+    counter_manager: CounterTradeManager | None = None,
     endgame_engine: Engine | None = None,
     forge_engine: Engine | None = None,
     dry_run: bool,
@@ -739,12 +742,26 @@ def scan_once(
         live_engines.append(("momentum", momentum_engine))
     if weatherlock_engine is not None:
         live_engines.append(("weatherlock", weatherlock_engine))
+    if counter_engine is not None:
+        live_engines.append((COUNTER_TRADE, counter_engine))
+    if counter_manager is not None:
+        existing = {name for name, _engine in live_engines}
+        for name, engine in counter_manager.source_engines.items():
+            if name not in existing:
+                live_engines.append((name, engine))
     if endgame_engine is not None:
         live_engines.append(("endgame", endgame_engine))
     if forge_engine is not None:
         live_engines.append(("forge", forge_engine))
     if live is not None and live_engines:
         _sync_live_engines(live, live_engines)
+
+    if counter_engine is not None and live is None:
+        try:
+            counter_engine.check_orders()
+        except Exception as e:
+            log.debug("counter-trade check_orders: %s", e)
+        counts.resolved += _resolve(counter_engine)
 
     purge_engines = [
         e
@@ -758,6 +775,7 @@ def scan_once(
             volspike_engine,
             arbitrage_engine,
             weatherlock_engine,
+            counter_engine,
             endgame_engine,
             forge_engine,
         )
@@ -1267,6 +1285,17 @@ def scan_once(
                 message=str(e),
             )
 
+    if counter_manager is not None:
+        counter_signals, counter_fills = counter_manager.process_new_buys(
+            dry_run=dry_run,
+            live=live,
+            ctx=ctx,
+            execute=execute_signal,
+        )
+        emitted.extend(counter_signals)
+        counts.orders_placed += len(counter_signals)
+        counts.fills += counter_fills
+
     engines = [
         e
         for e in (
@@ -1279,6 +1308,7 @@ def scan_once(
             volspike_engine,
             arbitrage_engine,
             weatherlock_engine,
+            counter_engine,
             endgame_engine,
             forge_engine,
         )
@@ -1314,6 +1344,8 @@ def run_loop(
     volspike_engine: Engine | None = None,
     arbitrage_engine: Engine | None = None,
     weatherlock_engine: Engine | None = None,
+    counter_engine: Engine | None = None,
+    counter_source_engines: dict[str, Engine] | None = None,
     endgame_engine: Engine | None = None,
     forge_engine: Engine | None = None,
     dry_run: bool,
@@ -1341,6 +1373,8 @@ def run_loop(
         named_engines.append(("arbitrage", arbitrage_engine))
     if weatherlock_engine is not None:
         named_engines.append(("weatherlock", weatherlock_engine))
+    if counter_engine is not None:
+        named_engines.append((COUNTER_TRADE, counter_engine))
     if endgame_engine is not None:
         named_engines.append(("endgame", endgame_engine))
     if forge_engine is not None:
@@ -1360,6 +1394,19 @@ def run_loop(
         poll_seconds = min(poll_seconds, settings.forge.poll_interval_seconds)
     last = ""
     try:
+        sources = counter_source_engines or {
+            name: engine
+            for name, engine in (
+                ("asymmetric", asymmetric_engine),
+                ("weatherlock", weatherlock_engine),
+            )
+            if engine is not None
+        }
+        counter_manager = (
+            CounterTradeManager(counter_engine, sources)
+            if counter_engine is not None and sources
+            else None
+        )
         ctx = ExecutionContext()
         _, counts = scan_once(
             settings=settings,
@@ -1373,6 +1420,8 @@ def run_loop(
             volspike_engine=volspike_engine,
             arbitrage_engine=arbitrage_engine,
             weatherlock_engine=weatherlock_engine,
+            counter_engine=counter_engine,
+            counter_manager=counter_manager,
             endgame_engine=endgame_engine,
             forge_engine=forge_engine,
             dry_run=dry_run,
@@ -1398,6 +1447,8 @@ def run_loop(
                 volspike_engine=volspike_engine,
                 arbitrage_engine=arbitrage_engine,
                 weatherlock_engine=weatherlock_engine,
+                counter_engine=counter_engine,
+                counter_manager=counter_manager,
                 endgame_engine=endgame_engine,
                 forge_engine=forge_engine,
                 dry_run=dry_run,

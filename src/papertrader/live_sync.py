@@ -10,6 +10,7 @@ from typing import Any, Protocol
 from pm_trader.engine import Engine
 from pm_trader.models import OrderRejectedError
 
+from papertrader.paths import root_data_dir
 from papertrader.trade_log import append_activity
 
 log = logging.getLogger("papertrader")
@@ -96,17 +97,11 @@ class LiveSyncState:
 
 
 def _state_path(data_dir: Path | str) -> Path:
-    root = Path(data_dir)
-    if root.name in ("safe", "asymmetric", "contrarian", "copy", "edge", "esports", "momentum"):
-        root = root.parent
-    return root / "live_sync_state.json"
+    return root_data_dir(data_dir) / "live_sync_state.json"
 
 
 def _root_data_dir(data_dir: Path | str) -> Path:
-    root = Path(data_dir)
-    if root.name in ("safe", "asymmetric", "contrarian", "copy", "edge", "esports", "momentum"):
-        return root.parent
-    return root
+    return root_data_dir(data_dir)
 
 
 def register_clob_response(
