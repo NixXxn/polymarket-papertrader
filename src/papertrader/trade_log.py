@@ -14,7 +14,7 @@ _MAX_LINES = 1000
 
 def _root_data_dir(path: Path) -> Path:
     """Strategy engines live in {root}/{strategy}/; logs go under {root}/."""
-    if path.name in ("asymmetric", "contrarian", "conviction", "copy", "edge", "esports", "momentum", "volspike", "arbitrage", "weatherlock", "counter-trade", "endgame", "forge"):
+    if path.name in ("asymmetric", "contrarian", "conviction", "copy", "edge", "esports", "momentum", "volspike", "arbitrage", "astra1", "weatherlock", "counter-trade", "endgame", "forge"):
         return path.parent
     return path
 

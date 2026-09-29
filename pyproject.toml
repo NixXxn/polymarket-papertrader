@@ -30,6 +30,9 @@ live = [
 momentum = [
     "websockets>=12.0",
 ]
+backtest = [
+    "polars>=1.44,<2",
+]
 
 [project.scripts]
 papertrader = "papertrader.cli:main"

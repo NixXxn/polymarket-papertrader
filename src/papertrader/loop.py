@@ -708,6 +708,7 @@ def scan_once(
     momentum_engine: Engine | None = None,
     volspike_engine: Engine | None = None,
     arbitrage_engine: Engine | None = None,
+    astra1_engine: Engine | None = None,
     weatherlock_engine: Engine | None = None,
     counter_engine: Engine | None = None,
     counter_manager: CounterTradeManager | None = None,
@@ -740,6 +741,8 @@ def scan_once(
         live_engines.append(("esports", esports_engine))
     if momentum_engine is not None:
         live_engines.append(("momentum", momentum_engine))
+    if astra1_engine is not None:
+        live_engines.append(("astra1", astra1_engine))
     if weatherlock_engine is not None:
         live_engines.append(("weatherlock", weatherlock_engine))
     if counter_engine is not None:
@@ -774,6 +777,7 @@ def scan_once(
             momentum_engine,
             volspike_engine,
             arbitrage_engine,
+            astra1_engine,
             weatherlock_engine,
             counter_engine,
             endgame_engine,
@@ -1196,6 +1200,62 @@ def scan_once(
                 message=str(e),
             )
 
+    if astra1_engine:
+        try:
+            from papertrader.strategies.astra1 import analyze_astra1, astra1_exits
+
+            # Astra1's two-leg entry is non-atomic.  Do not quietly turn this
+            # paper-validated strategy into live risk just because the process
+            # was started with --mode live.
+            if live is not None and not settings.astra1.live_enabled:
+                log_decision(
+                    astra1_engine.db.data_dir,
+                    strategy="astra1",
+                    decision="skip",
+                    reason="live_disabled_non_atomic_complete_set_execution",
+                )
+            else:
+                if live is None:
+                    try:
+                        astra1_engine.check_orders()
+                    except Exception as exc:
+                        log.debug("astra1 check_orders: %s", exc)
+                    counts.resolved += _resolve(astra1_engine)
+                for sig in astra1_exits(astra1_engine, settings):
+                    filled = execute_signal(
+                        astra1_engine, sig, dry_run, live=live, ctx=ctx, strategy="astra1"
+                    )
+                    emitted.append(sig)
+                    if filled:
+                        counts.risk_exits += 1
+                        counts.fills += 1
+                for sig in analyze_astra1(astra1_engine, settings):
+                    filled = execute_signal(
+                        astra1_engine, sig, dry_run, live=live, ctx=ctx, strategy="astra1"
+                    )
+                    emitted.append(sig)
+                    counts.orders_placed += 1
+                    if filled:
+                        counts.fills += 1
+                # Resolve/rebalance a partial first leg immediately, not next scan.
+                for sig in astra1_exits(astra1_engine, settings):
+                    filled = execute_signal(
+                        astra1_engine, sig, dry_run, live=live, ctx=ctx, strategy="astra1"
+                    )
+                    emitted.append(sig)
+                    if filled:
+                        counts.risk_exits += 1
+                        counts.fills += 1
+        except Exception as exc:
+            log.exception("astra1 scan failed: %s", exc)
+            append_activity(
+                astra1_engine.db.data_dir,
+                level="error",
+                event="scan_failed",
+                strategy="astra1",
+                message=str(exc),
+            )
+
     if weatherlock_engine:
         try:
             if live is None:
@@ -1307,6 +1367,7 @@ def scan_once(
             momentum_engine,
             volspike_engine,
             arbitrage_engine,
+            astra1_engine,
             weatherlock_engine,
             counter_engine,
             endgame_engine,
@@ -1343,6 +1404,7 @@ def run_loop(
     momentum_engine: Engine | None = None,
     volspike_engine: Engine | None = None,
     arbitrage_engine: Engine | None = None,
+    astra1_engine: Engine | None = None,
     weatherlock_engine: Engine | None = None,
     counter_engine: Engine | None = None,
     counter_source_engines: dict[str, Engine] | None = None,
@@ -1371,6 +1433,8 @@ def run_loop(
         named_engines.append(("volspike", volspike_engine))
     if arbitrage_engine is not None:
         named_engines.append(("arbitrage", arbitrage_engine))
+    if astra1_engine is not None:
+        named_engines.append(("astra1", astra1_engine))
     if weatherlock_engine is not None:
         named_engines.append(("weatherlock", weatherlock_engine))
     if counter_engine is not None:
@@ -1388,6 +1452,8 @@ def run_loop(
         poll_seconds = min(poll_seconds, settings.esports.poll_interval_seconds)
     if momentum_engine is not None:
         poll_seconds = min(poll_seconds, settings.momentum.poll_interval_seconds)
+    if astra1_engine is not None:
+        poll_seconds = min(poll_seconds, settings.astra1.poll_interval_seconds)
     if endgame_engine is not None:
         poll_seconds = min(poll_seconds, settings.endgame.poll_interval_seconds)
     if forge_engine is not None:
@@ -1419,6 +1485,7 @@ def run_loop(
             momentum_engine=momentum_engine,
             volspike_engine=volspike_engine,
             arbitrage_engine=arbitrage_engine,
+            astra1_engine=astra1_engine,
             weatherlock_engine=weatherlock_engine,
             counter_engine=counter_engine,
             counter_manager=counter_manager,
@@ -1446,6 +1513,7 @@ def run_loop(
                 momentum_engine=momentum_engine,
                 volspike_engine=volspike_engine,
                 arbitrage_engine=arbitrage_engine,
+                astra1_engine=astra1_engine,
                 weatherlock_engine=weatherlock_engine,
                 counter_engine=counter_engine,
                 counter_manager=counter_manager,

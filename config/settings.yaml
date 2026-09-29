@@ -295,6 +295,31 @@ arbitrage:
   rebalance_enabled: false
   min_pair_profit_pct: 0.005
   pair_bid_sum_exit: 0.97
+# Astra1: depth- and fee-aware complete-set arbitrage.  It buys equal YES/NO
+# shares only when both current L2 books lock a material all-in edge.  Two-leg
+# execution is not atomic, therefore live execution is explicitly disabled
+# until forward paper measurements prove that orphan handling is sufficient.
+astra1:
+  starting_balance: 1000
+  poll_interval_seconds: 12
+  scan_limit: 250
+  min_liquidity: 1000
+  min_volume_24h: 500
+  min_leg_price: 0.02
+  max_leg_price: 0.98
+  min_leg_shares: 25
+  book_fill_fraction: 0.25
+  position_usd: 25
+  max_position_usd: 40
+  max_open_pairs: 5
+  max_all_in_cost: 0.97
+  min_locked_edge: 0.03
+  latency_buffer_per_share: 0.01
+  confirmation_reads: 2
+  max_quote_drift: 0.015
+  min_pair_profit_pct: 0.003
+  pair_bid_sum_exit: 0.992
+  live_enabled: false
 # Buy weather NO with real edge. Prior 96–98¢ fills won ~2¢ then wiped −$25
 # on the rare miss (~93% WR still −EV). Stay 88–91¢, TP +7¢, stop before wipe.
 weatherlock:

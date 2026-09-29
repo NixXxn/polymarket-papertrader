@@ -48,6 +48,22 @@ Miami and Atlanta only. NOAA + Open-Meteo consensus high must land in a bucket; 
 
 Cheap YES on tail buckets ($0.02–$0.10). Every scan pulls **GFS + ECMWF** ensemble members from Open-Meteo; optional **OpenWeather** spot check via `OPENWEATHER_API_KEY` in `.env`. Enters when ensemble probability is well above the market (e.g. model 20%+ vs ask 5¢). **Hedge exit** when bid reaches ~$0.35 (forecast went mainstream) or the bucket becomes physically impossible.
 
+### Astra1 (paper-first complete-set arbitrage)
+
+`Astra1` is outcome-neutral: it considers an equal number of YES and NO
+shares in the *same binary market*, where one pair redeems for $1. It enters
+only after two L2 reads confirm that both ask books have capacity and that
+their walked cost, the current per-token Polymarket fee schedule, and a fixed
+latency reserve are still materially below $1. It uses FAK only—no simulated
+maker fills—and immediately flattens an orphan or excess leg.
+
+Two independent CLOB legs are not atomic. For that reason `astra1.live_enabled`
+is `false` by default even when the process is in live mode; use the paper
+ledger for forward validation first. A historical study is supplied, but it is
+explicitly a same-second trade-print signal proxy, **not** an executable
+backtest because archived L2 depth, queue priority, and partial-fill sequence
+are unavailable.
+
 ## Setup
 
 Python 3.10+.
@@ -69,11 +85,20 @@ papertrader scan --dry-run          # one pass, no fills
 papertrader run --strategy both     # loop every 3 minutes (safe + asymmetric)
 papertrader run --strategy safe --once
 papertrader run --strategy asymmetric --dry-run
+papertrader run --strategy astra1 --once   # forward paper validation
 papertrader status
 papertrader status --mode live      # inspect the live ledger only
 ```
 
 Knobs live in `config/settings.yaml` and `config/cities.yaml`. Bet size autoscales with each account’s cash versus `starting_balance` (floor `min_position_usd`).
+
+Run the reproducible Astra1 historical signal study (requires `pip install -e ".[backtest]"`):
+
+```bash
+python scripts/backtest_astra1.py \
+  --trades data/backtest/trades_selected.parquet \
+  --universe data/backtest/universe_selected.parquet
+```
 
 ## Dashboard
 

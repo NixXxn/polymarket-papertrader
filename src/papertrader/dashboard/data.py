@@ -30,10 +30,12 @@ from papertrader.trade_log import (
 )
 
 
-STRATEGIES = ("asymmetric", "contrarian", "conviction", "copy", "esports", "momentum", "volspike", "arbitrage", "weatherlock", "counter-trade", "endgame", "forge")
+STRATEGIES = STRATEGY_NAMES
 
 STRATEGY_LABELS: dict[str, str] = {
     "arbitrage": "Arbitrage",
+    "astra1": "Astra1",
+    "fadefinder": "FadeFinder",
     "weatherlock": "Weatherlock",
     "counter-trade": "counter-trade",
     "endgame": "Endgame",

@@ -31,6 +31,7 @@ def root_data_dir(path: Path | str) -> Path:
         "momentum",
         "volspike",
         "arbitrage",
+        "astra1",
         "weatherlock",
         "counter-trade",
         "endgame",

@@ -237,6 +237,37 @@ class ArbitrageSettings:
 
 
 @dataclass(frozen=True)
+class Astra1Settings:
+    """Safety-first complete-set arbitrage settings.
+
+    Astra1 deliberately uses only executable ask-side depth and the current
+    token fee schedule.  It remains paper-only until forward validation shows
+    that sequential two-leg execution has acceptable orphan rates.
+    """
+
+    starting_balance: float | None
+    poll_interval_seconds: int
+    scan_limit: int
+    min_liquidity: float
+    min_volume_24h: float
+    min_leg_price: float
+    max_leg_price: float
+    min_leg_shares: float
+    book_fill_fraction: float
+    position_usd: float
+    max_position_usd: float
+    max_open_pairs: int
+    max_all_in_cost: float
+    min_locked_edge: float
+    latency_buffer_per_share: float
+    confirmation_reads: int
+    max_quote_drift: float
+    min_pair_profit_pct: float
+    pair_bid_sum_exit: float
+    live_enabled: bool
+
+
+@dataclass(frozen=True)
 class WeatherlockSettings:
     """Buy weather NO with enough edge that ~90% WR can still be +EV."""
 
@@ -450,6 +481,7 @@ class Settings:
     momentum: MomentumSettings
     volspike: VolumeSpikeSettings
     arbitrage: ArbitrageSettings
+    astra1: Astra1Settings
     weatherlock: WeatherlockSettings
     endgame: EndgameSettings
     forge: ForgeSettings
@@ -599,6 +631,7 @@ def load_settings(
     copy_raw = raw.get("copy") or {}
     volspike_raw = raw.get("volspike") or {}
     arbitrage_raw = raw.get("arbitrage") or {}
+    astra1_raw = raw.get("astra1") or {}
     weatherlock_raw = raw.get("weatherlock") or {}
     endgame_raw = raw.get("endgame") or {}
     forge_raw = raw.get("forge") or {}
@@ -906,6 +939,34 @@ def load_settings(
             rebalance_min_lead=float(arbitrage_raw.get("rebalance_min_lead", 0.55)),
             min_pair_profit_pct=float(arbitrage_raw.get("min_pair_profit_pct", 0.008)),
             pair_bid_sum_exit=float(arbitrage_raw.get("pair_bid_sum_exit", 0.97)),
+        ),
+        astra1=Astra1Settings(
+            starting_balance=(
+                float(astra1_raw["starting_balance"])
+                if astra1_raw.get("starting_balance") is not None
+                else None
+            ),
+            poll_interval_seconds=int(astra1_raw.get("poll_interval_seconds", 12)),
+            scan_limit=int(astra1_raw.get("scan_limit", 250)),
+            min_liquidity=float(astra1_raw.get("min_liquidity", 1_000)),
+            min_volume_24h=float(astra1_raw.get("min_volume_24h", 500)),
+            min_leg_price=float(astra1_raw.get("min_leg_price", 0.02)),
+            max_leg_price=float(astra1_raw.get("max_leg_price", 0.98)),
+            min_leg_shares=float(astra1_raw.get("min_leg_shares", 25)),
+            book_fill_fraction=float(astra1_raw.get("book_fill_fraction", 0.25)),
+            position_usd=float(astra1_raw.get("position_usd", 25)),
+            max_position_usd=float(astra1_raw.get("max_position_usd", 40)),
+            max_open_pairs=int(astra1_raw.get("max_open_pairs", 5)),
+            max_all_in_cost=float(astra1_raw.get("max_all_in_cost", 0.97)),
+            min_locked_edge=float(astra1_raw.get("min_locked_edge", 0.03)),
+            latency_buffer_per_share=float(
+                astra1_raw.get("latency_buffer_per_share", 0.01)
+            ),
+            confirmation_reads=max(1, int(astra1_raw.get("confirmation_reads", 2))),
+            max_quote_drift=float(astra1_raw.get("max_quote_drift", 0.015)),
+            min_pair_profit_pct=float(astra1_raw.get("min_pair_profit_pct", 0.003)),
+            pair_bid_sum_exit=float(astra1_raw.get("pair_bid_sum_exit", 0.992)),
+            live_enabled=bool(astra1_raw.get("live_enabled", False)),
         ),
         weatherlock=WeatherlockSettings(
             buy_min=float(weatherlock_raw.get("buy_min", 0.88)),
